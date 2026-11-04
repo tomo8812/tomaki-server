@@ -1,0 +1,153 @@
+name: issue-6-relocate-adapter
+
+on:
+  push:
+    branches:
+      - fix/issue-6
+
+permissions:
+  contents: write
+
+jobs:
+  relocate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-6
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Relocate Foundation adapter packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import pathlib
+          import zipfile
+
+          jar = pathlib.Path("mods/maki-airship-foundation-compat-1.0.0.jar")
+          tmp = jar.with_suffix(".jar.tmp")
+          old_path = "maki/airship"
+          new_path = "maki/fndseat"
+          assert len(old_path) == len(new_path)
+
+          with zipfile.ZipFile(jar, "r") as zin, zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zout:
+              for info in zin.infolist():
+                  name = info.filename
+                  data = zin.read(name)
+                  out_name = name
+
+                  if name.endswith(".class") and name.startswith(old_path + "/"):
+                      out_name = new_path + name[len(old_path):]
+                      if old_path.encode() not in data:
+                          raise AssertionError(f"expected package reference missing: {name}")
+                      data = data.replace(old_path.encode(), new_path.encode())
+
+                  if name == "maki-airship-foundation-compat.mixins.json":
+                      cfg = json.loads(data.decode())
+                      cfg["package"] = "maki.fndseat.mixin"
+                      data = (json.dumps(cfg, indent=2) + "\n").encode()
+
+                  zout.writestr(info, data if out_name == name else data)
+                  if out_name != name:
+                      # zipfile.writestr(info, ...) preserves the old filename, so rewrite relocated entries.
+                      pass
+
+          # Rebuild once more so relocated entries have relocated ZIP paths.
+          rewritten = jar.with_suffix(".jar.rewritten")
+          with zipfile.ZipFile(tmp, "r") as zin, zipfile.ZipFile(rewritten, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zout:
+              for info in zin.infolist():
+                  name = info.filename
+                  data = zin.read(name)
+                  out_name = name
+                  if name.endswith(".class") and name.startswith(old_path + "/"):
+                      out_name = new_path + name[len(old_path):]
+                  if out_name == name:
+                      zout.writestr(info, data)
+                  else:
+                      new_info = zipfile.ZipInfo(out_name, date_time=info.date_time)
+                      new_info.compress_type = zipfile.ZIP_DEFLATED
+                      new_info.external_attr = info.external_attr
+                      new_info.create_system = info.create_system
+                      zout.writestr(new_info, data)
+
+          tmp.unlink()
+          rewritten.replace(jar)
+
+          with zipfile.ZipFile(jar, "r") as z:
+              names = set(z.namelist())
+              assert not any(n.endswith(".class") and n.startswith("maki/airship/") for n in names)
+              assert "maki/fndseat/SeatCompat.class" in names
+              assert "maki/fndseat/ShipFurnitureSeats.class" in names
+              assert "maki/fndseat/mixin/FoundationSeatUtilMixin.class" in names
+              assert "maki/fndseat/mixin/FoundationChairMixin.class" in names
+              assert "maki/fndseat/mixin/FurnitureVehicleMixin.class" in names
+              assert "maki/fndseat/foundation/FoundationCompat.class" in names
+              cfg = json.loads(z.read("maki-airship-foundation-compat.mixins.json"))
+              assert cfg["package"] == "maki.fndseat.mixin"
+              for n in names:
+                  if n.endswith(".class"):
+                      data = z.read(n)
+                      assert b"maki/airship" not in data, n
+
+          def packages(path):
+              out = set()
+              with zipfile.ZipFile(path) as z:
+                  for n in z.namelist():
+                      if n.endswith(".class") and "/" in n and not n.startswith("META-INF/versions/"):
+                          out.add(n.rsplit("/", 1)[0].replace("/", "."))
+              return out
+
+          core_packages = packages("mods/maki-airship-compat-1.0.13.jar")
+          adapter_packages = packages(jar)
+          overlap = core_packages & adapter_packages
+          assert not overlap, f"split packages remain: {sorted(overlap)}"
+          print("package_overlap_validation=PASS")
+          print("adapter_packages", sorted(adapter_packages))
+          PY
+
+          javap -classpath mods/maki-airship-foundation-compat-1.0.0.jar -p maki.fndseat.SeatCompat >/dev/null
+          javap -classpath mods/maki-airship-foundation-compat-1.0.0.jar -p maki.fndseat.mixin.FoundationSeatUtilMixin >/dev/null
+          javap -classpath mods/maki-airship-foundation-compat-1.0.0.jar -v maki.fndseat.foundation.FoundationCompat | grep -A6 'RuntimeVisibleAnnotations'
+
+          cat >/tmp/ResolveMods.java <<'JAVA'
+          import java.lang.module.Configuration;
+          import java.lang.module.ModuleFinder;
+          import java.nio.file.Path;
+          import java.util.Set;
+          import java.util.stream.Collectors;
+
+          public class ResolveMods {
+              public static void main(String[] args) {
+                  ModuleFinder finder = ModuleFinder.of(Path.of(args[0]), Path.of(args[1]));
+                  Set<String> roots = finder.findAll().stream()
+                      .map(ref -> ref.descriptor().name())
+                      .collect(Collectors.toSet());
+                  Configuration resolved = ModuleLayer.boot().configuration()
+                      .resolve(finder, ModuleFinder.of(), roots);
+                  System.out.println("module_resolution=PASS " + resolved.modules().size());
+              }
+          }
+          JAVA
+
+          java /tmp/ResolveMods.java \
+            mods/maki-airship-compat-1.0.13.jar \
+            mods/maki-airship-foundation-compat-1.0.0.jar
+
+      - name: Commit relocation and remove temporary workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/issue6-relocate-adapter.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix: relocate Foundation adapter packages"
+          git push origin HEAD:fix/issue-6
