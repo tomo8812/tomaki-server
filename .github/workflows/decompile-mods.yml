@@ -36,22 +36,39 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout current server repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - name: Initialize blobless sparse checkout
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git init -q
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          AUTH_HEADER="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git config --local http.https://github.com/.extraheader "$AUTH_HEADER"
+          git config --local remote.origin.promisor true
+          git config --local remote.origin.partialclonefilter blob:none
+          git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$GITHUB_SHA"
+          git sparse-checkout init --cone
+          git sparse-checkout set .github
+          git checkout --quiet --detach FETCH_HEAD
 
-      - name: Prepare generated branch worktree
+      - name: Prepare sparse generated branch worktree
         shell: bash
         run: |
           set -euo pipefail
           rm -rf "$GENERATED_DIR"
-          if git fetch --no-tags --depth=1 origin "$GENERATED_BRANCH:refs/remotes/origin/$GENERATED_BRANCH" 2>/dev/null; then
-            git worktree add -B "$GENERATED_BRANCH" "$GENERATED_DIR" "refs/remotes/origin/$GENERATED_BRANCH"
+          if git fetch --quiet --no-tags --depth=1 --filter=blob:none origin "$GENERATED_BRANCH:refs/remotes/origin/$GENERATED_BRANCH" 2>/dev/null; then
+            git worktree add --no-checkout -B "$GENERATED_BRANCH" "$GENERATED_DIR" "refs/remotes/origin/$GENERATED_BRANCH"
+            git -C "$GENERATED_DIR" sparse-checkout init --no-cone
+            printf '/.decompile-manifest.json\n/README.md\n' | git -C "$GENERATED_DIR" sparse-checkout set --stdin
+            git -C "$GENERATED_DIR" checkout --quiet
           else
-            git worktree add --detach "$GENERATED_DIR" HEAD
+            git worktree add --no-checkout --detach "$GENERATED_DIR" HEAD
             git -C "$GENERATED_DIR" checkout --orphan "$GENERATED_BRANCH"
-            git -C "$GENERATED_DIR" rm -rf .
+            git -C "$GENERATED_DIR" rm -rf . || true
+            git -C "$GENERATED_DIR" sparse-checkout init --no-cone
+            printf '/.decompile-manifest.json\n/README.md\n' | git -C "$GENERATED_DIR" sparse-checkout set --stdin
           fi
 
       - name: Detect actual JAR changes
@@ -68,6 +85,22 @@ jobs:
             --generated-root "$GENERATED_DIR" \
             --plan-file "$PLAN_FILE" \
             $FORCE
+
+      - name: Materialize reusable generated trees only when needed
+        if: steps.plan.outputs.reuse_count != '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          PATTERNS="$RUNNER_TEMP/reuse-sparse-patterns.txt"
+          python3 - "$PLAN_FILE" > "$PATTERNS" <<'PY'
+          import json, sys
+          plan = json.load(open(sys.argv[1], encoding="utf-8"))
+          for item in plan.get("reuse", []):
+              print(f"/{item['reuse_from_output']}/")
+          PY
+          if [[ -s "$PATTERNS" ]]; then
+            git -C "$GENERATED_DIR" sparse-checkout add --stdin < "$PATTERNS"
+          fi
 
       - name: Check preinstalled Java
         id: java
@@ -143,3 +176,11 @@ jobs:
             echo "- Unchanged: ${{ steps.plan.outputs.unchanged_count }}"
             echo "- Full rebuild: ${{ steps.plan.outputs.rebuild_all }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove GitHub token from local Git config
+        if: always()
+        shell: bash
+        run: |
+          if [[ -d .git ]]; then
+            git config --local --unset-all http.https://github.com/.extraheader || true
+          fi
