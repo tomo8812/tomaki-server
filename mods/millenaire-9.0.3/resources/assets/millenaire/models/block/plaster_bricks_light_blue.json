@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "millenaire:block/plaster_bricks_light_blue"
+  }
+}

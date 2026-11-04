@@ -1,0 +1,8 @@
+{
+  "parent": "foundation:block/template_cabinet",
+  "textures": {
+    "front": "candlelight:block/cherry_drawer_front",
+    "side": "candlelight:block/cherry_cabinet_side_pink",
+    "top": "candlelight:block/cherry_cabinet_top_pink"
+  }
+}

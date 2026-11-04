@@ -1,0 +1,86 @@
+package org.valkyrienskies.core.impl.shadow;
+
+@Deprecated
+public interface aH {
+   String a;
+   String b;
+   String c;
+   String d;
+   String e;
+   String f;
+   String g;
+   String h;
+   String i;
+   String j;
+   String k;
+   String l;
+   String m;
+   String n;
+   String o;
+   String p;
+   String q;
+   String r;
+   String s;
+   String t;
+   String u;
+   String v;
+   String w;
+   String x;
+   String y;
+   String z;
+   String A;
+   String B;
+   String C;
+   String D;
+   String E;
+   String F;
+   String G;
+   String H;
+   String I;
+   String J;
+   String K;
+   String L;
+   String M;
+
+   static {
+      aP.TAG_SCHEMA.a(aQ.DRAFT_7);
+      aP.TAG_SCHEMA_VALUE.a(aQ.DRAFT_7);
+      aP.TAG_DEFINITIONS.a(aQ.DRAFT_7);
+      aP.TAG_REF.a(aQ.DRAFT_7);
+      aP.TAG_REF_MAIN.a(aQ.DRAFT_7);
+      aP.TAG_REF_PREFIX.a(aQ.DRAFT_7);
+      aP.TAG_TYPE.a(aQ.DRAFT_7);
+      aP.TAG_TYPE_NULL.a(aQ.DRAFT_7);
+      aP.TAG_TYPE_ARRAY.a(aQ.DRAFT_7);
+      aP.TAG_TYPE_OBJECT.a(aQ.DRAFT_7);
+      aP.TAG_TYPE_BOOLEAN.a(aQ.DRAFT_7);
+      aP.TAG_TYPE_STRING.a(aQ.DRAFT_7);
+      aP.TAG_TYPE_INTEGER.a(aQ.DRAFT_7);
+      aP.TAG_TYPE_NUMBER.a(aQ.DRAFT_7);
+      aP.TAG_PROPERTIES.a(aQ.DRAFT_7);
+      aP.TAG_ITEMS.a(aQ.DRAFT_7);
+      aP.TAG_REQUIRED.a(aQ.DRAFT_7);
+      aP.TAG_ADDITIONAL_PROPERTIES.a(aQ.DRAFT_7);
+      aP.TAG_PATTERN_PROPERTIES.a(aQ.DRAFT_7);
+      aP.TAG_ALLOF.a(aQ.DRAFT_7);
+      aP.TAG_ANYOF.a(aQ.DRAFT_7);
+      aP.TAG_ONEOF.a(aQ.DRAFT_7);
+      aP.TAG_TITLE.a(aQ.DRAFT_7);
+      aP.TAG_DESCRIPTION.a(aQ.DRAFT_7);
+      aP.TAG_CONST.a(aQ.DRAFT_7);
+      aP.TAG_ENUM.a(aQ.DRAFT_7);
+      aP.TAG_DEFAULT.a(aQ.DRAFT_7);
+      aP.TAG_LENGTH_MIN.a(aQ.DRAFT_7);
+      aP.TAG_LENGTH_MAX.a(aQ.DRAFT_7);
+      aP.TAG_FORMAT.a(aQ.DRAFT_7);
+      aP.TAG_PATTERN.a(aQ.DRAFT_7);
+      aP.TAG_MINIMUM.a(aQ.DRAFT_7);
+      aP.TAG_MINIMUM_EXCLUSIVE.a(aQ.DRAFT_7);
+      aP.TAG_MAXIMUM.a(aQ.DRAFT_7);
+      aP.TAG_MAXIMUM_EXCLUSIVE.a(aQ.DRAFT_7);
+      aP.TAG_MULTIPLE_OF.a(aQ.DRAFT_7);
+      aP.TAG_ITEMS_MIN.a(aQ.DRAFT_7);
+      aP.TAG_ITEMS_MAX.a(aQ.DRAFT_7);
+      aP.TAG_ITEMS_UNIQUE.a(aQ.DRAFT_7);
+   }
+}

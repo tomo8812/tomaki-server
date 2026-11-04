@@ -1,0 +1,12 @@
+Manifest-Version: 1.0
+Specification-Title: ClientSort
+Specification-Vendor: TerminalMC
+Specification-Version: 3.89.2+1.21.1
+Implementation-Title: neoforge
+Implementation-Version: 3.89.2+1.21.1
+Implementation-Vendor: TerminalMC
+Implementation-Timestamp: 2026-09-26T07:42:09+0000
+Timestamp: 1790408529342
+Built-On-Java: 21.0.12.1+1-LTS (Eclipse Adoptium)
+Built-On-Minecraft: 1.21.1
+

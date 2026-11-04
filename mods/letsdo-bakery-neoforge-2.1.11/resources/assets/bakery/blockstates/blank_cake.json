@@ -1,0 +1,52 @@
+{
+  "variants": {
+    "animating=false,stage=cake": {
+      "model": "bakery:block/blank_cake"
+    },
+    "animating=true,stage=cake": {
+      "model": "bakery:block/blank_cake_animating"
+    },
+    "animating=false,stage=dough": {
+      "model": "bakery:block/blank_dough"
+    },
+    "animating=true,stage=dough": {
+      "model": "bakery:block/blank_cake_animating"
+    },
+    "animating=false,stage=cupcake": {
+      "model": "bakery:block/blank_cupcakes"
+    },
+    "animating=true,stage=cupcake": {
+      "model": "bakery:block/blank_cake_animating"
+    },
+    "animating=false,stage=flat": {
+      "model": "bakery:block/blank_flat"
+    },
+    "animating=true,stage=flat": {
+      "model": "bakery:block/blank_cake_animating"
+    },
+    "animating=false,stage=cookie": {
+      "model": "bakery:block/blank_cookies"
+    },
+    "animating=true,stage=cookie": {
+      "model": "bakery:block/blank_cake_animating"
+    },
+    "animating=false,stage=sheet": {
+      "model": "bakery:block/blank_sheet"
+    },
+    "animating=true,stage=sheet": {
+      "model": "bakery:block/blank_cake_animating"
+    },
+    "animating=false,stage=roll": {
+      "model": "bakery:block/blank_roll"
+    },
+    "animating=true,stage=roll": {
+      "model": "bakery:block/blank_cake_animating"
+    },
+    "animating=false,stage=shells": {
+      "model": "bakery:block/blank_cake_animating"
+    },
+    "animating=true,stage=shells": {
+      "model": "bakery:block/blank_cake_animating"
+    }
+  }
+}

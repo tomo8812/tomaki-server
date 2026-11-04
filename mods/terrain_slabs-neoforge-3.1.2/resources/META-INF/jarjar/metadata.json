@@ -1,0 +1,15 @@
+{
+  "jars": [
+    {
+      "identifier": {
+        "group": "eu.midnightdust",
+        "artifact": "midnightlib"
+      },
+      "version": {
+        "range": "[1.9.2+1.21.1-neoforge,)",
+        "artifactVersion": "1.9.2+1.21.1-neoforge"
+      },
+      "path": "META-INF/jars/midnightlib-1.9.2+1.21.1-neoforge.jar"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "required": true,
+  "minVersion": "0.8.0",
+  "package": "dev.terminalmc.clientsort.mixin",
+  "refmap": "clientsort.refmap.json",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "dev.terminalmc.clientsort.util.MixinConfigPlugin",
+  "mixinextras": {
+    "minVersion": "0.5.0"
+  },
+  "mixins": [
+  ],
+  "client": [
+    "client.compat.supermartijn642corelib.WidgetContainerScreenMixin"
+  ],
+  "server": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

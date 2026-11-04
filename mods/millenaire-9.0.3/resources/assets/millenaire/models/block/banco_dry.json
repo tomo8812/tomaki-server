@@ -1,0 +1,7 @@
+{
+  "parent": "block/cube_all",
+  "textures": {
+    "all": "millenaire:block/banco_dry",
+    "particle" : "millenaire:block/banco_dry"
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "millenaire:block/mock_generic_tree_spawn" }
+  }
+}

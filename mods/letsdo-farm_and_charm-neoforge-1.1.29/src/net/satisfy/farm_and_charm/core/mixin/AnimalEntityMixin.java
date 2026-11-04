@@ -1,0 +1,138 @@
+package net.satisfy.farm_and_charm.core.mixin;
+
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.satisfy.farm_and_charm.core.entity.ai.ApproachFeedingTroughGoal;
+import net.satisfy.farm_and_charm.core.entity.ai.ApproachWaterTroughGoal;
+import net.satisfy.farm_and_charm.core.network.PacketHandler;
+import net.satisfy.farm_and_charm.core.network.packet.SyncSaturationPacket;
+import net.satisfy.farm_and_charm.core.util.SaturationTracker;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+@Mixin(Animal.class)
+public abstract class AnimalEntityMixin extends Mob implements SaturationTracker.SaturatedAnimal {
+   @Unique
+   private SaturationTracker farm_and_charm$saturation;
+   @Unique
+   private int farm_and_charm$lastSyncedSaturationLevel = -1;
+   @Unique
+   private int farm_and_charm$lastSyncedFoodCounter = -1;
+
+   protected AnimalEntityMixin(EntityType<? extends Mob> entityType, Level world) {
+      super(entityType, world);
+   }
+
+   @Override
+   public SaturationTracker farm_and_charm$getSaturationTracker() {
+      if (this.farm_and_charm$saturation == null) {
+         this.farm_and_charm$saturation = new SaturationTracker();
+      }
+
+      return this.farm_and_charm$saturation;
+   }
+
+   @Override
+   public void farm_and_charm$setSaturationTracker(SaturationTracker tracker) {
+      this.farm_and_charm$saturation = tracker;
+   }
+
+   @Inject(method = "<init>(Lnet/minecraft/world/entity/EntityType;Lnet/minecraft/world/level/Level;)V", at = @At("TAIL"))
+   private void farm_and_charm$addSelfFeedingGoal(EntityType<? extends Animal> entityType, Level level, CallbackInfo ci) {
+      if (!level.isClientSide) {
+         this.goalSelector.addGoal(3, new ApproachFeedingTroughGoal((Animal)this, 1.2));
+         this.goalSelector.addGoal(3, new ApproachWaterTroughGoal((Animal)this, 1.2));
+      }
+   }
+
+   @Inject(method = "aiStep()V", at = @At("HEAD"))
+   private void farm_and_charm$tickSaturation(CallbackInfo ci) {
+      if (!this.level().isClientSide) {
+         EntityType<?> type = this.getType();
+         if (type != EntityType.COW && type != EntityType.PIG && type != EntityType.SHEEP && type != EntityType.CHICKEN) {
+            return;
+         }
+
+         SaturationTracker tracker = this.farm_and_charm$getSaturationTracker();
+         tracker.tick((Animal)this);
+         int saturationLevel = tracker.level();
+         int foodCounter = tracker.foodCounter();
+         if (saturationLevel == this.farm_and_charm$lastSyncedSaturationLevel && foodCounter == this.farm_and_charm$lastSyncedFoodCounter) {
+            return;
+         }
+
+         this.farm_and_charm$lastSyncedSaturationLevel = saturationLevel;
+         this.farm_and_charm$lastSyncedFoodCounter = foodCounter;
+         SyncSaturationPacket packet = new SyncSaturationPacket(this.getId(), saturationLevel, foodCounter);
+         PacketHandler.sendSaturationSync(packet, this);
+      }
+   }
+
+   @Inject(
+      method = "mobInteract(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/InteractionResult;",
+      at = @At("HEAD"),
+      cancellable = true
+   )
+   private void farm_and_charm$injectSaturationFeeding(Player player, InteractionHand hand, CallbackInfoReturnable<InteractionResult> cir) {
+      EntityType<?> type = this.getType();
+      if (type == EntityType.COW || type == EntityType.PIG || type == EntityType.SHEEP || type == EntityType.CHICKEN) {
+         Animal animal = (Animal)this;
+         ItemStack stack = player.getItemInHand(hand);
+         if (animal.isFood(stack) && !animal.isBaby()) {
+            if (!animal.canFallInLove()) {
+               SaturationTracker tracker = this.farm_and_charm$getSaturationTracker();
+               tracker.tryFeed(animal, player, hand);
+               if (!animal.level().isClientSide) {
+                  int saturationLevel = tracker.level();
+                  int foodCounter = tracker.foodCounter();
+                  this.farm_and_charm$lastSyncedSaturationLevel = saturationLevel;
+                  this.farm_and_charm$lastSyncedFoodCounter = foodCounter;
+                  SyncSaturationPacket packet = new SyncSaturationPacket(this.getId(), saturationLevel, foodCounter);
+                  PacketHandler.sendSaturationSync(packet, this);
+                  ((ServerLevel)animal.level())
+                     .sendParticles(ParticleTypes.HAPPY_VILLAGER, animal.getX(), animal.getY() + 1.0, animal.getZ(), 5, 0.2, 0.2, 0.2, 0.05);
+               }
+
+               cir.setReturnValue(InteractionResult.sidedSuccess(animal.level().isClientSide));
+            }
+         }
+      }
+   }
+
+   @Inject(method = "addAdditionalSaveData(Lnet/minecraft/nbt/CompoundTag;)V", at = @At("HEAD"))
+   private void farm_and_charm$saveSaturation(CompoundTag tag, CallbackInfo ci) {
+      SaturationTracker tracker = this.farm_and_charm$getSaturationTracker();
+      CompoundTag trackerTag = new CompoundTag();
+      trackerTag.putInt("SaturationLevel", tracker.level());
+      trackerTag.putInt("SaturationCounter", tracker.foodCounter());
+      trackerTag.putLong("SaturationLastFed", tracker.getLastFedTick());
+      trackerTag.putInt("SaturationDecayDelay", tracker.getDecayDelay());
+      tag.put("FarmAndCharmSaturation", trackerTag);
+   }
+
+   @Inject(method = "readAdditionalSaveData(Lnet/minecraft/nbt/CompoundTag;)V", at = @At("HEAD"))
+   private void farm_and_charm$loadSaturation(CompoundTag tag, CallbackInfo ci) {
+      if (tag.contains("FarmAndCharmSaturation", 10)) {
+         CompoundTag trackerTag = tag.getCompound("FarmAndCharmSaturation");
+         SaturationTracker tracker = new SaturationTracker();
+         tracker.setLevel(trackerTag.getInt("SaturationLevel"));
+         tracker.setFoodCounter(trackerTag.getInt("SaturationCounter"));
+         tracker.setLastFedTick(trackerTag.getLong("SaturationLastFed"));
+         tracker.setDecayDelay(trackerTag.getInt("SaturationDecayDelay"));
+         this.farm_and_charm$setSaturationTracker(tracker);
+      }
+   }
+}

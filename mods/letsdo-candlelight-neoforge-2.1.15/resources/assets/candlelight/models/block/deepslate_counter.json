@@ -1,0 +1,8 @@
+{
+  "parent": "foundation:block/template_counter",
+  "textures": {
+    "side": "candlelight:block/deepslate_stove_side",
+    "top": "candlelight:block/deepslate_kitchen_sink_top",
+    "bottom": "candlelight:block/deepslate_stove_bottom"
+  }
+}

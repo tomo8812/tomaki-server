@@ -1,0 +1,20 @@
+{
+  "mappings": {
+    "net/satisfy/brewery/core/mixin/MobFollowPlayerMixin": {
+      "shouldFollow": "Lnet/minecraft/class_1391;method_6312(Lnet/minecraft/class_1309;)Z"
+    },
+    "net/satisfy/brewery/core/mixin/VillagerDiscountMixin": {
+      "updateSpecialPrices": "Lnet/minecraft/class_1646;method_19192(Lnet/minecraft/class_1657;)V"
+    }
+  },
+  "data": {
+    "named:intermediary": {
+      "net/satisfy/brewery/core/mixin/MobFollowPlayerMixin": {
+        "shouldFollow": "Lnet/minecraft/class_1391;method_6312(Lnet/minecraft/class_1309;)Z"
+      },
+      "net/satisfy/brewery/core/mixin/VillagerDiscountMixin": {
+        "updateSpecialPrices": "Lnet/minecraft/class_1646;method_19192(Lnet/minecraft/class_1657;)V"
+      }
+    }
+  }
+}

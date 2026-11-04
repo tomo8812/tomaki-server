@@ -1,0 +1,9 @@
+{
+    "parent": "block/slab_top",
+    "textures": {
+        "bottom": "millenaire:block/banco_drying1",
+        "top": "millenaire:block/banco_drying1",
+        "side": "millenaire:block/banco_drying1",
+        "particle" : "millenaire:block/banco_drying1"
+    }
+}

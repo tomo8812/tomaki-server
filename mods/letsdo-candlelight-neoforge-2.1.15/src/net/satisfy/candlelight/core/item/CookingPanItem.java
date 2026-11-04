@@ -1,0 +1,79 @@
+package net.satisfy.candlelight.core.item;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.EquipmentSlotGroup;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Item.Properties;
+import net.minecraft.world.item.component.ItemAttributeModifiers;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
+import net.satisfy.candlelight.core.block.entity.CookingPanBlockEntity;
+import net.satisfy.farm_and_charm.core.util.EquipmentTiers;
+import org.jetbrains.annotations.NotNull;
+
+public class CookingPanItem extends BlockItem {
+   public static final EquipmentTiers COOKING_PAN_TIER = EquipmentTiers.COPPER;
+
+   public CookingPanItem(Block block, Properties properties) {
+      super(block, properties.durability(COOKING_PAN_TIER.getUses()));
+   }
+
+   public static ItemAttributeModifiers createAttributes() {
+      float attackDamage = 2.0F + COOKING_PAN_TIER.getAttackDamageBonus();
+      return ItemAttributeModifiers.builder()
+         .add(Attributes.ATTACK_DAMAGE, new AttributeModifier(BASE_ATTACK_DAMAGE_ID, attackDamage, Operation.ADD_VALUE), EquipmentSlotGroup.MAINHAND)
+         .add(Attributes.ATTACK_SPEED, new AttributeModifier(BASE_ATTACK_SPEED_ID, -2.0, Operation.ADD_VALUE), EquipmentSlotGroup.MAINHAND)
+         .build();
+   }
+
+   public boolean hurtEnemy(ItemStack stack, LivingEntity target, LivingEntity attacker) {
+      stack.hurtAndBreak(1, attacker, EquipmentSlot.MAINHAND);
+      return true;
+   }
+
+   public boolean isValidRepairItem(ItemStack toRepair, ItemStack repair) {
+      return COOKING_PAN_TIER.getRepairIngredient().test(repair) || super.isValidRepairItem(toRepair, repair);
+   }
+
+   public boolean mineBlock(ItemStack stack, Level level, BlockState state, BlockPos pos, LivingEntity entity) {
+      if (!level.isClientSide && state.getDestroySpeed(level, pos) != 0.0F) {
+         stack.hurtAndBreak(1, entity, EquipmentSlot.MAINHAND);
+      }
+
+      return true;
+   }
+
+   @NotNull
+   public InteractionResult place(BlockPlaceContext context) {
+      Player player = context.getPlayer();
+      if (player != null && player.isShiftKeyDown()) {
+         InteractionResult result = super.place(context);
+         if (result.consumesAction() && context.getLevel().getBlockEntity(context.getClickedPos()) instanceof CookingPanBlockEntity cookingPanBlockEntity) {
+            cookingPanBlockEntity.setStoredDamage(context.getItemInHand().getDamageValue());
+         }
+
+         return result;
+      } else {
+         return InteractionResult.PASS;
+      }
+   }
+
+   public void inventoryTick(ItemStack itemStack, Level level, Entity entity, int i, boolean bl) {
+      super.inventoryTick(itemStack, level, entity, i, bl);
+   }
+
+   public int getEnchantmentValue() {
+      return COOKING_PAN_TIER.getEnchantmentValue();
+   }
+}

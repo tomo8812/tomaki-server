@@ -1,0 +1,6 @@
+{
+  "parent": "foundation:block/template_big_table",
+  "textures": {
+    "table": "candlelight:block/jungle_big_table"
+  }
+}

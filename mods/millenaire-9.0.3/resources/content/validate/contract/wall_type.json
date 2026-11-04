@@ -1,0 +1,30 @@
+{
+  "family": "wall_type",
+  "_comment": "Every key WallTypeLoader.load reads (GsonHelper / optionalRL literals). Kept in step by FieldContractReflectionGuardTest.",
+  "_why": "culture and gateway_plan_set are read without a default: absent, the load throws and the wall type is not registered — the village then raises no wall and says nothing. Everything else is defaulted, so a typo there silently restores the default (a misspelled walls_between_towers is 3, a misspelled tower_spawn is true).",
+  "fields": [
+    { "path": "culture", "type": "string", "required": true },
+    { "path": "key", "type": "string" },
+    { "path": "gateway_plan_set", "type": "string", "required": true },
+    { "path": "wall_plan_set", "type": "string" },
+    { "path": "tower_plan_set", "type": "string" },
+    { "path": "corner_plan_set", "type": "string" },
+    { "path": "cap_right_plan_set", "type": "string" },
+    { "path": "cap_left_plan_set", "type": "string" },
+    { "path": "cap_both_plan_set", "type": "string" },
+    { "path": "slope1_left_plan_set", "type": "string" },
+    { "path": "slope1_right_plan_set", "type": "string" },
+    { "path": "slope2_left_plan_set", "type": "string" },
+    { "path": "slope2_right_plan_set", "type": "string" },
+    { "path": "slope3_left_plan_set", "type": "string" },
+    { "path": "slope3_right_plan_set", "type": "string" },
+    { "path": "wall_spawn", "type": "boolean" },
+    { "path": "tower_spawn", "type": "boolean" },
+    { "path": "gateway_spawn", "type": "boolean" },
+    { "path": "corner_spawn", "type": "boolean" },
+    { "path": "cap_spawn", "type": "boolean" },
+    { "path": "walls_between_towers", "type": "int" },
+    { "path": "nb_smooth_runs", "type": "int" },
+    { "path": "max_y_delta", "type": "int" }
+  ]
+}

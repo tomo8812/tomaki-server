@@ -1,0 +1,119 @@
+package org.sinytra.connector.transformer.transform;
+
+import com.google.gson.Gson;
+import com.mojang.logging.LogUtils;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.Reader;
+import java.io.UncheckedIOException;
+import java.io.Writer;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import reloc.net.minecraftforge.fart.api.Transformer;
+
+public class RefmapRemapper implements Transformer {
+   private static final Logger LOGGER = LogUtils.getLogger();
+   private static final Gson GSON = new Gson();
+   private static final String INTERMEDIARY_MAPPING_ENV = "named:intermediary";
+   private static final String MOJ_MAPPING_ENV = "mojang";
+   private final Map<String, MappingAwareReferenceMapper.SimpleRefmap> files;
+
+   public static RefmapRemapper.RefmapFiles processRefmaps(Path input, Collection<String> refmaps, MappingAwareReferenceMapper remapper, List<Path> libs) throws IOException {
+      MappingAwareReferenceMapper.SimpleRefmap results = new MappingAwareReferenceMapper.SimpleRefmap(Map.of(), Map.of());
+      Map<String, MappingAwareReferenceMapper.SimpleRefmap> refmapFiles = new HashMap<>();
+
+      try (FileSystem fs = FileSystems.newFileSystem(input)) {
+         for (String refmap : refmaps) {
+            Path refmapPath = fs.getPath(refmap);
+            if (Files.notExists(refmapPath)) {
+               refmapPath = findRefmapOnClasspath(refmap, input, libs);
+            }
+
+            if (refmapPath != null) {
+               byte[] data = Files.readAllBytes(refmapPath);
+               MappingAwareReferenceMapper.SimpleRefmap remapped = remapRefmapInPlace(data, remapper);
+               refmapFiles.put(refmap, remapped);
+               results = results.merge(remapped);
+            } else {
+               LOGGER.warn("Refmap remapper could not find refmap file {}", refmap);
+            }
+         }
+      }
+
+      return new RefmapRemapper.RefmapFiles(results, refmapFiles);
+   }
+
+   @Nullable
+   private static Path findRefmapOnClasspath(String resource, Path exclude, List<Path> libs) {
+      for (Path lib : libs) {
+         if (lib != exclude) {
+            Path basePath;
+            if (Files.isDirectory(lib)) {
+               basePath = lib;
+            } else {
+               try {
+                  FileSystem fs = FileSystems.newFileSystem(lib);
+                  basePath = fs.getPath("");
+               } catch (Exception e) {
+                  LOGGER.error("Error opening jar file", e);
+                  return null;
+               }
+            }
+
+            Path path = basePath.resolve(resource);
+            if (Files.exists(path)) {
+               return path;
+            }
+         }
+      }
+
+      return null;
+   }
+
+   public RefmapRemapper(Map<String, MappingAwareReferenceMapper.SimpleRefmap> files) {
+      this.files = files;
+   }
+
+   @Override
+   public Transformer.ResourceEntry process(Transformer.ResourceEntry entry) {
+      String name = entry.getName();
+      if (this.files.containsKey(name)) {
+         try (
+            ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+            Writer writer = new OutputStreamWriter(byteStream);
+         ) {
+            this.files.get(name).write(writer);
+            writer.flush();
+            byte[] var12 = byteStream.toByteArray();
+            return Transformer.ResourceEntry.create(name, entry.getTime(), var12);
+         } catch (IOException e) {
+            throw new UncheckedIOException(e);
+         }
+      } else {
+         return entry;
+      }
+   }
+
+   private static MappingAwareReferenceMapper.SimpleRefmap remapRefmapInPlace(byte[] data, MappingAwareReferenceMapper remapper) {
+      Reader reader = new InputStreamReader(new ByteArrayInputStream(data));
+      MappingAwareReferenceMapper.SimpleRefmap simpleRefmap = (MappingAwareReferenceMapper.SimpleRefmap)GSON.fromJson(
+         reader, MappingAwareReferenceMapper.SimpleRefmap.class
+      );
+      Map<String, String> replacements = Map.of("named:intermediary", "mojang");
+      return remapper.remap(simpleRefmap, replacements);
+   }
+
+   public record RefmapFiles(MappingAwareReferenceMapper.SimpleRefmap merged, Map<String, MappingAwareReferenceMapper.SimpleRefmap> files) {
+   }
+}

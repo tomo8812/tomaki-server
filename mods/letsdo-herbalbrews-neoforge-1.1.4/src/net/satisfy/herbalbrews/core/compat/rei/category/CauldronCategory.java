@@ -1,0 +1,57 @@
+package net.satisfy.herbalbrews.core.compat.rei.category;
+
+import com.google.common.collect.Lists;
+import java.util.Collection;
+import java.util.List;
+import me.shedaniel.math.Point;
+import me.shedaniel.math.Rectangle;
+import me.shedaniel.rei.api.client.gui.Renderer;
+import me.shedaniel.rei.api.client.gui.widgets.Widget;
+import me.shedaniel.rei.api.client.gui.widgets.Widgets;
+import me.shedaniel.rei.api.client.registry.display.DisplayCategory;
+import me.shedaniel.rei.api.common.category.CategoryIdentifier;
+import me.shedaniel.rei.api.common.display.Display;
+import me.shedaniel.rei.api.common.util.EntryStacks;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.level.ItemLike;
+import net.minecraft.world.level.block.Block;
+import net.satisfy.herbalbrews.core.compat.rei.display.CauldronDisplay;
+import net.satisfy.herbalbrews.core.registry.ObjectRegistry;
+
+public class CauldronCategory implements DisplayCategory<CauldronDisplay> {
+   public CategoryIdentifier<CauldronDisplay> getCategoryIdentifier() {
+      return CauldronDisplay.CAULDRON_DISPLAY;
+   }
+
+   public Component getTitle() {
+      return ((Block)ObjectRegistry.CAULDRON.get()).getName();
+   }
+
+   public Renderer getIcon() {
+      return EntryStacks.of((ItemLike)ObjectRegistry.CAULDRON.get());
+   }
+
+   public List<Widget> setupDisplay(CauldronDisplay display, Rectangle bounds) {
+      Point startPoint = new Point(bounds.getCenterX() - 55, bounds.getCenterY() - 13);
+      List<Widget> widgets = Lists.newArrayList();
+      widgets.add(Widgets.createRecipeBase(bounds));
+      widgets.add(Widgets.createArrow(new Point(startPoint.x + 54, startPoint.y - 1)).animationDurationTicks(50.0));
+      widgets.add(Widgets.createResultSlotBackground(new Point(startPoint.x + 90, startPoint.y)));
+      widgets.add(
+         Widgets.createSlot(new Point(startPoint.x + 90, startPoint.y)).entries((Collection)display.getOutputEntries().get(0)).disableBackground().markOutput()
+      );
+      widgets.add(Widgets.createSlot(new Point(startPoint.x + 13, startPoint.y + 11)).entries((Collection)display.getInputEntries().get(0)).markInput());
+      widgets.add(Widgets.createSlot(new Point(startPoint.x - 9, startPoint.y - 6)).entries((Collection)display.getInputEntries().get(1)).markInput());
+      widgets.add(Widgets.createSlot(new Point(startPoint.x + 35, startPoint.y - 6)).entries((Collection)display.getInputEntries().get(2)).markInput());
+      widgets.add(
+         Widgets.createSlot(new Point(startPoint.x + 40, startPoint.y + 23)).entry(EntryStacks.of((ItemLike)ObjectRegistry.HERBAL_INFUSION.get())).markInput()
+      );
+      return widgets;
+   }
+
+   // $VF: synthetic method
+   // $VF: bridge method
+   public List setupDisplay(Display param1, Rectangle nullx) {
+      return this.setupDisplay((CauldronDisplay)var1, nullx);
+   }
+}

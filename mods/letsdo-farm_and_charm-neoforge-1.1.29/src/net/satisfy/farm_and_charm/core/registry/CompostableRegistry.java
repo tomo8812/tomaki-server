@@ -1,0 +1,73 @@
+package net.satisfy.farm_and_charm.core.registry;
+
+import net.satisfy.foundation.compostable.FoundationCompostables;
+
+public class CompostableRegistry {
+   public static void registerCompostable() {
+      FoundationCompostables.register(0.3F, ObjectRegistry.KERNELS);
+      FoundationCompostables.register(0.3F, ObjectRegistry.CORN);
+      FoundationCompostables.register(0.2F, ObjectRegistry.OAT_SEEDS);
+      FoundationCompostables.register(0.3F, ObjectRegistry.OAT);
+      FoundationCompostables.register(0.2F, ObjectRegistry.BARLEY_SEEDS);
+      FoundationCompostables.register(0.3F, ObjectRegistry.BARLEY);
+      FoundationCompostables.register(0.3F, ObjectRegistry.LETTUCE_SEEDS);
+      FoundationCompostables.register(0.3F, ObjectRegistry.LETTUCE_CROP);
+      FoundationCompostables.register(0.3F, ObjectRegistry.LETTUCE);
+      FoundationCompostables.register(0.3F, ObjectRegistry.ONION);
+      FoundationCompostables.register(0.2F, ObjectRegistry.TOMATO_SEEDS);
+      FoundationCompostables.register(0.3F, ObjectRegistry.TOMATO);
+      FoundationCompostables.register(0.5F, ObjectRegistry.ROTTEN_TOMATO);
+      FoundationCompostables.register(0.2F, ObjectRegistry.STRAWBERRY_SEEDS);
+      FoundationCompostables.register(0.3F, ObjectRegistry.STRAWBERRY);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_NETTLE);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_RIBWORT);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_EMMER);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_BEETROOTS);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_POTATOES);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_CARROTS);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_BARLEY);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_CORN);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_OAT);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_LETTUCE);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_ONIONS);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_TOMATOES);
+      FoundationCompostables.register(0.3F, ObjectRegistry.WILD_STRAWBERRIES);
+      FoundationCompostables.register(0.85F, ObjectRegistry.FERTILIZER);
+      FoundationCompostables.register(0.3F, ObjectRegistry.BUTTER);
+      FoundationCompostables.register(0.2F, ObjectRegistry.YEAST);
+      FoundationCompostables.register(0.4F, ObjectRegistry.FLOUR);
+      FoundationCompostables.register(0.4F, ObjectRegistry.DOUGH);
+      FoundationCompostables.register(0.5F, ObjectRegistry.RAW_PASTA);
+      FoundationCompostables.register(0.4F, ObjectRegistry.MINCED_BEEF);
+      FoundationCompostables.register(0.4F, ObjectRegistry.LAMB_HAM);
+      FoundationCompostables.register(0.3F, ObjectRegistry.CHICKEN_PARTS);
+      FoundationCompostables.register(0.4F, ObjectRegistry.BACON);
+      FoundationCompostables.register(0.5F, ObjectRegistry.FARMER_SALAD);
+      FoundationCompostables.register(0.4F, ObjectRegistry.OATMEAL_WITH_STRAWBERRIES);
+      FoundationCompostables.register(0.4F, ObjectRegistry.SIMPLE_TOMATO_SOUP);
+      FoundationCompostables.register(0.4F, ObjectRegistry.BARLEY_SOUP);
+      FoundationCompostables.register(0.4F, ObjectRegistry.ONION_SOUP);
+      FoundationCompostables.register(0.4F, ObjectRegistry.POTATO_SOUP);
+      FoundationCompostables.register(0.5F, ObjectRegistry.GOULASH);
+      FoundationCompostables.register(0.5F, ObjectRegistry.PASTA_WITH_ONION_SAUCE);
+      FoundationCompostables.register(0.4F, ObjectRegistry.CORN_GRITS);
+      FoundationCompostables.register(0.5F, ObjectRegistry.BARLEY_PATTIES_WITH_POTATOES);
+      FoundationCompostables.register(0.5F, ObjectRegistry.BEEF_PATTY_WITH_VEGETABLES);
+      FoundationCompostables.register(0.4F, ObjectRegistry.SAUSAGE_WITH_OAT_PATTY);
+      FoundationCompostables.register(0.6F, ObjectRegistry.ROASTED_CHICKEN);
+      FoundationCompostables.register(0.5F, ObjectRegistry.ROASTED_CORN);
+      FoundationCompostables.register(0.4F, ObjectRegistry.COOKED_SALMON);
+      FoundationCompostables.register(0.4F, ObjectRegistry.COOKED_COD);
+      FoundationCompostables.register(0.5F, ObjectRegistry.CHICKEN_WRAPPED_IN_BACON);
+      FoundationCompostables.register(0.5F, ObjectRegistry.LAMB_WITH_CORN);
+      FoundationCompostables.register(0.5F, ObjectRegistry.BACON_WITH_EGGS);
+      FoundationCompostables.register(0.4F, ObjectRegistry.OAT_PANCAKE);
+      FoundationCompostables.register(0.6F, ObjectRegistry.FARMERS_BREAKFAST);
+      FoundationCompostables.register(0.5F, ObjectRegistry.BAKED_LAMB_HAM);
+      FoundationCompostables.register(0.6F, ObjectRegistry.POTATO_WITH_ROAST_MEAT);
+      FoundationCompostables.register(0.6F, ObjectRegistry.STUFFED_CHICKEN);
+      FoundationCompostables.register(0.6F, ObjectRegistry.STUFFED_RABBIT);
+      FoundationCompostables.register(0.5F, ObjectRegistry.FARMERS_BREAD);
+      FoundationCompostables.register(0.7F, ObjectRegistry.GRANDMOTHERS_STRAWBERRY_CAKE);
+   }
+}

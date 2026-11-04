@@ -1,0 +1,29 @@
+modLoader = "javafml"
+loaderVersion = "[1,)"
+license = "LGPL v3.0"
+
+[[mods]]
+modId = "quadhotbar"
+version = "1.1.0-beta1"
+displayName = "QuadHotbar"
+displayTest = "IGNORE_SERVER_VERSION"
+logoFile = "quadhotbar.png"
+authors = "ArchangelD"
+description = '''Quad Hotbar adds up to four switchable hotbars for NeoForge 1.21.1. It is a convenient Multi-Hotbar port created for comfortable building and working with many items. The project was made with support from KharkivTiles 1:1.'''
+
+[[mixins]]
+config = "quadhotbar.mixins.json"
+
+[[dependencies.quadhotbar]]
+    modId = "neoforge"
+    type = "required"
+    versionRange = "[21.1.234,)"
+    ordering = "NONE"
+    side = "BOTH"
+
+[[dependencies.quadhotbar]]
+    modId = "minecraft"
+    type = "required"
+    versionRange = "[1.21.1]"
+    ordering = "NONE"
+    side = "BOTH"

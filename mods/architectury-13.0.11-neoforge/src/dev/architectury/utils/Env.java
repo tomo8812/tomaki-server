@@ -1,0 +1,21 @@
+package dev.architectury.utils;
+
+import net.neoforged.api.distmarker.Dist;
+
+public enum Env {
+   CLIENT,
+   SERVER;
+
+   public static Env fromPlatform(Object type) {
+      return type == Dist.CLIENT ? CLIENT : (type == Dist.DEDICATED_SERVER ? SERVER : null);
+   }
+
+   public Dist toPlatform() {
+      return this == CLIENT ? Dist.CLIENT : Dist.DEDICATED_SERVER;
+   }
+
+   // $VF: synthetic method
+   private static Env[] $values() {
+      return new Env[]{CLIENT, SERVER};
+   }
+}

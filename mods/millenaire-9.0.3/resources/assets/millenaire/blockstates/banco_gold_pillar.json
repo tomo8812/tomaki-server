@@ -1,0 +1,7 @@
+{
+    "variants": {
+        "axis=y": { "model": "millenaire:block/banco_gold_pillar" },
+        "axis=z": { "model": "millenaire:block/banco_gold_pillar", "x": 90 },
+        "axis=x": { "model": "millenaire:block/banco_gold_pillar", "x": 90, "y": 90 }
+    }
+}

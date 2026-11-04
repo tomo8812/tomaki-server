@@ -1,0 +1,8 @@
+{
+  "__comment": "iso-legacy: reuses the thatch_topbottom texture, already shipped as thatch_top (identical PNG, verified by checksum)",
+  "parent": "minecraft:block/carpet",
+  "textures": {
+    "particle": "millenaire:block/thatch_top",
+    "wool": "millenaire:block/thatch_top"
+  }
+}

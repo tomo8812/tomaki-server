@@ -1,0 +1,10 @@
+{
+  "parent": "brewery:block/template_brewingstation_whistle_top",
+  "textures": {
+    "17": "brewery:block/brewing_station/netherite/netherite_brewing_station_whistle_tube",
+    "18": "brewery:block/brewing_station/netherite/netherite_brewing_station_whistle_mouth",
+    "19": "brewery:block/brewing_station/netherite/netherite_brewing_station_whistle_top",
+    "20": "brewery:block/brewing_station/netherite/netherite_brewing_station_whistle_bottom",
+    "particle": "brewery:block/brewing_station/netherite/netherite_brewing_station_whistle_bottom"
+  }
+}

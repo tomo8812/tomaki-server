@@ -1,0 +1,76 @@
+{
+  "_comment": "Accepted content-validation findings (spec content-validation §4.3). One entry per finding, or per finding class via identityPattern, each with a reason. A stale entry (matching no finding) fails ContentStructureTest.",
+  "entries": [
+    {
+      "ruleId": "S-05",
+      "identityPattern": "(norman|indian)/buildings/townhalls/(fort|guildhouse|largefort|abbey|palace)",
+      "messageContains": ".extra_simultaneous_wall_constructions'",
+      "reason": "extra_simultaneous_wall_constructions is the legacy per-level field the converter emits; the loader reads a plan-set-scope extra_wall_construction_slots that nothing emits, so the value is silently 0 today. Code defect (WallGrowthManager.computeMaxSlots reads the plan set, legacy Building.getSimultaneousWallConstructionSlots read the building's current level plan) recorded in the 2026-09 baseline — the content is right, the loader is not. Remove this entry when the loader reads the level field."
+    },
+    {
+      "ruleId": "X-04",
+      "identity": "byzantines/shops/townhallbackup",
+      "reason": "Dead shop file inherited from 1.12: shops/townhallbackup.txt was never referenced by a byzantine building there either. Kept for iso-legacy fidelity of the content tree."
+    },
+    {
+      "ruleId": "X-04",
+      "identity": "inuits/shops/lonehunt",
+      "reason": "Dead shop file inherited from 1.12: no inuit building declared shop=lonehunt in the legacy content either."
+    },
+    {
+      "ruleId": "X-04",
+      "identity": "inuits/shops/smith",
+      "reason": "Dead shop file inherited from 1.12: no inuit building declared shop=smith in the legacy content either."
+    },
+    {
+      "ruleId": "X-04",
+      "identity": "inuits/shops/wooddery",
+      "reason": "Dead shop file inherited from 1.12: no inuit building declared shop=wooddery in the legacy content either."
+    },
+    {
+      "ruleId": "M-01",
+      "identity": "indian/villagers/special/sadhu",
+      "messageContains": "'vishnu_amulet'",
+      "reason": "Travel-book held item of a world-quest villager: the Vishnu amulet is a world-quest reward not ported (world-quest cluster deferred). Display-only field."
+    },
+    {
+      "ruleId": "M-01",
+      "identity": "norman/villagers/quests/alchemistassistant",
+      "messageContains": "'alchemistexplosive'",
+      "reason": "Travel-book held item of a world-quest villager: the alchemist explosive is a world-quest item not ported (world-quest cluster deferred). Display-only field."
+    },
+    {
+      "ruleId": "M-01",
+      "identityPattern": "(norman|inuits)/villagers/merchants/merchant_viking",
+      "messageContains": "'skoll_hati_amulet'",
+      "reason": "Travel-book held item: the Skoll & Hati amulet is a legacy world-quest reward not ported. Display-only field."
+    },
+    {
+      "ruleId": "M-03",
+      "identityPattern": "(byzantines/buildings/lone/ancient(temple|theatre)byzantine|indian/buildings/player/(gifthouse|player(huge|large|small)field)|inuits/buildings/lone/(inuksuit|lonedisiglu2?|lonedislogcabin2?|polarbearcave)|mayan/buildings/houses/mayancave|mayan/buildings/lone/questcave|mayan/buildings/player/mayanplayer(huge|large|small)field|seljuk/buildings/lone/(bath_abandoned|ruinlonemine|ruinwell))",
+      "messageContains": "has no path anchor",
+      "reason": "Templates with no path start, selling or sleeping position: lone ruins and abandoned sites, player fields, caves and inuksuit — none has residents or a counter to path to. Legacy skipped such templates silently; the rewrite's FallbackAnchorFinder probes the perimeter and logs it (documented deviation). Adding a marker is a per-template editorial decision, not a defect fix."
+    },
+    {
+      "ruleId": "M-04/X-10",
+      "identityPattern": "millenaire:(byzantines/playerfortress_a_(armyforge|barracks)|indian/playerpalace_temple|seljuk/(barrackssmall_a_bed0|watchtower_a_soldier[01]|hamlettownhallplayer_a_inn|thmosque_a_femaleside))",
+      "messageContains": "does not list this sub-building",
+      "reason": "Sub-buildings whose parent does not list them back: the eight legacy asymmetries pinned in JarPlanCoherenceTest.everyShippedSubHasValidParentRef (geometry-source parents that never spawn the sub — verified against the 1.12 .txt corpus). The message fragment is deliberate: CultureLoader.checkSubBuildingParentRef emits a second, distinct diagnostic on the same plan sets ('footprint of parent building plan … does not match that of the sub-building'), which this entry must not swallow — that one is a real geometry defect, not an accepted asymmetry."
+    },
+    {
+      "ruleId": "M-06",
+      "identityPattern": "gathering_type/mine_sand@(indian/villages/(agricole|controlled|controlled_walled|fort|fort_hamlet|palace|palace_autonomous)|mayan/villages/(agriculture|controlled|military|religious))",
+      "reason": "The miner carries mine_sand as in 1.12 (indian_miner.txt: goal=minesand) but no indian or mayan building template in 9.x carries a sand mock_source (reachable: sandstone, red_sandstone, stone). Either the legacy PNG source was lost in conversion (GH-325 class) or legacy tolerated the idle goal; which building should carry the source is an owner decision recorded in the 2026-09 baseline. The eleven village types are enumerated rather than matched by '(indian|mayan)/villages/.*' so that a village type added later to either culture is a new finding someone has to decide on, not a silently accepted one."
+    },
+    {
+      "ruleId": "M-06",
+      "identity": "gathering_type/mine_gravel@japanese/villages/lonemine",
+      "reason": "The Japanese lone mine's villagers carry mine_gravel but the lonemine template exposes clay, sandstone and stone sources only. Owner decision recorded in the 2026-09 baseline (GH-326 wired the extra mine_* goals; the source side was not revisited)."
+    },
+    {
+      "ruleId": "M-06",
+      "identityPattern": "gathering_type/mine_(ice|snow|snow_paths)@inuits/villages/sanduit",
+      "reason": "The sanduit lone building's villagers carry the inuit ice/snow mining goals (buildingTag inuitmining) but no inuitmining-tagged building of that village type carries a mock_source. Owner decision recorded in the 2026-09 baseline."
+    }
+  ]
+}

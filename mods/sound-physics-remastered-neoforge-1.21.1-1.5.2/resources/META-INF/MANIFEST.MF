@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Class-Path: sound-physics-remastered-fabric-1.21.1-1.5.2-dev.jar configb
+ uilder-2.0.2.jar
+

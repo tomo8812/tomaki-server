@@ -1,0 +1,108 @@
+{
+  "mappings": {
+    "fuzs/goldenagecombat/mixin/DiggerItemMixin": {
+      "postHurtEnemy": "Lnet/minecraft/class_1766;method_59978(Lnet/minecraft/class_1799;Lnet/minecraft/class_1309;Lnet/minecraft/class_1309;)V"
+    },
+    "fuzs/goldenagecombat/mixin/EntityMixin": {
+      "getPickRadius": "Lnet/minecraft/class_1297;method_5871()F"
+    },
+    "fuzs/goldenagecombat/mixin/FishingHookMixin": {
+      "onHitEntity": "Lnet/minecraft/class_1536;method_7454(Lnet/minecraft/class_3966;)V",
+      "pullEntity": "Lnet/minecraft/class_1536;method_6954(Lnet/minecraft/class_1297;)V",
+      "retrieve": "Lnet/minecraft/class_1536;method_6957(Lnet/minecraft/class_1799;)I"
+    },
+    "fuzs/goldenagecombat/mixin/FoodDataMixin": {
+      "tick": "Lnet/minecraft/class_1702;method_7588(Lnet/minecraft/class_1657;)V"
+    },
+    "fuzs/goldenagecombat/mixin/PlayerMixin": {
+      "Lnet/minecraft/world/damagesource/DamageSource;scalesWithDifficulty()Z": "Lnet/minecraft/class_1282;method_5514()Z",
+      "Lnet/minecraft/world/entity/player/Player;setSprinting(Z)V": "Lnet/minecraft/class_1657;method_5728(Z)V",
+      "Lnet/minecraft/world/entity/player/Player;sweepAttack()V": "Lnet/minecraft/class_1657;method_7263()V",
+      "Lnet/minecraft/world/entity/player/Player;walkDist:F": "Lnet/minecraft/class_1657;field_5973:F",
+      "Lnet/minecraft/world/level/Level;playSound(Lnet/minecraft/world/entity/player/Player;DDDLnet/minecraft/sounds/SoundEvent;Lnet/minecraft/sounds/SoundSource;FF)V": "Lnet/minecraft/class_1937;method_43128(Lnet/minecraft/class_1657;DDDLnet/minecraft/class_3414;Lnet/minecraft/class_3419;FF)V",
+      "attack": "Lnet/minecraft/class_1657;method_7324(Lnet/minecraft/class_1297;)V",
+      "getAttackStrengthScale": "Lnet/minecraft/class_1657;method_7261(F)F",
+      "hurt": "Lnet/minecraft/class_1657;method_5643(Lnet/minecraft/class_1282;F)Z"
+    },
+    "fuzs/goldenagecombat/mixin/client/CameraMixin": {
+      "tick": "Lnet/minecraft/class_4184;method_19317()V"
+    },
+    "fuzs/goldenagecombat/mixin/client/GuiMixin": {
+      "renderHearts": "Lnet/minecraft/class_329;method_37298(Lnet/minecraft/class_332;Lnet/minecraft/class_1657;IIIIFIIIZ)V"
+    },
+    "fuzs/goldenagecombat/mixin/client/ItemInHandRendererMixin": {
+      "Lnet/minecraft/client/renderer/ItemInHandRenderer;applyItemArmTransform(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/world/entity/HumanoidArm;F)V": "Lnet/minecraft/class_759;method_3224(Lnet/minecraft/class_4587;Lnet/minecraft/class_1306;F)V",
+      "itemUsed": "Lnet/minecraft/class_759;method_3215(Lnet/minecraft/class_1268;)V",
+      "renderArmWithItem": "Lnet/minecraft/class_759;method_3228(Lnet/minecraft/class_742;FFLnet/minecraft/class_1268;FLnet/minecraft/class_1799;FLnet/minecraft/class_4587;Lnet/minecraft/class_4597;I)V"
+    },
+    "fuzs/goldenagecombat/mixin/client/ItemStackMixin": {
+      "Lnet/minecraft/world/item/ItemStack;forEachModifier(Lnet/minecraft/world/entity/EquipmentSlotGroup;Ljava/util/function/BiConsumer;)V": "Lnet/minecraft/class_1799;method_60617(Lnet/minecraft/class_9274;Ljava/util/function/BiConsumer;)V",
+      "addAttributeTooltips": "Lnet/minecraft/class_1799;method_57363(Ljava/util/function/Consumer;Lnet/minecraft/class_1657;)V",
+      "addModifierTooltip": "Lnet/minecraft/class_1799;method_57364(Ljava/util/function/Consumer;Lnet/minecraft/class_1657;Lnet/minecraft/class_6880;Lnet/minecraft/class_1322;)V"
+    },
+    "fuzs/goldenagecombat/mixin/client/MinecraftMixin": {
+      "Lnet/minecraft/client/multiplayer/MultiPlayerGameMode;isDestroying()Z": "Lnet/minecraft/class_636;method_2923()Z",
+      "Lnet/minecraft/client/player/LocalPlayer;isUsingItem()Z": "Lnet/minecraft/class_746;method_6115()Z",
+      "continueAttack": "Lnet/minecraft/class_310;method_1590(Z)V",
+      "handleKeybinds": "Lnet/minecraft/class_310;method_1508()V",
+      "startUseItem": "Lnet/minecraft/class_310;method_1583()V"
+    },
+    "fuzs/goldenagecombat/mixin/client/ParticleEngineMixin": {
+      "makeParticle": "Lnet/minecraft/class_702;method_3055(Lnet/minecraft/class_2394;DDDDDD)Lnet/minecraft/class_703;"
+    }
+  },
+  "data": {
+    "named:intermediary": {
+      "fuzs/goldenagecombat/mixin/DiggerItemMixin": {
+        "postHurtEnemy": "Lnet/minecraft/class_1766;method_59978(Lnet/minecraft/class_1799;Lnet/minecraft/class_1309;Lnet/minecraft/class_1309;)V"
+      },
+      "fuzs/goldenagecombat/mixin/EntityMixin": {
+        "getPickRadius": "Lnet/minecraft/class_1297;method_5871()F"
+      },
+      "fuzs/goldenagecombat/mixin/FishingHookMixin": {
+        "onHitEntity": "Lnet/minecraft/class_1536;method_7454(Lnet/minecraft/class_3966;)V",
+        "pullEntity": "Lnet/minecraft/class_1536;method_6954(Lnet/minecraft/class_1297;)V",
+        "retrieve": "Lnet/minecraft/class_1536;method_6957(Lnet/minecraft/class_1799;)I"
+      },
+      "fuzs/goldenagecombat/mixin/FoodDataMixin": {
+        "tick": "Lnet/minecraft/class_1702;method_7588(Lnet/minecraft/class_1657;)V"
+      },
+      "fuzs/goldenagecombat/mixin/PlayerMixin": {
+        "Lnet/minecraft/world/damagesource/DamageSource;scalesWithDifficulty()Z": "Lnet/minecraft/class_1282;method_5514()Z",
+        "Lnet/minecraft/world/entity/player/Player;setSprinting(Z)V": "Lnet/minecraft/class_1657;method_5728(Z)V",
+        "Lnet/minecraft/world/entity/player/Player;sweepAttack()V": "Lnet/minecraft/class_1657;method_7263()V",
+        "Lnet/minecraft/world/entity/player/Player;walkDist:F": "Lnet/minecraft/class_1657;field_5973:F",
+        "Lnet/minecraft/world/level/Level;playSound(Lnet/minecraft/world/entity/player/Player;DDDLnet/minecraft/sounds/SoundEvent;Lnet/minecraft/sounds/SoundSource;FF)V": "Lnet/minecraft/class_1937;method_43128(Lnet/minecraft/class_1657;DDDLnet/minecraft/class_3414;Lnet/minecraft/class_3419;FF)V",
+        "attack": "Lnet/minecraft/class_1657;method_7324(Lnet/minecraft/class_1297;)V",
+        "getAttackStrengthScale": "Lnet/minecraft/class_1657;method_7261(F)F",
+        "hurt": "Lnet/minecraft/class_1657;method_5643(Lnet/minecraft/class_1282;F)Z"
+      },
+      "fuzs/goldenagecombat/mixin/client/CameraMixin": {
+        "tick": "Lnet/minecraft/class_4184;method_19317()V"
+      },
+      "fuzs/goldenagecombat/mixin/client/GuiMixin": {
+        "renderHearts": "Lnet/minecraft/class_329;method_37298(Lnet/minecraft/class_332;Lnet/minecraft/class_1657;IIIIFIIIZ)V"
+      },
+      "fuzs/goldenagecombat/mixin/client/ItemInHandRendererMixin": {
+        "Lnet/minecraft/client/renderer/ItemInHandRenderer;applyItemArmTransform(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/world/entity/HumanoidArm;F)V": "Lnet/minecraft/class_759;method_3224(Lnet/minecraft/class_4587;Lnet/minecraft/class_1306;F)V",
+        "itemUsed": "Lnet/minecraft/class_759;method_3215(Lnet/minecraft/class_1268;)V",
+        "renderArmWithItem": "Lnet/minecraft/class_759;method_3228(Lnet/minecraft/class_742;FFLnet/minecraft/class_1268;FLnet/minecraft/class_1799;FLnet/minecraft/class_4587;Lnet/minecraft/class_4597;I)V"
+      },
+      "fuzs/goldenagecombat/mixin/client/ItemStackMixin": {
+        "Lnet/minecraft/world/item/ItemStack;forEachModifier(Lnet/minecraft/world/entity/EquipmentSlotGroup;Ljava/util/function/BiConsumer;)V": "Lnet/minecraft/class_1799;method_60617(Lnet/minecraft/class_9274;Ljava/util/function/BiConsumer;)V",
+        "addAttributeTooltips": "Lnet/minecraft/class_1799;method_57363(Ljava/util/function/Consumer;Lnet/minecraft/class_1657;)V",
+        "addModifierTooltip": "Lnet/minecraft/class_1799;method_57364(Ljava/util/function/Consumer;Lnet/minecraft/class_1657;Lnet/minecraft/class_6880;Lnet/minecraft/class_1322;)V"
+      },
+      "fuzs/goldenagecombat/mixin/client/MinecraftMixin": {
+        "Lnet/minecraft/client/multiplayer/MultiPlayerGameMode;isDestroying()Z": "Lnet/minecraft/class_636;method_2923()Z",
+        "Lnet/minecraft/client/player/LocalPlayer;isUsingItem()Z": "Lnet/minecraft/class_746;method_6115()Z",
+        "continueAttack": "Lnet/minecraft/class_310;method_1590(Z)V",
+        "handleKeybinds": "Lnet/minecraft/class_310;method_1508()V",
+        "startUseItem": "Lnet/minecraft/class_310;method_1583()V"
+      },
+      "fuzs/goldenagecombat/mixin/client/ParticleEngineMixin": {
+        "makeParticle": "Lnet/minecraft/class_702;method_3055(Lnet/minecraft/class_2394;DDDDDD)Lnet/minecraft/class_703;"
+      }
+    }
+  }
+}

@@ -1,0 +1,59 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "Custom"
+issueTrackerURL = "https://github.com/satisfyu/Let-s-Do-Hub"
+
+[[mixins]]
+config = "brewery-common.mixins.json"
+
+[[mods]]
+modId = "brewery"
+version = "2.1.13"
+displayName = "[Let's Do] Brewery"
+authors = "satisfy"
+credits = "MissLilitu, CR-055"
+logoFile = "pack.png"
+displayURL = "https://www.lets-do.ch"
+description = '''
+Foaming mugs, copper kettles and the smell of fresh pretzels. Brew your own beer, cook hearty food and throw an Oktoberfest to remember.
+
+Website: https://www.lets-do.ch
+Wiki: https://lets-do.ch/wiki/brewery/
+Source: https://github.com/Let-s-Do-Collection/Brewery
+Issues: https://github.com/satisfyu/Let-s-Do-Hub
+'''
+
+[[dependencies.brewery]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.brewery]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1]"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.brewery]]
+modId = "architectury"
+type = "required"
+versionRange = "[13.0.8,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.brewery]]
+modId = "foundation"
+type = "required"
+versionRange = "[1.0.6,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.brewery]]
+modId = "farm_and_charm"
+type = "required"
+versionRange = "[1.1.27,)"
+ordering = "AFTER"
+side = "BOTH"

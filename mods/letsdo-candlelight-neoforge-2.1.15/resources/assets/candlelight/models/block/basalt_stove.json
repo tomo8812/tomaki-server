@@ -1,0 +1,9 @@
+{
+  "parent": "foundation:block/template_stove",
+  "textures": {
+    "front": "candlelight:block/basalt_stove_front",
+    "side": "candlelight:block/basalt_stove_side",
+    "top": "candlelight:block/basalt_stove_top",
+    "bottom": "candlelight:block/basalt_stove_bottom"
+  }
+}

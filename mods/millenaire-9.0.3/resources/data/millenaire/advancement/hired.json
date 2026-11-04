@@ -1,0 +1,13 @@
+{
+  "parent": "millenaire:cheers",
+  "display": {
+    "icon": { "id": "millenaire:denier_argent" },
+    "title": { "translate": "advancement.millenaire.hired" },
+    "description": { "translate": "advancement.millenaire.hired.desc" }
+  },
+  "criteria": {
+    "requirement": {
+      "trigger": "millenaire:millenaire_trigger"
+    }
+  }
+}

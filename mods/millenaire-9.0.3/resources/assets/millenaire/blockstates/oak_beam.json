@@ -1,0 +1,17 @@
+{
+    "multipart": [
+        { "apply": { "model": "millenaire:block/oak_beam_center" } },
+        { "when": { "facing": "north", "connected": "true" },
+          "apply": { "model": "millenaire:block/oak_beam_side" } },
+        { "when": { "facing": "south", "connected": "true" },
+          "apply": { "model": "millenaire:block/oak_beam_side", "y": 180 } },
+        { "when": { "facing": "east", "connected": "true" },
+          "apply": { "model": "millenaire:block/oak_beam_side", "y": 90 } },
+        { "when": { "facing": "west", "connected": "true" },
+          "apply": { "model": "millenaire:block/oak_beam_side", "y": 270 } },
+        { "when": { "facing": "up", "connected": "true" },
+          "apply": { "model": "millenaire:block/oak_beam_side", "x": 270 } },
+        { "when": { "facing": "down", "connected": "true" },
+          "apply": { "model": "millenaire:block/oak_beam_side", "x": 90 } }
+    ]
+}

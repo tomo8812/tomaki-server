@@ -1,0 +1,11 @@
+{
+  "family": "shop",
+  "_comment": "Every key ShopProfileLoader reads (JsonLoaderUtils.parseStringList literals). Kept in step by FieldContractReflectionGuardTest.",
+  "_why": "No key is required — the loader registers a profile whatever it holds — so a misspelled 'sels' empties the shop with no message at any level. That is the reserved_quantiy class, and S-05 is what catches it. Each list must be an array: parseStringList calls getAsJsonArray, which throws on a string.",
+  "fields": [
+    { "path": "sells", "type": "array" },
+    { "path": "buys", "type": "array" },
+    { "path": "buys_optional", "type": "array" },
+    { "path": "deliver_to", "type": "array" }
+  ]
+}

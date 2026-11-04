@@ -1,0 +1,7 @@
+{
+  "parent": "candlelight:block/template_shelf",
+  "textures": {
+    "wood": "candlelight:block/mangrove_table_connected",
+    "bracket": "candlelight:block/counter_top"
+  }
+}

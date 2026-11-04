@@ -1,0 +1,57 @@
+package net.satisfy.brewery.core.event.brew_event;
+
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import net.minecraft.resources.ResourceLocation;
+import net.satisfy.brewery.Brewery;
+import org.jetbrains.annotations.Nullable;
+
+public class BrewEvents {
+   public static final Map<ResourceLocation, Supplier<BrewEvent>> BREW_EVENTS = new HashMap<>();
+   public static final ResourceLocation KETTLE_EVENT = registerBrewEvent("kettle", KettleEvent::new);
+   public static final ResourceLocation OVEN_EVENT = registerBrewEvent("oven", OvenEvent::new);
+   public static final ResourceLocation WHISTLE_EVENT = registerBrewEvent("whistle", WhistleEvent::new);
+   public static final ResourceLocation TIMER_EVENT = registerBrewEvent("timer", TimerEvent::new);
+
+   public static void loadClass() {
+   }
+
+   public static ResourceLocation registerBrewEvent(String id, Supplier<BrewEvent> brewEventSupplier) {
+      ResourceLocation resourceLocation = Brewery.identifier(id);
+      BREW_EVENTS.put(resourceLocation, brewEventSupplier);
+      return resourceLocation;
+   }
+
+   public static List<ResourceLocation> toLocations(Collection<BrewEvent> events) {
+      return events.stream().map(BrewEvents::getId).collect(Collectors.toList());
+   }
+
+   public static List<BrewEvent> toEvents(List<Supplier<BrewEvent>> events) {
+      return events.stream().map(Supplier::get).collect(Collectors.toList());
+   }
+
+   @Nullable
+   public static ResourceLocation getId(BrewEvent event) {
+      if (event == null) {
+         return null;
+      }
+
+      for (ResourceLocation location : BREW_EVENTS.keySet()) {
+         BrewEvent brewEvent = BREW_EVENTS.get(location).get();
+         if (event.getClass() == brewEvent.getClass()) {
+            return location;
+         }
+      }
+
+      return null;
+   }
+
+   @Nullable
+   public static Supplier<BrewEvent> byId(ResourceLocation id) {
+      return BREW_EVENTS.get(id);
+   }
+}

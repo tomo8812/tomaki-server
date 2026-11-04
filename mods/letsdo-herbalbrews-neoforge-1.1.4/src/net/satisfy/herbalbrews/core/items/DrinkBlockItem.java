@@ -1,0 +1,165 @@
+package net.satisfy.herbalbrews.core.items;
+
+import com.google.common.collect.Lists;
+import com.mojang.datafixers.util.Pair;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.effect.MobEffect;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffectUtil;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier.Operation;
+import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.food.FoodProperties.PossibleEffect;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.UseAnim;
+import net.minecraft.world.item.Item.Properties;
+import net.minecraft.world.item.Item.TooltipContext;
+import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.component.ItemAttributeModifiers;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import org.jetbrains.annotations.NotNull;
+
+public class DrinkBlockItem extends BlockItem {
+   public DrinkBlockItem(Block block, Properties settings) {
+      super(block, settings.stacksTo(16));
+   }
+
+   @NotNull
+   public UseAnim getUseAnimation(ItemStack stack) {
+      return UseAnim.DRINK;
+   }
+
+   @NotNull
+   public ItemStack finishUsingItem(ItemStack stack, Level world, LivingEntity user) {
+      ItemStack result = super.finishUsingItem(stack, world, user);
+      if (!world.isClientSide) {
+         PotionContents potionContents = (PotionContents)stack.getOrDefault(DataComponents.POTION_CONTENTS, PotionContents.EMPTY);
+         if (potionContents.hasEffects()) {
+            potionContents.forEachEffect(user::addEffect);
+         }
+      }
+
+      return result;
+   }
+
+   public void appendHoverText(ItemStack stack, TooltipContext tooltipContext, List<Component> tooltip, TooltipFlag context) {
+      Map<ResourceLocation, MobEffectInstance> combined = new LinkedHashMap<>();
+      PotionContents potionContents = (PotionContents)stack.getOrDefault(DataComponents.POTION_CONTENTS, PotionContents.EMPTY);
+      if (potionContents.hasEffects()) {
+         potionContents.forEachEffect(inst -> {
+            ResourceLocation id = BuiltInRegistries.MOB_EFFECT.getKey((MobEffect)inst.getEffect().value());
+            MobEffectInstance prev = combined.get(id);
+            if (prev == null) {
+               combined.put(id, inst);
+            } else {
+               int amplifierx = Math.max(prev.getAmplifier(), inst.getAmplifier());
+               int duration = Math.max(prev.getDuration(), inst.getDuration());
+               boolean ambientx = prev.isAmbient() || inst.isAmbient();
+               boolean visiblex = prev.isVisible() || inst.isVisible();
+               boolean iconx = prev.showIcon() || inst.showIcon();
+               combined.put(id, new MobEffectInstance(prev.getEffect(), duration, amplifierx, ambientx, visiblex, iconx));
+            }
+         });
+      }
+
+      FoodProperties food = (FoodProperties)stack.get(DataComponents.FOOD);
+      if (food != null) {
+         for (PossibleEffect possibleEffect : food.effects()) {
+            if (possibleEffect.probability() == 1.0F) {
+               MobEffectInstance inst = possibleEffect.effect();
+               ResourceLocation id = BuiltInRegistries.MOB_EFFECT.getKey((MobEffect)inst.getEffect().value());
+               MobEffectInstance prev = combined.get(id);
+               if (prev == null) {
+                  combined.put(id, inst);
+               } else {
+                  int amplifier = Math.max(prev.getAmplifier(), inst.getAmplifier());
+                  int duration = Math.max(prev.getDuration(), inst.getDuration());
+                  boolean ambient = prev.isAmbient() || inst.isAmbient();
+                  boolean visible = prev.isVisible() || inst.isVisible();
+                  boolean icon = prev.showIcon() || inst.showIcon();
+                  combined.put(id, new MobEffectInstance(prev.getEffect(), duration, amplifier, ambient, visible, icon));
+               }
+            }
+         }
+      }
+
+      if (combined.isEmpty()) {
+         tooltip.add(Component.translatable("effect.none").withStyle(ChatFormatting.GRAY));
+      } else {
+         for (MobEffectInstance inst : combined.values()) {
+            MutableComponent effectName = Component.translatable(inst.getDescriptionId());
+            if (inst.getDuration() > 20) {
+               effectName = Component.translatable(
+                  "potion.withDuration", new Object[]{effectName, MobEffectUtil.formatDuration(inst, 1.0F, tooltipContext.tickRate())}
+               );
+            }
+
+            tooltip.add(effectName.withStyle(((MobEffect)inst.getEffect().value()).getCategory().getTooltipFormatting()));
+         }
+      }
+
+      List<Pair<Attribute, AttributeModifier>> attributeModifiers = Lists.newArrayList();
+      if (stack.has(DataComponents.ATTRIBUTE_MODIFIERS)) {
+         ItemAttributeModifiers itemAttributeModifiers = (ItemAttributeModifiers)stack.getOrDefault(
+            DataComponents.ATTRIBUTE_MODIFIERS, ItemAttributeModifiers.EMPTY
+         );
+         itemAttributeModifiers.modifiers().forEach(entry -> {
+            Attribute attribute = (Attribute)entry.attribute().value();
+            double amountx = entry.modifier().amount();
+            AttributeModifier modifierx = new AttributeModifier(entry.modifier().id(), amountx, entry.modifier().operation());
+            attributeModifiers.add(new Pair(attribute, modifierx));
+         });
+      }
+
+      if (!attributeModifiers.isEmpty()) {
+         tooltip.add(Component.empty());
+         tooltip.add(Component.translatable("potion.whenDrank").withStyle(ChatFormatting.DARK_PURPLE));
+
+         for (Pair<Attribute, AttributeModifier> pair : attributeModifiers) {
+            AttributeModifier modifier = (AttributeModifier)pair.getSecond();
+            double amount = modifier.amount();
+            double displayAmount = modifier.operation() != Operation.ADD_MULTIPLIED_BASE && modifier.operation() != Operation.ADD_MULTIPLIED_TOTAL
+               ? amount
+               : amount * 100.0;
+            if (amount > 0.0) {
+               tooltip.add(
+                  Component.translatable(
+                        "attribute.modifier.plus." + modifier.operation().id(),
+                        new Object[]{
+                           ItemAttributeModifiers.ATTRIBUTE_MODIFIER_FORMAT.format(displayAmount),
+                           Component.translatable(((Attribute)pair.getFirst()).getDescriptionId())
+                        }
+                     )
+                     .withStyle(ChatFormatting.BLUE)
+               );
+            } else if (amount < 0.0) {
+               tooltip.add(
+                  Component.translatable(
+                        "attribute.modifier.take." + modifier.operation().id(),
+                        new Object[]{
+                           ItemAttributeModifiers.ATTRIBUTE_MODIFIER_FORMAT.format(-displayAmount),
+                           Component.translatable(((Attribute)pair.getFirst()).getDescriptionId())
+                        }
+                     )
+                     .withStyle(ChatFormatting.RED)
+               );
+            }
+         }
+      }
+
+      tooltip.add(Component.translatable("tooltip.herbalbrews.canbeplaced").withStyle(ChatFormatting.GRAY));
+   }
+}

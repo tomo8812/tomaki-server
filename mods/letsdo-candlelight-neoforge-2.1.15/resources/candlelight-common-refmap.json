@@ -1,0 +1,32 @@
+{
+  "mappings": {
+    "net/satisfy/candlelight/core/mixin/VillagerMixin": {
+      "addAdditionalSaveData": "Lnet/minecraft/class_1646;method_5652(Lnet/minecraft/class_2487;)V",
+      "readAdditionalSaveData": "Lnet/minecraft/class_1646;method_5749(Lnet/minecraft/class_2487;)V",
+      "updateSpecialPrices": "Lnet/minecraft/class_1646;method_19192(Lnet/minecraft/class_1657;)V"
+    },
+    "net/satisfy/candlelight/core/mixin/client/HumanoidModelMixin": {
+      "setupAnim(Lnet/minecraft/world/entity/LivingEntity;FFFFF)V": "Lnet/minecraft/class_572;method_17087(Lnet/minecraft/class_1309;FFFFF)V"
+    },
+    "net/satisfy/candlelight/core/mixin/client/ItemInHandRendererMixin": {
+      "Lnet/minecraft/client/renderer/ItemInHandRenderer;renderItem(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;ZLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V": "Lnet/minecraft/class_759;method_3233(Lnet/minecraft/class_1309;Lnet/minecraft/class_1799;Lnet/minecraft/class_811;ZLnet/minecraft/class_4587;Lnet/minecraft/class_4597;I)V",
+      "renderArmWithItem": "Lnet/minecraft/class_759;method_3228(Lnet/minecraft/class_742;FFLnet/minecraft/class_1268;FLnet/minecraft/class_1799;FLnet/minecraft/class_4587;Lnet/minecraft/class_4597;I)V"
+    }
+  },
+  "data": {
+    "named:intermediary": {
+      "net/satisfy/candlelight/core/mixin/VillagerMixin": {
+        "addAdditionalSaveData": "Lnet/minecraft/class_1646;method_5652(Lnet/minecraft/class_2487;)V",
+        "readAdditionalSaveData": "Lnet/minecraft/class_1646;method_5749(Lnet/minecraft/class_2487;)V",
+        "updateSpecialPrices": "Lnet/minecraft/class_1646;method_19192(Lnet/minecraft/class_1657;)V"
+      },
+      "net/satisfy/candlelight/core/mixin/client/HumanoidModelMixin": {
+        "setupAnim(Lnet/minecraft/world/entity/LivingEntity;FFFFF)V": "Lnet/minecraft/class_572;method_17087(Lnet/minecraft/class_1309;FFFFF)V"
+      },
+      "net/satisfy/candlelight/core/mixin/client/ItemInHandRendererMixin": {
+        "Lnet/minecraft/client/renderer/ItemInHandRenderer;renderItem(Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/item/ItemDisplayContext;ZLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V": "Lnet/minecraft/class_759;method_3233(Lnet/minecraft/class_1309;Lnet/minecraft/class_1799;Lnet/minecraft/class_811;ZLnet/minecraft/class_4587;Lnet/minecraft/class_4597;I)V",
+        "renderArmWithItem": "Lnet/minecraft/class_759;method_3228(Lnet/minecraft/class_742;FFLnet/minecraft/class_1268;FLnet/minecraft/class_1799;FLnet/minecraft/class_4587;Lnet/minecraft/class_4597;I)V"
+      }
+    }
+  }
+}

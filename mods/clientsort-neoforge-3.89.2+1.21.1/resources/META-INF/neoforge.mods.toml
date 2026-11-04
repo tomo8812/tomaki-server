@@ -1,0 +1,50 @@
+modLoader = "javafml"
+loaderVersion = "[1,)"
+license = "Apache-2.0"
+#showAsResourcePack = true #optional:false
+#showAsDataPack = true #optional:false
+#services = [] #optional:none
+#properties = {} #optional:none
+issueTrackerURL = "https://github.com/TerminalMC/ClientSort/issues" #optional:none
+
+[[mods]]
+modId = "clientsort"
+version = "3.89.2" #optional:"1"
+displayName = "ClientSort" #optional:modId
+description = '''Versatile and easy inventory sorting.''' #optional:'''MISSING DESCRIPTION'''
+logoFile = "assets/clientsort/icon.png" #optional:none
+#logoBlur = false #optional:true
+#updateJSONURL = "" #optional:none
+features = { java_version = "[21,)" } #optional:none
+#modproperties = {} #optional:none
+credits = "Siphalor (Mouse Wheelie), Roundaround (Inventory Management), TauCu (#49, #81), octoturt (#14), Xinyang-Gao (zh_cn), rfin0 (ru_ru)" #optional:none
+authors = "NotRyken" #optional:none
+displayURL = "https://modrinth.com/project/K0AkAin6" #optional:none
+
+[[mixins]]
+config = "clientsort.mixins.json"
+[[mixins]]
+config = "clientsort.neoforge.mixins.json"
+
+[[dependencies.clientsort]]
+modId = "minecraft"
+#type = "" #optional:"required" #options:"required","optional","incompatible","discouraged"
+#reason = "" #optional:none
+versionRange = "[1.21.1,)" #optional:any
+#ordering = "" #optional:"NONE" #options:"BEFORE","AFTER"
+#side = "" #optional:"BOTH" #options:"CLIENT","SERVER","BOTH"
+
+[[dependencies.clientsort]]
+modId = "neoforge"
+versionRange = "[21.1.195,)"
+
+[[dependencies.clientsort]]
+modId="cloth-config"
+type="optional"
+versionRange="[15,)"
+side="BOTH"
+
+
+
+# https://docs.neoforged.net/docs/gettingstarted/modfiles/#neoforgemodstoml
+# https://docs.neoforged.net/docs/misc/updatechecker

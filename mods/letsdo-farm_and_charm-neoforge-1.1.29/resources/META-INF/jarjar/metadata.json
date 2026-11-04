@@ -1,0 +1,15 @@
+{
+  "jars": [
+    {
+      "identifier": {
+        "group": "net.satisfy.foundation",
+        "artifact": "foundation-neoforge"
+      },
+      "version": {
+        "range": "[1.0.7,)",
+        "artifactVersion": "1.0.7"
+      },
+      "path": "META-INF/jars/foundation-neoforge-1.0.7.jar"
+    }
+  ]
+}

@@ -1,0 +1,124 @@
+{
+  "culture": "millenaire:mayan",
+  "building_id": "mayancacaofarm",
+  "category": "houses",
+  "native_name": "Ka\u0027kau\u0027 Makan",
+  "converter_skip": true,
+  "male": [
+    "cocoafarmer"
+  ],
+  "female": [
+    "peasantwife"
+  ],
+  "priority_move_in": 10,
+  "tags": [
+    "cacaofarm",
+    "nopaths"
+  ],
+  "icon": "minecraft:cocoa_beans",
+  "shop": "mayancocoa",
+  "travel_book_category": "othervillage",
+  "variants": [
+    {
+      "variant": "a",
+      "building_orientation": 1,
+      "ground_level": -1,
+      "tags": [
+        "cacaofarm",
+        "nopaths"
+      ],
+      "levels": [
+        {
+          "level": 0,
+          "footprint": {
+            "width": 13,
+            "height": 6,
+            "depth": 10
+          },
+          "priority": 800
+        },
+        {
+          "level": 1,
+          "footprint": {
+            "width": 13,
+            "height": 6,
+            "depth": 10
+          },
+          "priority": 80
+        },
+        {
+          "level": 2,
+          "footprint": {
+            "width": 13,
+            "height": 6,
+            "depth": 10
+          },
+          "priority": 75
+        },
+        {
+          "level": 3,
+          "footprint": {
+            "width": 13,
+            "height": 6,
+            "depth": 10
+          },
+          "priority": 70,
+          "path_level": 1
+        }
+      ]
+    },
+    {
+      "variant": "b",
+      "building_orientation": 1,
+      "ground_level": -1,
+      "tags": [
+        "cacaofarm",
+        "nopaths"
+      ],
+      "levels": [
+        {
+          "level": 0,
+          "footprint": {
+            "width": 10,
+            "height": 6,
+            "depth": 10
+          },
+          "priority": 800,
+          "infoSoils": [
+            {
+              "crop": "cacao"
+            }
+          ]
+        },
+        {
+          "level": 1,
+          "footprint": {
+            "width": 10,
+            "height": 6,
+            "depth": 10
+          },
+          "priority": 80
+        },
+        {
+          "level": 2,
+          "footprint": {
+            "width": 10,
+            "height": 6,
+            "depth": 10
+          },
+          "priority": 75
+        },
+        {
+          "level": 3,
+          "footprint": {
+            "width": 10,
+            "height": 6,
+            "depth": 10
+          },
+          "priority": 70,
+          "path_level": 1
+        }
+      ]
+    }
+  ]
+}

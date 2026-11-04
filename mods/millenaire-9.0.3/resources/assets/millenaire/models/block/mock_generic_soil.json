@@ -1,0 +1,6 @@
+{
+  "parent": "millenaire:block/mock_generic_soil_base",
+  "textures": {
+    "top": "minecraft:block/farmland"
+  }
+}

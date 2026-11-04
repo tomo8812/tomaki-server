@@ -1,0 +1,35 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="All Rights Reserved"
+[[mods]]
+modId="maki_airship_compat"
+version="1.0.12"
+displayName="Maki Airship Compatibility"
+description="Ship-relative seating, sleeping, wake-up and delayed passenger state recovery."
+[[mixins]]
+config="maki-airship-compat.mixins.json"
+[[dependencies.maki_airship_compat]]
+modId="neoforge"
+type="required"
+versionRange="[21.1,)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.maki_airship_compat]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"
+[[dependencies.maki_airship_compat]]
+modId="valkyrienskies"
+type="required"
+versionRange="[2.4.12-td.9_66a13242ed]"
+ordering="AFTER"
+side="BOTH"
+[[dependencies.maki_airship_compat]]
+modId="foundation"
+type="required"
+versionRange="[1.0.6,)"
+ordering="AFTER"
+side="BOTH"
+

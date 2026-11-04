@@ -1,0 +1,9 @@
+{
+  "parent": "foundation:block/template_drawer_open",
+  "textures": {
+    "front": "candlelight:block/spruce_drawer",
+    "side": "candlelight:block/spruce_cabinet_side",
+    "top": "candlelight:block/spruce_cabinet_top",
+    "inside": "candlelight:block/spruce_cabinet_open"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "required": true,
+  "minVersion": "0.8.0",
+  "package": "dev.terminalmc.clientsort.mixin",
+  "refmap": "clientsort.refmap.json",
+  "compatibilityLevel": "JAVA_21",
+  "plugin": "dev.terminalmc.clientsort.util.MixinConfigPlugin",
+  "mixinextras": {
+    "minVersion": "0.5.0"
+  },
+  "mixins": [
+    "accessor.ContainerAccessor",
+    "slot.SlotMixin"
+  ],
+  "client": [
+    "client.AbstractContainerScreenMixin",
+    "client.ClientPacketListenerMixin",
+    "client.CreativeModeInventoryScreenMixin",
+    "client.LocalPlayerMixin",
+    "client.MinecraftMixin",
+    "client.ScreenMixin",
+    "client.accessor.AbstractContainerScreenAccessor",
+    "client.accessor.CreativeModeTabsAccessor",
+    "client.accessor.KeyMappingAccessor",
+    "client.accessor.ScreenAccessor",
+    "client.compat.emi.ReloadWorkerMixin",
+    "client.slot.CreativeSlotMixin"
+  ],
+  "server": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

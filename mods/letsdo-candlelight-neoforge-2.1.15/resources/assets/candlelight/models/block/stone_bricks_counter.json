@@ -1,0 +1,8 @@
+{
+  "parent": "foundation:block/template_counter",
+  "textures": {
+    "side": "candlelight:block/stone_bricks_kitchen_side",
+    "top": "candlelight:block/counter_top",
+    "bottom": "candlelight:block/stone_bricks_counter_bottom"
+  }
+}

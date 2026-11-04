@@ -1,0 +1,544 @@
+package net.satisfy.candlelight.forge.config;
+
+import net.neoforged.neoforge.common.ModConfigSpec;
+import net.neoforged.neoforge.common.ModConfigSpec.BooleanValue;
+import net.neoforged.neoforge.common.ModConfigSpec.Builder;
+import net.neoforged.neoforge.common.ModConfigSpec.DoubleValue;
+import net.neoforged.neoforge.common.ModConfigSpec.IntValue;
+
+public final class CandlelightNeoForgeConfig {
+   public static final ModConfigSpec COMMON;
+   private static final DoubleValue TABLE_SET_FOOD_BONUS;
+   private static final DoubleValue ELEGANT_FOOD_BONUS;
+   private static final IntValue WELL_SERVED_TICKS_PER_COURSE;
+   private static final IntValue MAX_WELL_SERVED_TICKS;
+   private static final BooleanValue ENABLE_DINNER_MENU;
+   private static final IntValue MENU_BONUS_TICKS;
+   private static final IntValue MAX_MENU_WELL_SERVED_TICKS;
+   private static final IntValue MENU_MAX_TICKS_BETWEEN_COURSES;
+   private static final BooleanValue ENABLE_TABLE_LIGHTS;
+   private static final IntValue TABLE_LIGHT_RADIUS;
+   private static final BooleanValue ENABLE_TABLE_DRINKS;
+   private static final IntValue TABLE_SIGN_MAX_LINES;
+   private static final BooleanValue ENABLE_DINNER_GUESTS;
+   private static final IntValue DINNER_GUEST_CHANCE;
+   private static final IntValue DINNER_GUEST_RANGE;
+   private static final IntValue DINNER_GUEST_INTERVAL;
+   private static final IntValue DINNER_START;
+   private static final IntValue DINNER_END;
+   private static final BooleanValue NITWITS_EAT;
+   private static final IntValue DINNER_DISCOUNT_PERCENT;
+   private static final IntValue DINNER_DISCOUNT_TICKS;
+   private static final BooleanValue DISCOUNT_ONLY_HOST;
+   private static final BooleanValue ENABLE_CHEF_SET_BONUS;
+   private static final IntValue CHEF_SET_EXTRA_PORTION_CHANCE;
+   private static final BooleanValue ENABLE_ELEGANT_SET_BONUS;
+   private static final BooleanValue SHOW_SET_BONUS_TOOLTIPS;
+   private static final IntValue ZOMBIE_COOKING_HAT_CHANCE;
+   private static final BooleanValue SHOW_TABLE_SET_INFO;
+   private static final BooleanValue SHOW_SIDE_TABLE_INFO;
+   private static final BooleanValue SHOW_TABLE_SIGN_INFO;
+   private static final IntValue WELL_SERVED_FOOD_FLOOR;
+   private static final IntValue REFRESHED_MAX_CHARGES;
+   private static final BooleanValue ENABLE_RING_LUCK;
+   private static final IntValue RING_LUCK_AMPLIFIER;
+   private static final BooleanValue BANNER_GIVE_EFFECT;
+   private static final IntValue BANNER_EFFECT_RADIUS;
+   private static final IntValue BANNER_EFFECT_AMPLIFIER;
+   private static final BooleanValue ENABLE_NAPKIN_SOUND;
+   private static final BooleanValue ENABLE_DISH_STEAM;
+   private static final IntValue DISH_STEAM_TICKS;
+   private static final IntValue TOMATO_SOUP_NUTRITION;
+   private static final DoubleValue TOMATO_SOUP_SATURATION;
+   private static final IntValue MUSHROOM_SOUP_NUTRITION;
+   private static final DoubleValue MUSHROOM_SOUP_SATURATION;
+   private static final IntValue PASTA_WITH_MOZZARELLA_NUTRITION;
+   private static final DoubleValue PASTA_WITH_MOZZARELLA_SATURATION;
+   private static final IntValue BOLOGNESE_NUTRITION;
+   private static final DoubleValue BOLOGNESE_SATURATION;
+   private static final IntValue BEEF_WITH_MUSHROOM_IN_WINE_AND_POTATOES_NUTRITION;
+   private static final DoubleValue BEEF_WITH_MUSHROOM_IN_WINE_AND_POTATOES_SATURATION;
+   private static final IntValue PASTA_WITH_BOLOGNESE_NUTRITION;
+   private static final DoubleValue PASTA_WITH_BOLOGNESE_SATURATION;
+   private static final IntValue ROASTBEEF_WITH_GLAZED_CARROTS_NUTRITION;
+   private static final DoubleValue ROASTBEEF_WITH_GLAZED_CARROTS_SATURATION;
+   private static final IntValue ROASTED_LAMB_WITH_LETTUCE_NUTRITION;
+   private static final DoubleValue ROASTED_LAMB_WITH_LETTUCE_SATURATION;
+   private static final IntValue FILLET_STEAK_NUTRITION;
+   private static final DoubleValue FILLET_STEAK_SATURATION;
+   private static final IntValue TROPICAL_FISH_SUPREME_NUTRITION;
+   private static final DoubleValue TROPICAL_FISH_SUPREME_SATURATION;
+   private static final IntValue CHICKEN_ALFREDO_NUTRITION;
+   private static final DoubleValue CHICKEN_ALFREDO_SATURATION;
+   private static final IntValue SALMON_ON_WHITE_WINE_NUTRITION;
+   private static final DoubleValue SALMON_ON_WHITE_WINE_SATURATION;
+   private static final IntValue CHICKEN_WITH_VEGETABLES_NUTRITION;
+   private static final DoubleValue CHICKEN_WITH_VEGETABLES_SATURATION;
+   private static final IntValue PORK_RIBS_NUTRITION;
+   private static final DoubleValue PORK_RIBS_SATURATION;
+   private static final IntValue LASAGNE_NUTRITION;
+   private static final DoubleValue LASAGNE_SATURATION;
+   private static final IntValue BEEF_WELLINGTON_NUTRITION;
+   private static final DoubleValue BEEF_WELLINGTON_SATURATION;
+   private static final IntValue MOZZARELLA_NUTRITION;
+   private static final DoubleValue MOZZARELLA_SATURATION;
+   private static final IntValue POTROAST_NUTRITION;
+   private static final DoubleValue POTROAST_SATURATION;
+   private static final IntValue BEETROOT_SALAD_NUTRITION;
+   private static final DoubleValue BEETROOT_SALAD_SATURATION;
+   private static final IntValue BEETROOT_SALAD_EFFECT_DURATION;
+   private static final IntValue CHICKEN_TERIYAKI_NUTRITION;
+   private static final DoubleValue CHICKEN_TERIYAKI_SATURATION;
+   private static final IntValue CHICKEN_TERIYAKI_EFFECT_DURATION;
+   private static final IntValue SALAD_NUTRITION;
+   private static final DoubleValue SALAD_SATURATION;
+   private static final IntValue SALAD_EFFECT_DURATION;
+   private static final IntValue BEEF_TARTARE_NUTRITION;
+   private static final DoubleValue BEEF_TARTARE_SATURATION;
+   private static final IntValue BEEF_TARTARE_EFFECT_DURATION;
+   private static final IntValue PASTA_WITH_LETTUCE_NUTRITION;
+   private static final DoubleValue PASTA_WITH_LETTUCE_SATURATION;
+   private static final IntValue PASTA_WITH_LETTUCE_EFFECT_DURATION;
+   private static final IntValue OMELET_NUTRITION;
+   private static final DoubleValue OMELET_SATURATION;
+   private static final IntValue OMELET_EFFECT_DURATION;
+   private static final IntValue HARVEST_PLATE_NUTRITION;
+   private static final DoubleValue HARVEST_PLATE_SATURATION;
+   private static final IntValue HARVEST_PLATE_EFFECT_DURATION;
+   private static final IntValue CHOCOLATE_MOUSSE_NUTRITION;
+   private static final DoubleValue CHOCOLATE_MOUSSE_SATURATION;
+   private static final IntValue CHOCOLATE_MOUSSE_EFFECT_DURATION;
+   private static final IntValue FRESH_GARDEN_SALAD_NUTRITION;
+   private static final DoubleValue FRESH_GARDEN_SALAD_SATURATION;
+   private static final IntValue FRESH_GARDEN_SALAD_EFFECT_DURATION;
+   private static final IntValue TOMATO_MOZZARELLA_SALAD_NUTRITION;
+   private static final DoubleValue TOMATO_MOZZARELLA_SALAD_SATURATION;
+   private static final IntValue TOMATO_MOZZARELLA_SALAD_EFFECT_DURATION;
+   public static double tableSetFoodBonus = 1.3;
+   public static double elegantFoodBonus = 1.5;
+   public static int wellServedTicksPerCourse = 1200;
+   public static int maxWellServedTicks = 12000;
+   public static boolean enableDinnerMenu = true;
+   public static int menuBonusTicks = 6000;
+   public static int maxMenuWellServedTicks = 18000;
+   public static int menuMaxTicksBetweenCourses = 6000;
+   public static boolean enableTableLights = true;
+   public static int tableLightRadius = 1;
+   public static boolean enableTableDrinks = true;
+   public static int tableSignMaxLines = 8;
+   public static boolean enableDinnerGuests = true;
+   public static int dinnerGuestChance = 30;
+   public static int dinnerGuestRange = 16;
+   public static int dinnerGuestInterval = 200;
+   public static int dinnerStart = 9000;
+   public static int dinnerEnd = 12000;
+   public static boolean nitwitsEat = true;
+   public static int dinnerDiscountPercent = 10;
+   public static int dinnerDiscountTicks = 24000;
+   public static boolean discountOnlyHost = false;
+   public static boolean enableChefSetBonus = true;
+   public static int chefSetExtraPortionChance = 25;
+   public static boolean enableElegantSetBonus = true;
+   public static boolean showSetBonusTooltips = true;
+   public static int zombieCookingHatChance = 3;
+   public static boolean showTableSetInfo = true;
+   public static boolean showSideTableInfo = true;
+   public static boolean showTableSignInfo = true;
+   public static int wellServedFoodFloor = 8;
+   public static int refreshedMaxCharges = 10;
+   public static boolean enableRingLuck = true;
+   public static int ringLuckAmplifier = 1;
+   public static boolean bannerGiveEffect = true;
+   public static int bannerEffectRadius = 8;
+   public static int bannerEffectAmplifier = 0;
+   public static boolean enableNapkinSound = true;
+   public static boolean enableDishSteam = true;
+   public static int dishSteamTicks = 2400;
+   public static int tomatoSoupNutrition = 5;
+   public static double tomatoSoupSaturation = 0.6;
+   public static int mushroomSoupNutrition = 6;
+   public static double mushroomSoupSaturation = 0.6;
+   public static int pastaWithMozzarellaNutrition = 6;
+   public static double pastaWithMozzarellaSaturation = 0.6;
+   public static int bologneseNutrition = 7;
+   public static double bologneseSaturation = 0.7;
+   public static int beefWithMushroomInWineAndPotatoesNutrition = 8;
+   public static double beefWithMushroomInWineAndPotatoesSaturation = 0.8;
+   public static int pastaWithBologneseNutrition = 12;
+   public static double pastaWithBologneseSaturation = 0.8;
+   public static int roastbeefWithGlazedCarrotsNutrition = 6;
+   public static double roastbeefWithGlazedCarrotsSaturation = 0.6;
+   public static int roastedLambWithLettuceNutrition = 7;
+   public static double roastedLambWithLettuceSaturation = 0.8;
+   public static int filletSteakNutrition = 11;
+   public static double filletSteakSaturation = 0.8;
+   public static int tropicalFishSupremeNutrition = 5;
+   public static double tropicalFishSupremeSaturation = 0.6;
+   public static int chickenAlfredoNutrition = 6;
+   public static double chickenAlfredoSaturation = 0.6;
+   public static int salmonOnWhiteWineNutrition = 6;
+   public static double salmonOnWhiteWineSaturation = 0.8;
+   public static int chickenWithVegetablesNutrition = 6;
+   public static double chickenWithVegetablesSaturation = 0.7;
+   public static int porkRibsNutrition = 5;
+   public static double porkRibsSaturation = 0.8;
+   public static int lasagneNutrition = 5;
+   public static double lasagneSaturation = 0.8;
+   public static int beefWellingtonNutrition = 9;
+   public static double beefWellingtonSaturation = 0.8;
+   public static int mozzarellaNutrition = 3;
+   public static double mozzarellaSaturation = 0.4;
+   public static int potroastNutrition = 12;
+   public static double potroastSaturation = 0.9;
+   public static int beetrootSaladNutrition = 5;
+   public static double beetrootSaladSaturation = 0.6;
+   public static int beetrootSaladEffectDuration = 2400;
+   public static int chickenTeriyakiNutrition = 5;
+   public static double chickenTeriyakiSaturation = 0.6;
+   public static int chickenTeriyakiEffectDuration = 6000;
+   public static int saladNutrition = 5;
+   public static double saladSaturation = 0.6;
+   public static int saladEffectDuration = 3600;
+   public static int beefTartareNutrition = 7;
+   public static double beefTartareSaturation = 0.8;
+   public static int beefTartareEffectDuration = 3000;
+   public static int pastaWithLettuceNutrition = 9;
+   public static double pastaWithLettuceSaturation = 0.8;
+   public static int pastaWithLettuceEffectDuration = 3600;
+   public static int omeletNutrition = 5;
+   public static double omeletSaturation = 0.5;
+   public static int omeletEffectDuration = 4800;
+   public static int harvestPlateNutrition = 5;
+   public static double harvestPlateSaturation = 0.6;
+   public static int harvestPlateEffectDuration = 4800;
+   public static int chocolateMousseNutrition = 4;
+   public static double chocolateMousseSaturation = 0.3;
+   public static int chocolateMousseEffectDuration = 2400;
+   public static int freshGardenSaladNutrition = 3;
+   public static double freshGardenSaladSaturation = 0.6;
+   public static int freshGardenSaladEffectDuration = 3600;
+   public static int tomatoMozzarellaSaladNutrition = 3;
+   public static double tomatoMozzarellaSaladSaturation = 0.6;
+   public static int tomatoMozzarellaSaladEffectDuration = 4800;
+
+   private CandlelightNeoForgeConfig() {
+   }
+
+   public static void sync() {
+      tableSetFoodBonus = (Double)TABLE_SET_FOOD_BONUS.get();
+      elegantFoodBonus = (Double)ELEGANT_FOOD_BONUS.get();
+      wellServedTicksPerCourse = (Integer)WELL_SERVED_TICKS_PER_COURSE.get();
+      maxWellServedTicks = (Integer)MAX_WELL_SERVED_TICKS.get();
+      enableDinnerMenu = (Boolean)ENABLE_DINNER_MENU.get();
+      menuBonusTicks = (Integer)MENU_BONUS_TICKS.get();
+      maxMenuWellServedTicks = (Integer)MAX_MENU_WELL_SERVED_TICKS.get();
+      menuMaxTicksBetweenCourses = (Integer)MENU_MAX_TICKS_BETWEEN_COURSES.get();
+      enableTableLights = (Boolean)ENABLE_TABLE_LIGHTS.get();
+      tableLightRadius = (Integer)TABLE_LIGHT_RADIUS.get();
+      enableTableDrinks = (Boolean)ENABLE_TABLE_DRINKS.get();
+      tableSignMaxLines = (Integer)TABLE_SIGN_MAX_LINES.get();
+      enableDinnerGuests = (Boolean)ENABLE_DINNER_GUESTS.get();
+      dinnerGuestChance = (Integer)DINNER_GUEST_CHANCE.get();
+      dinnerGuestRange = (Integer)DINNER_GUEST_RANGE.get();
+      dinnerGuestInterval = (Integer)DINNER_GUEST_INTERVAL.get();
+      dinnerStart = (Integer)DINNER_START.get();
+      dinnerEnd = (Integer)DINNER_END.get();
+      nitwitsEat = (Boolean)NITWITS_EAT.get();
+      dinnerDiscountPercent = (Integer)DINNER_DISCOUNT_PERCENT.get();
+      dinnerDiscountTicks = (Integer)DINNER_DISCOUNT_TICKS.get();
+      discountOnlyHost = (Boolean)DISCOUNT_ONLY_HOST.get();
+      enableChefSetBonus = (Boolean)ENABLE_CHEF_SET_BONUS.get();
+      chefSetExtraPortionChance = (Integer)CHEF_SET_EXTRA_PORTION_CHANCE.get();
+      enableElegantSetBonus = (Boolean)ENABLE_ELEGANT_SET_BONUS.get();
+      showSetBonusTooltips = (Boolean)SHOW_SET_BONUS_TOOLTIPS.get();
+      zombieCookingHatChance = (Integer)ZOMBIE_COOKING_HAT_CHANCE.get();
+      showTableSetInfo = (Boolean)SHOW_TABLE_SET_INFO.get();
+      showSideTableInfo = (Boolean)SHOW_SIDE_TABLE_INFO.get();
+      showTableSignInfo = (Boolean)SHOW_TABLE_SIGN_INFO.get();
+      wellServedFoodFloor = (Integer)WELL_SERVED_FOOD_FLOOR.get();
+      refreshedMaxCharges = (Integer)REFRESHED_MAX_CHARGES.get();
+      enableRingLuck = (Boolean)ENABLE_RING_LUCK.get();
+      ringLuckAmplifier = (Integer)RING_LUCK_AMPLIFIER.get();
+      bannerGiveEffect = (Boolean)BANNER_GIVE_EFFECT.get();
+      bannerEffectRadius = (Integer)BANNER_EFFECT_RADIUS.get();
+      bannerEffectAmplifier = (Integer)BANNER_EFFECT_AMPLIFIER.get();
+      enableNapkinSound = (Boolean)ENABLE_NAPKIN_SOUND.get();
+      enableDishSteam = (Boolean)ENABLE_DISH_STEAM.get();
+      dishSteamTicks = (Integer)DISH_STEAM_TICKS.get();
+      tomatoSoupNutrition = (Integer)TOMATO_SOUP_NUTRITION.get();
+      tomatoSoupSaturation = (Double)TOMATO_SOUP_SATURATION.get();
+      mushroomSoupNutrition = (Integer)MUSHROOM_SOUP_NUTRITION.get();
+      mushroomSoupSaturation = (Double)MUSHROOM_SOUP_SATURATION.get();
+      pastaWithMozzarellaNutrition = (Integer)PASTA_WITH_MOZZARELLA_NUTRITION.get();
+      pastaWithMozzarellaSaturation = (Double)PASTA_WITH_MOZZARELLA_SATURATION.get();
+      bologneseNutrition = (Integer)BOLOGNESE_NUTRITION.get();
+      bologneseSaturation = (Double)BOLOGNESE_SATURATION.get();
+      beefWithMushroomInWineAndPotatoesNutrition = (Integer)BEEF_WITH_MUSHROOM_IN_WINE_AND_POTATOES_NUTRITION.get();
+      beefWithMushroomInWineAndPotatoesSaturation = (Double)BEEF_WITH_MUSHROOM_IN_WINE_AND_POTATOES_SATURATION.get();
+      pastaWithBologneseNutrition = (Integer)PASTA_WITH_BOLOGNESE_NUTRITION.get();
+      pastaWithBologneseSaturation = (Double)PASTA_WITH_BOLOGNESE_SATURATION.get();
+      roastbeefWithGlazedCarrotsNutrition = (Integer)ROASTBEEF_WITH_GLAZED_CARROTS_NUTRITION.get();
+      roastbeefWithGlazedCarrotsSaturation = (Double)ROASTBEEF_WITH_GLAZED_CARROTS_SATURATION.get();
+      roastedLambWithLettuceNutrition = (Integer)ROASTED_LAMB_WITH_LETTUCE_NUTRITION.get();
+      roastedLambWithLettuceSaturation = (Double)ROASTED_LAMB_WITH_LETTUCE_SATURATION.get();
+      filletSteakNutrition = (Integer)FILLET_STEAK_NUTRITION.get();
+      filletSteakSaturation = (Double)FILLET_STEAK_SATURATION.get();
+      tropicalFishSupremeNutrition = (Integer)TROPICAL_FISH_SUPREME_NUTRITION.get();
+      tropicalFishSupremeSaturation = (Double)TROPICAL_FISH_SUPREME_SATURATION.get();
+      chickenAlfredoNutrition = (Integer)CHICKEN_ALFREDO_NUTRITION.get();
+      chickenAlfredoSaturation = (Double)CHICKEN_ALFREDO_SATURATION.get();
+      salmonOnWhiteWineNutrition = (Integer)SALMON_ON_WHITE_WINE_NUTRITION.get();
+      salmonOnWhiteWineSaturation = (Double)SALMON_ON_WHITE_WINE_SATURATION.get();
+      chickenWithVegetablesNutrition = (Integer)CHICKEN_WITH_VEGETABLES_NUTRITION.get();
+      chickenWithVegetablesSaturation = (Double)CHICKEN_WITH_VEGETABLES_SATURATION.get();
+      porkRibsNutrition = (Integer)PORK_RIBS_NUTRITION.get();
+      porkRibsSaturation = (Double)PORK_RIBS_SATURATION.get();
+      lasagneNutrition = (Integer)LASAGNE_NUTRITION.get();
+      lasagneSaturation = (Double)LASAGNE_SATURATION.get();
+      beefWellingtonNutrition = (Integer)BEEF_WELLINGTON_NUTRITION.get();
+      beefWellingtonSaturation = (Double)BEEF_WELLINGTON_SATURATION.get();
+      mozzarellaNutrition = (Integer)MOZZARELLA_NUTRITION.get();
+      mozzarellaSaturation = (Double)MOZZARELLA_SATURATION.get();
+      potroastNutrition = (Integer)POTROAST_NUTRITION.get();
+      potroastSaturation = (Double)POTROAST_SATURATION.get();
+      beetrootSaladNutrition = (Integer)BEETROOT_SALAD_NUTRITION.get();
+      beetrootSaladSaturation = (Double)BEETROOT_SALAD_SATURATION.get();
+      beetrootSaladEffectDuration = (Integer)BEETROOT_SALAD_EFFECT_DURATION.get();
+      chickenTeriyakiNutrition = (Integer)CHICKEN_TERIYAKI_NUTRITION.get();
+      chickenTeriyakiSaturation = (Double)CHICKEN_TERIYAKI_SATURATION.get();
+      chickenTeriyakiEffectDuration = (Integer)CHICKEN_TERIYAKI_EFFECT_DURATION.get();
+      saladNutrition = (Integer)SALAD_NUTRITION.get();
+      saladSaturation = (Double)SALAD_SATURATION.get();
+      saladEffectDuration = (Integer)SALAD_EFFECT_DURATION.get();
+      beefTartareNutrition = (Integer)BEEF_TARTARE_NUTRITION.get();
+      beefTartareSaturation = (Double)BEEF_TARTARE_SATURATION.get();
+      beefTartareEffectDuration = (Integer)BEEF_TARTARE_EFFECT_DURATION.get();
+      pastaWithLettuceNutrition = (Integer)PASTA_WITH_LETTUCE_NUTRITION.get();
+      pastaWithLettuceSaturation = (Double)PASTA_WITH_LETTUCE_SATURATION.get();
+      pastaWithLettuceEffectDuration = (Integer)PASTA_WITH_LETTUCE_EFFECT_DURATION.get();
+      omeletNutrition = (Integer)OMELET_NUTRITION.get();
+      omeletSaturation = (Double)OMELET_SATURATION.get();
+      omeletEffectDuration = (Integer)OMELET_EFFECT_DURATION.get();
+      harvestPlateNutrition = (Integer)HARVEST_PLATE_NUTRITION.get();
+      harvestPlateSaturation = (Double)HARVEST_PLATE_SATURATION.get();
+      harvestPlateEffectDuration = (Integer)HARVEST_PLATE_EFFECT_DURATION.get();
+      chocolateMousseNutrition = (Integer)CHOCOLATE_MOUSSE_NUTRITION.get();
+      chocolateMousseSaturation = (Double)CHOCOLATE_MOUSSE_SATURATION.get();
+      chocolateMousseEffectDuration = (Integer)CHOCOLATE_MOUSSE_EFFECT_DURATION.get();
+      freshGardenSaladNutrition = (Integer)FRESH_GARDEN_SALAD_NUTRITION.get();
+      freshGardenSaladSaturation = (Double)FRESH_GARDEN_SALAD_SATURATION.get();
+      freshGardenSaladEffectDuration = (Integer)FRESH_GARDEN_SALAD_EFFECT_DURATION.get();
+      tomatoMozzarellaSaladNutrition = (Integer)TOMATO_MOZZARELLA_SALAD_NUTRITION.get();
+      tomatoMozzarellaSaladSaturation = (Double)TOMATO_MOZZARELLA_SALAD_SATURATION.get();
+      tomatoMozzarellaSaladEffectDuration = (Integer)TOMATO_MOZZARELLA_SALAD_EFFECT_DURATION.get();
+   }
+
+   static {
+      Builder builder = new Builder();
+      builder.comment("Table Sets, courses and the dinner menu.").push("Dinner");
+      TABLE_SET_FOOD_BONUS = builder.comment("Food eaten from a Table Set fills you up by this multiplier. 1.0 = no bonus.")
+         .defineInRange("tableSetFoodBonus", 1.3, 1.0, 3.0);
+      ELEGANT_FOOD_BONUS = builder.comment("Food bonus from a Table Set while wearing a full Suit or Evening Dress. 1.0 = no bonus.")
+         .defineInRange("elegantFoodBonus", 1.5, 1.0, 3.0);
+      WELL_SERVED_TICKS_PER_COURSE = builder.comment("Extra Well Served for every Table Setting, in ticks. 20 ticks = 1 second.")
+         .defineInRange("wellServedTicksPerCourse", 1200, 0, 12000);
+      MAX_WELL_SERVED_TICKS = builder.comment("Longest Well Served you can get from a Table Set, in ticks. 20 ticks = 1 second.")
+         .defineInRange("maxWellServedTicks", 12000, 0, 72000);
+      ENABLE_DINNER_MENU = builder.comment("Starter, main course and dessert in a row give a bonus.").define("enableDinnerMenu", true);
+      MENU_BONUS_TICKS = builder.comment("Extra Well Served and Refreshed for a full menu, in ticks. 20 ticks = 1 second.")
+         .defineInRange("menuBonusTicks", 6000, 0, 72000);
+      MAX_MENU_WELL_SERVED_TICKS = builder.comment("Longest Well Served you can get from a full menu, in ticks. 20 ticks = 1 second.")
+         .defineInRange("maxMenuWellServedTicks", 18000, 0, 72000);
+      MENU_MAX_TICKS_BETWEEN_COURSES = builder.comment("How long you may wait between two courses, in ticks. 20 ticks = 1 second.")
+         .defineInRange("menuMaxTicksBetweenCourses", 6000, 200, 72000);
+      ENABLE_TABLE_LIGHTS = builder.comment("A lit candle or lamp next to a Table Set counts as a Table Setting.").define("enableTableLights", true);
+      TABLE_LIGHT_RADIUS = builder.comment("Radius in blocks in which a light counts for a Table Set.").defineInRange("tableLightRadius", 1, 1, 4);
+      ENABLE_TABLE_DRINKS = builder.comment("Drinks can be poured into the glasses of a Table Set.").define("enableTableDrinks", true);
+      TABLE_SIGN_MAX_LINES = builder.comment("How many lines fit on a Table Sign.").defineInRange("tableSignMaxLines", 8, 1, 12);
+      builder.pop();
+      builder.comment("Villagers who come to dinner at your Table Sets.").push("Dinner Guests");
+      ENABLE_DINNER_GUESTS = builder.comment("Villagers may eat dishes from Table Sets in the evening.").define("enableDinnerGuests", true);
+      DINNER_GUEST_CHANCE = builder.comment("Chance in percent per check that a villager comes to the table.").defineInRange("dinnerGuestChance", 30, 0, 100);
+      DINNER_GUEST_RANGE = builder.comment("Radius in blocks in which villagers notice a served dish.").defineInRange("dinnerGuestRange", 16, 4, 64);
+      DINNER_GUEST_INTERVAL = builder.comment("Every how many ticks a Table Set looks for a guest. 20 ticks = 1 second.")
+         .defineInRange("dinnerGuestInterval", 200, 20, 6000);
+      DINNER_START = builder.comment("Time of day from which villagers come to dinner. 0 = sunrise, 6000 = noon, 12000 = sunset, 18000 = midnight.")
+         .defineInRange("dinnerStart", 9000, 0, 24000);
+      DINNER_END = builder.comment("Time of day until which villagers come to dinner. 0 = sunrise, 6000 = noon, 12000 = sunset, 18000 = midnight.")
+         .defineInRange("dinnerEnd", 12000, 0, 24000);
+      NITWITS_EAT = builder.comment("Nitwits eat the dish but give no discount.").define("nitwitsEat", true);
+      DINNER_DISCOUNT_PERCENT = builder.comment("Discount in percent on all trades after the dinner.").defineInRange("dinnerDiscountPercent", 10, 0, 100);
+      DINNER_DISCOUNT_TICKS = builder.comment("How long the discount lasts, in ticks. 24000 ticks = 1 day.")
+         .defineInRange("dinnerDiscountTicks", 24000, 1200, 240000);
+      DISCOUNT_ONLY_HOST = builder.comment("Only the player who served the dish gets the discount.").define("discountOnlyHost", false);
+      builder.pop();
+      builder.comment("Set bonuses of the Chef's Outfit, Suit and Evening Dress.").push("Clothing");
+      ENABLE_CHEF_SET_BONUS = builder.comment("Wearing the full Chef's Outfit gives a set bonus.").define("enableChefSetBonus", true);
+      CHEF_SET_EXTRA_PORTION_CHANCE = builder.comment(
+            "Chance in percent of an extra portion from the Cooking Pan and Cooking Pot while wearing the full Chef's Outfit."
+         )
+         .defineInRange("chefSetExtraPortionChance", 25, 0, 100);
+      ENABLE_ELEGANT_SET_BONUS = builder.comment("Wearing a full Suit or Evening Dress gives a set bonus.").define("enableElegantSetBonus", true);
+      SHOW_SET_BONUS_TOOLTIPS = builder.comment("Clothing shows its set pieces and bonus in the item tooltip.").define("showSetBonusTooltips", true);
+      ZOMBIE_COOKING_HAT_CHANCE = builder.comment("Chance in percent that a zombie spawns with a Cooking Hat.")
+         .defineInRange("zombieCookingHatChance", 3, 0, 100);
+      builder.pop();
+      builder.comment("Info tooltips that appear when looking at a block. Only affects your own screen.").push("Info Tooltips");
+      SHOW_TABLE_SET_INFO = builder.comment("Shows an info tooltip when looking at a Table Set.").define("showTableSetInfo", true);
+      SHOW_SIDE_TABLE_INFO = builder.comment("Shows an info tooltip when looking at a Side Table.").define("showSideTableInfo", true);
+      SHOW_TABLE_SIGN_INFO = builder.comment("Shows an info tooltip when looking at a Table Sign.").define("showTableSignInfo", true);
+      builder.pop();
+      builder.comment("Fine-tuning of the effects.").push("Effects");
+      builder.push("Well Served Effect");
+      WELL_SERVED_FOOD_FLOOR = builder.comment("Your hunger never drops below this while Well Served is active. 2 points = 1 drumstick.")
+         .defineInRange("wellServedFoodFloor", 8, 0, 20);
+      builder.pop();
+      builder.push("Refreshed Effect");
+      REFRESHED_MAX_CHARGES = builder.comment("How many harvests Refreshed covers.").defineInRange("refreshedMaxCharges", 10, 1, 64);
+      builder.pop();
+      builder.push("Gold Ring Effect");
+      ENABLE_RING_LUCK = builder.comment("Wearing the Gold Ring gives Luck.").define("enableRingLuck", true);
+      RING_LUCK_AMPLIFIER = builder.comment("Luck level of the Gold Ring. 0 = Luck I.").defineInRange("ringLuckAmplifier", 1, 0, 4);
+      builder.pop();
+      builder.push("Completionist Banner Effect");
+      BANNER_GIVE_EFFECT = builder.comment("Players near a placed Completionist Banner get its effect.").define("bannerGiveEffect", true);
+      BANNER_EFFECT_RADIUS = builder.comment("Radius in blocks of the Completionist Banner effect.").defineInRange("bannerEffectRadius", 8, 1, 32);
+      BANNER_EFFECT_AMPLIFIER = builder.comment("Level of the Completionist Banner effect. 0 = level I.").defineInRange("bannerEffectAmplifier", 0, 0, 4);
+      builder.pop();
+      builder.pop();
+      builder.comment("Sounds and particles.").push("Misc");
+      ENABLE_NAPKIN_SOUND = builder.comment("Plays a soft sound while dabbing with a Napkin.").define("enableNapkinSound", true);
+      ENABLE_DISH_STEAM = builder.comment("Freshly served dishes on a Table Set steam for a while.").define("enableDishSteam", true);
+      DISH_STEAM_TICKS = builder.comment("How long freshly served dishes steam, in ticks. 20 ticks = 1 second.")
+         .defineInRange("dishSteamTicks", 2400, 200, 12000);
+      builder.pop();
+      builder.comment("Hunger, saturation and effect duration in ticks of the food items. Changes need a game restart.").push("Food");
+      TOMATO_SOUP_NUTRITION = builder.comment("Hunger points restored by Tomato Soup. 2 points = 1 drumstick.").defineInRange("tomatoSoupNutrition", 5, 0, 20);
+      TOMATO_SOUP_SATURATION = builder.comment("Saturation given by Tomato Soup, multiplied with its hunger points.")
+         .defineInRange("tomatoSoupSaturation", 0.6, 0.0, 2.0);
+      MUSHROOM_SOUP_NUTRITION = builder.comment("Hunger points restored by Mushroom Soup. 2 points = 1 drumstick.")
+         .defineInRange("mushroomSoupNutrition", 6, 0, 20);
+      MUSHROOM_SOUP_SATURATION = builder.comment("Saturation given by Mushroom Soup, multiplied with its hunger points.")
+         .defineInRange("mushroomSoupSaturation", 0.6, 0.0, 2.0);
+      PASTA_WITH_MOZZARELLA_NUTRITION = builder.comment("Hunger points restored by Pasta with Mozzarella. 2 points = 1 drumstick.")
+         .defineInRange("pastaWithMozzarellaNutrition", 6, 0, 20);
+      PASTA_WITH_MOZZARELLA_SATURATION = builder.comment("Saturation given by Pasta with Mozzarella, multiplied with its hunger points.")
+         .defineInRange("pastaWithMozzarellaSaturation", 0.6, 0.0, 2.0);
+      BOLOGNESE_NUTRITION = builder.comment("Hunger points restored by Bolognese. 2 points = 1 drumstick.").defineInRange("bologneseNutrition", 7, 0, 20);
+      BOLOGNESE_SATURATION = builder.comment("Saturation given by Bolognese, multiplied with its hunger points.")
+         .defineInRange("bologneseSaturation", 0.7, 0.0, 2.0);
+      BEEF_WITH_MUSHROOM_IN_WINE_AND_POTATOES_NUTRITION = builder.comment(
+            "Hunger points restored by Beef with Mushrooms, White Wine and Potatoes. 2 points = 1 drumstick."
+         )
+         .defineInRange("beefWithMushroomInWineAndPotatoesNutrition", 8, 0, 20);
+      BEEF_WITH_MUSHROOM_IN_WINE_AND_POTATOES_SATURATION = builder.comment(
+            "Saturation given by Beef with Mushrooms, White Wine and Potatoes, multiplied with its hunger points."
+         )
+         .defineInRange("beefWithMushroomInWineAndPotatoesSaturation", 0.8, 0.0, 2.0);
+      PASTA_WITH_BOLOGNESE_NUTRITION = builder.comment("Hunger points restored by Pasta with Bolognese. 2 points = 1 drumstick.")
+         .defineInRange("pastaWithBologneseNutrition", 12, 0, 20);
+      PASTA_WITH_BOLOGNESE_SATURATION = builder.comment("Saturation given by Pasta with Bolognese, multiplied with its hunger points.")
+         .defineInRange("pastaWithBologneseSaturation", 0.8, 0.0, 2.0);
+      ROASTBEEF_WITH_GLAZED_CARROTS_NUTRITION = builder.comment("Hunger points restored by Roast Beef with Carrots. 2 points = 1 drumstick.")
+         .defineInRange("roastbeefWithGlazedCarrotsNutrition", 6, 0, 20);
+      ROASTBEEF_WITH_GLAZED_CARROTS_SATURATION = builder.comment("Saturation given by Roast Beef with Carrots, multiplied with its hunger points.")
+         .defineInRange("roastbeefWithGlazedCarrotsSaturation", 0.6, 0.0, 2.0);
+      ROASTED_LAMB_WITH_LETTUCE_NUTRITION = builder.comment("Hunger points restored by Roasted Lamb with Lettuce. 2 points = 1 drumstick.")
+         .defineInRange("roastedLambWithLettuceNutrition", 7, 0, 20);
+      ROASTED_LAMB_WITH_LETTUCE_SATURATION = builder.comment("Saturation given by Roasted Lamb with Lettuce, multiplied with its hunger points.")
+         .defineInRange("roastedLambWithLettuceSaturation", 0.8, 0.0, 2.0);
+      FILLET_STEAK_NUTRITION = builder.comment("Hunger points restored by Fillet Steak. 2 points = 1 drumstick.")
+         .defineInRange("filletSteakNutrition", 11, 0, 20);
+      FILLET_STEAK_SATURATION = builder.comment("Saturation given by Fillet Steak, multiplied with its hunger points.")
+         .defineInRange("filletSteakSaturation", 0.8, 0.0, 2.0);
+      TROPICAL_FISH_SUPREME_NUTRITION = builder.comment("Hunger points restored by Tropical Fish Supreme. 2 points = 1 drumstick.")
+         .defineInRange("tropicalFishSupremeNutrition", 5, 0, 20);
+      TROPICAL_FISH_SUPREME_SATURATION = builder.comment("Saturation given by Tropical Fish Supreme, multiplied with its hunger points.")
+         .defineInRange("tropicalFishSupremeSaturation", 0.6, 0.0, 2.0);
+      CHICKEN_ALFREDO_NUTRITION = builder.comment("Hunger points restored by Chicken Alfredo. 2 points = 1 drumstick.")
+         .defineInRange("chickenAlfredoNutrition", 6, 0, 20);
+      CHICKEN_ALFREDO_SATURATION = builder.comment("Saturation given by Chicken Alfredo, multiplied with its hunger points.")
+         .defineInRange("chickenAlfredoSaturation", 0.6, 0.0, 2.0);
+      SALMON_ON_WHITE_WINE_NUTRITION = builder.comment("Hunger points restored by Salmon with White Wine Sauce. 2 points = 1 drumstick.")
+         .defineInRange("salmonOnWhiteWineNutrition", 6, 0, 20);
+      SALMON_ON_WHITE_WINE_SATURATION = builder.comment("Saturation given by Salmon with White Wine Sauce, multiplied with its hunger points.")
+         .defineInRange("salmonOnWhiteWineSaturation", 0.8, 0.0, 2.0);
+      CHICKEN_WITH_VEGETABLES_NUTRITION = builder.comment("Hunger points restored by Chicken with Vegetables. 2 points = 1 drumstick.")
+         .defineInRange("chickenWithVegetablesNutrition", 6, 0, 20);
+      CHICKEN_WITH_VEGETABLES_SATURATION = builder.comment("Saturation given by Chicken with Vegetables, multiplied with its hunger points.")
+         .defineInRange("chickenWithVegetablesSaturation", 0.7, 0.0, 2.0);
+      PORK_RIBS_NUTRITION = builder.comment("Hunger points restored by Pork Ribs. 2 points = 1 drumstick.").defineInRange("porkRibsNutrition", 5, 0, 20);
+      PORK_RIBS_SATURATION = builder.comment("Saturation given by Pork Ribs, multiplied with its hunger points.")
+         .defineInRange("porkRibsSaturation", 0.8, 0.0, 2.0);
+      LASAGNE_NUTRITION = builder.comment("Hunger points restored by Lasagne. 2 points = 1 drumstick.").defineInRange("lasagneNutrition", 5, 0, 20);
+      LASAGNE_SATURATION = builder.comment("Saturation given by Lasagne, multiplied with its hunger points.").defineInRange("lasagneSaturation", 0.8, 0.0, 2.0);
+      BEEF_WELLINGTON_NUTRITION = builder.comment("Hunger points restored by Beef Wellington. 2 points = 1 drumstick.")
+         .defineInRange("beefWellingtonNutrition", 9, 0, 20);
+      BEEF_WELLINGTON_SATURATION = builder.comment("Saturation given by Beef Wellington, multiplied with its hunger points.")
+         .defineInRange("beefWellingtonSaturation", 0.8, 0.0, 2.0);
+      MOZZARELLA_NUTRITION = builder.comment("Hunger points restored by Mozzarella. 2 points = 1 drumstick.").defineInRange("mozzarellaNutrition", 3, 0, 20);
+      MOZZARELLA_SATURATION = builder.comment("Saturation given by Mozzarella, multiplied with its hunger points.")
+         .defineInRange("mozzarellaSaturation", 0.4, 0.0, 2.0);
+      POTROAST_NUTRITION = builder.comment("Hunger points restored by Pot Roast. 2 points = 1 drumstick.").defineInRange("potroastNutrition", 12, 0, 20);
+      POTROAST_SATURATION = builder.comment("Saturation given by Pot Roast, multiplied with its hunger points.")
+         .defineInRange("potroastSaturation", 0.9, 0.0, 2.0);
+      BEETROOT_SALAD_NUTRITION = builder.comment("Hunger points restored by Beetroot Salad. 2 points = 1 drumstick.")
+         .defineInRange("beetrootSaladNutrition", 5, 0, 20);
+      BEETROOT_SALAD_SATURATION = builder.comment("Saturation given by Beetroot Salad, multiplied with its hunger points.")
+         .defineInRange("beetrootSaladSaturation", 0.6, 0.0, 2.0);
+      BEETROOT_SALAD_EFFECT_DURATION = builder.comment("How long the effect of Beetroot Salad lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("beetrootSaladEffectDuration", 2400, 0, 72000);
+      CHICKEN_TERIYAKI_NUTRITION = builder.comment("Hunger points restored by Chicken Teriyaki. 2 points = 1 drumstick.")
+         .defineInRange("chickenTeriyakiNutrition", 5, 0, 20);
+      CHICKEN_TERIYAKI_SATURATION = builder.comment("Saturation given by Chicken Teriyaki, multiplied with its hunger points.")
+         .defineInRange("chickenTeriyakiSaturation", 0.6, 0.0, 2.0);
+      CHICKEN_TERIYAKI_EFFECT_DURATION = builder.comment("How long the effect of Chicken Teriyaki lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("chickenTeriyakiEffectDuration", 6000, 0, 72000);
+      SALAD_NUTRITION = builder.comment("Hunger points restored by Salad. 2 points = 1 drumstick.").defineInRange("saladNutrition", 5, 0, 20);
+      SALAD_SATURATION = builder.comment("Saturation given by Salad, multiplied with its hunger points.").defineInRange("saladSaturation", 0.6, 0.0, 2.0);
+      SALAD_EFFECT_DURATION = builder.comment("How long the effect of Salad lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("saladEffectDuration", 3600, 0, 72000);
+      BEEF_TARTARE_NUTRITION = builder.comment("Hunger points restored by Beef Tartare. 2 points = 1 drumstick.")
+         .defineInRange("beefTartareNutrition", 7, 0, 20);
+      BEEF_TARTARE_SATURATION = builder.comment("Saturation given by Beef Tartare, multiplied with its hunger points.")
+         .defineInRange("beefTartareSaturation", 0.8, 0.0, 2.0);
+      BEEF_TARTARE_EFFECT_DURATION = builder.comment("How long the effect of Beef Tartare lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("beefTartareEffectDuration", 3000, 0, 72000);
+      PASTA_WITH_LETTUCE_NUTRITION = builder.comment("Hunger points restored by Pasta Primavera. 2 points = 1 drumstick.")
+         .defineInRange("pastaWithLettuceNutrition", 9, 0, 20);
+      PASTA_WITH_LETTUCE_SATURATION = builder.comment("Saturation given by Pasta Primavera, multiplied with its hunger points.")
+         .defineInRange("pastaWithLettuceSaturation", 0.8, 0.0, 2.0);
+      PASTA_WITH_LETTUCE_EFFECT_DURATION = builder.comment("How long the effect of Pasta Primavera lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("pastaWithLettuceEffectDuration", 3600, 0, 72000);
+      OMELET_NUTRITION = builder.comment("Hunger points restored by Omelette. 2 points = 1 drumstick.").defineInRange("omeletNutrition", 5, 0, 20);
+      OMELET_SATURATION = builder.comment("Saturation given by Omelette, multiplied with its hunger points.").defineInRange("omeletSaturation", 0.5, 0.0, 2.0);
+      OMELET_EFFECT_DURATION = builder.comment("How long the effect of Omelette lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("omeletEffectDuration", 4800, 0, 72000);
+      HARVEST_PLATE_NUTRITION = builder.comment("Hunger points restored by Harvest Plate. 2 points = 1 drumstick.")
+         .defineInRange("harvestPlateNutrition", 5, 0, 20);
+      HARVEST_PLATE_SATURATION = builder.comment("Saturation given by Harvest Plate, multiplied with its hunger points.")
+         .defineInRange("harvestPlateSaturation", 0.6, 0.0, 2.0);
+      HARVEST_PLATE_EFFECT_DURATION = builder.comment("How long the effect of Harvest Plate lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("harvestPlateEffectDuration", 4800, 0, 72000);
+      CHOCOLATE_MOUSSE_NUTRITION = builder.comment("Hunger points restored by Mousse au Chocolat. 2 points = 1 drumstick.")
+         .defineInRange("chocolateMousseNutrition", 4, 0, 20);
+      CHOCOLATE_MOUSSE_SATURATION = builder.comment("Saturation given by Mousse au Chocolat, multiplied with its hunger points.")
+         .defineInRange("chocolateMousseSaturation", 0.3, 0.0, 2.0);
+      CHOCOLATE_MOUSSE_EFFECT_DURATION = builder.comment("How long the effect of Mousse au Chocolat lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("chocolateMousseEffectDuration", 2400, 0, 72000);
+      FRESH_GARDEN_SALAD_NUTRITION = builder.comment("Hunger points restored by Fresh Garden Salad. 2 points = 1 drumstick.")
+         .defineInRange("freshGardenSaladNutrition", 3, 0, 20);
+      FRESH_GARDEN_SALAD_SATURATION = builder.comment("Saturation given by Fresh Garden Salad, multiplied with its hunger points.")
+         .defineInRange("freshGardenSaladSaturation", 0.6, 0.0, 2.0);
+      FRESH_GARDEN_SALAD_EFFECT_DURATION = builder.comment("How long the effect of Fresh Garden Salad lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("freshGardenSaladEffectDuration", 3600, 0, 72000);
+      TOMATO_MOZZARELLA_SALAD_NUTRITION = builder.comment("Hunger points restored by Tomato Mozzarella Salad. 2 points = 1 drumstick.")
+         .defineInRange("tomatoMozzarellaSaladNutrition", 3, 0, 20);
+      TOMATO_MOZZARELLA_SALAD_SATURATION = builder.comment("Saturation given by Tomato Mozzarella Salad, multiplied with its hunger points.")
+         .defineInRange("tomatoMozzarellaSaladSaturation", 0.6, 0.0, 2.0);
+      TOMATO_MOZZARELLA_SALAD_EFFECT_DURATION = builder.comment("How long the effect of Tomato Mozzarella Salad lasts in ticks. 20 ticks = 1 second.")
+         .defineInRange("tomatoMozzarellaSaladEffectDuration", 4800, 0, 72000);
+      builder.pop();
+      COMMON = builder.build();
+   }
+}

@@ -1,0 +1,6 @@
+{
+  "parent": "foundation:block/template_big_table_adv",
+  "textures": {
+    "table": "candlelight:block/cherry_big_table"
+  }
+}

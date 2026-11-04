@@ -1,0 +1,56 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "Custom"
+issueTrackerURL = "https://github.com/satisfyu/Let-s-Do-Hub"
+
+[[mods]]
+modId = "bakery"
+version = "2.1.11"
+displayName = "[Let's Do] Bakery"
+authors = "satisfy"
+credits = "MissLilitu, CR-055"
+logoFile = "pack.png"
+displayURL = "https://www.lets-do.ch"
+description = '''
+Build your own bakery and bake the finest pastries, delicious bread, and sweet cakes!
+
+Website: https://www.lets-do.ch
+Wiki: https://lets-do.ch/wiki/bakery/
+Source: https://github.com/Let-s-Do-Collection/Bakery
+Issues: https://github.com/satisfyu/Let-s-Do-Hub
+'''
+
+[[dependencies.bakery]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.bakery]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1]"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.bakery]]
+modId = "architectury"
+type = "required"
+versionRange = "[13.0.8,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.bakery]]
+modId = "foundation"
+type = "required"
+versionRange = "[1.0.6,)"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.bakery]]
+modId = "farm_and_charm"
+type = "required"
+versionRange = "[1.1.27,)"
+ordering = "AFTER"
+side = "BOTH"

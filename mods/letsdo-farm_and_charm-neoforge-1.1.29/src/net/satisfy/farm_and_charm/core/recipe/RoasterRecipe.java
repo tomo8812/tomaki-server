@@ -1,0 +1,158 @@
+package net.satisfy.farm_and_charm.core.recipe;
+
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.DataResult;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import net.minecraft.core.NonNullList;
+import net.minecraft.core.HolderLookup.Provider;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.crafting.Ingredient;
+import net.minecraft.world.item.crafting.Recipe;
+import net.minecraft.world.item.crafting.RecipeInput;
+import net.minecraft.world.item.crafting.RecipeSerializer;
+import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.level.Level;
+import net.satisfy.farm_and_charm.core.registry.RecipeTypeRegistry;
+import net.satisfy.farm_and_charm.core.util.GeneralUtil;
+import org.jetbrains.annotations.NotNull;
+
+public class RoasterRecipe implements Recipe<RecipeInput> {
+   private final NonNullList<Ingredient> inputs;
+   private final ItemStack container;
+   private final ItemStack output;
+   private final boolean requiresLearning;
+   private final float experience;
+
+   public RoasterRecipe(NonNullList<Ingredient> inputs, ItemStack container, ItemStack output, boolean requiresLearning, float experience) {
+      this.experience = experience;
+      this.inputs = inputs;
+      this.container = container;
+      this.output = output;
+      this.requiresLearning = requiresLearning;
+   }
+
+   public boolean matches(RecipeInput recipeInput, Level level) {
+      return GeneralUtil.matchesRecipe(recipeInput, this.inputs, 0, 5);
+   }
+
+   @NotNull
+   public ItemStack assemble(RecipeInput recipeInput, Provider provider) {
+      return ItemStack.EMPTY;
+   }
+
+   public boolean canCraftInDimensions(int width, int height) {
+      return true;
+   }
+
+   @NotNull
+   public ItemStack getResultItem(Provider provider) {
+      return this.output.copy();
+   }
+
+   public ItemStack getResult() {
+      return this.output.copy();
+   }
+
+   @NotNull
+   public ResourceLocation getId() {
+      return RecipeTypeRegistry.ROASTER_RECIPE_TYPE.getId();
+   }
+
+   @NotNull
+   public RecipeSerializer<?> getSerializer() {
+      return (RecipeSerializer<?>)RecipeTypeRegistry.ROASTER_RECIPE_SERIALIZER.get();
+   }
+
+   @NotNull
+   public RecipeType<?> getType() {
+      return (RecipeType<?>)RecipeTypeRegistry.ROASTER_RECIPE_TYPE.get();
+   }
+
+   @NotNull
+   public NonNullList<Ingredient> getIngredients() {
+      return this.inputs;
+   }
+
+   public ItemStack getContainer() {
+      return this.container;
+   }
+
+   public boolean isSpecial() {
+      return true;
+   }
+
+   public boolean requiresLearning() {
+      return this.requiresLearning;
+   }
+
+   public float getExperience() {
+      return this.experience;
+   }
+
+   public static class Serializer implements RecipeSerializer<RoasterRecipe> {
+      public static final MapCodec<RoasterRecipe> CODEC = RecordCodecBuilder.mapCodec(
+         instance -> instance.group(
+               Ingredient.CODEC_NONEMPTY
+                  .listOf()
+                  .fieldOf("ingredients")
+                  .flatXmap(
+                     list -> {
+                        Ingredient[] ingredients = list.toArray(Ingredient[]::new);
+                        return ingredients.length == 0
+                           ? DataResult.error(() -> "No ingredients for shapeless recipe")
+                           : DataResult.success(NonNullList.of(Ingredient.EMPTY, ingredients));
+                     },
+                     DataResult::success
+                  )
+                  .forGetter(RoasterRecipe::getIngredients),
+               ItemStack.CODEC.fieldOf("container").forGetter(RoasterRecipe::getContainer),
+               ItemStack.CODEC.fieldOf("result").forGetter(RoasterRecipe::getResult),
+               Codec.BOOL.fieldOf("requiresLearning").forGetter(RoasterRecipe::requiresLearning),
+               Codec.FLOAT.optionalFieldOf("experience", 0.0F).forGetter(RoasterRecipe::getExperience)
+            )
+            .apply(instance, RoasterRecipe::new)
+      );
+      public static final StreamCodec<RegistryFriendlyByteBuf, RoasterRecipe> STREAM_CODEC = StreamCodec.of(
+         RoasterRecipe.Serializer::toNetwork, RoasterRecipe.Serializer::fromNetwork
+      );
+
+      @NotNull
+      public static RoasterRecipe fromNetwork(RegistryFriendlyByteBuf registryFriendlyByteBuf) {
+         int i = registryFriendlyByteBuf.readVarInt();
+         NonNullList<Ingredient> nonNullList = NonNullList.withSize(i, Ingredient.EMPTY);
+         nonNullList.replaceAll(ingredient -> (Ingredient)Ingredient.CONTENTS_STREAM_CODEC.decode(registryFriendlyByteBuf));
+         ItemStack containerItem = (ItemStack)ItemStack.STREAM_CODEC.decode(registryFriendlyByteBuf);
+         ItemStack itemStack = (ItemStack)ItemStack.STREAM_CODEC.decode(registryFriendlyByteBuf);
+         boolean requiresLearning = registryFriendlyByteBuf.readBoolean();
+         float experience = registryFriendlyByteBuf.readFloat();
+         return new RoasterRecipe(nonNullList, containerItem, itemStack, requiresLearning, experience);
+      }
+
+      public static void toNetwork(RegistryFriendlyByteBuf registryFriendlyByteBuf, RoasterRecipe recipe) {
+         registryFriendlyByteBuf.writeVarInt(recipe.getIngredients().size());
+
+         for (Ingredient ingredient : recipe.getIngredients()) {
+            Ingredient.CONTENTS_STREAM_CODEC.encode(registryFriendlyByteBuf, ingredient);
+         }
+
+         ItemStack.STREAM_CODEC.encode(registryFriendlyByteBuf, recipe.getContainer());
+         ItemStack.STREAM_CODEC.encode(registryFriendlyByteBuf, recipe.output);
+         registryFriendlyByteBuf.writeBoolean(recipe.requiresLearning);
+         registryFriendlyByteBuf.writeFloat(recipe.experience);
+      }
+
+      @NotNull
+      public MapCodec<RoasterRecipe> codec() {
+         return CODEC;
+      }
+
+      @NotNull
+      public StreamCodec<RegistryFriendlyByteBuf, RoasterRecipe> streamCodec() {
+         return STREAM_CODEC;
+      }
+   }
+}

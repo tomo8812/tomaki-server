@@ -1,0 +1,13 @@
+{
+  "variants": {
+    "type=bottom": {
+      "model": "millenaire:block/pathbanco_slab"
+    },
+    "type=double": {
+      "model": "millenaire:block/pathbanco"
+    },
+    "type=top": {
+      "model": "millenaire:block/pathbanco_slab_top"
+    }
+  }
+}

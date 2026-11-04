@@ -1,0 +1,38 @@
+package net.satisfy.brewery.core.event;
+
+import dev.architectury.event.events.common.LootEvent.LootTableModificationContext;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.world.level.storage.loot.LootPool;
+import net.minecraft.world.level.storage.loot.LootTable;
+import net.minecraft.world.level.storage.loot.LootPool.Builder;
+import net.minecraft.world.level.storage.loot.entries.NestedLootTable;
+import net.satisfy.brewery.Brewery;
+
+public class LoottableInjector {
+   public static void InjectLoot(ResourceKey<LootTable> key, LootTableModificationContext context) {
+      String prefix = "minecraft:chests/";
+      String name = key.toString();
+      if (name.startsWith(prefix)) {
+         String file = name.substring(name.indexOf(prefix) + prefix.length());
+         switch (file) {
+            case "village/village_taiga_house":
+            case "woodland_mansion":
+            case "pillager_outpost":
+            case "village/village_desert_house":
+            case "village/village_plains_house":
+            case "village/village_savanna_house":
+               context.addPool(getPool(file));
+         }
+      }
+   }
+
+   public static Builder getPool(String entryName) {
+      return LootPool.lootPool().add(getPoolEntry(entryName));
+   }
+
+   private static net.minecraft.world.level.storage.loot.entries.LootPoolEntryContainer.Builder getPoolEntry(String name) {
+      ResourceKey table = ResourceKey.create(Registries.LOOT_TABLE, Brewery.identifier("chests/" + name));
+      return NestedLootTable.lootTableReference(table);
+   }
+}

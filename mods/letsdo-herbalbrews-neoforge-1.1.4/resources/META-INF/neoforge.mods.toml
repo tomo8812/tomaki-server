@@ -1,0 +1,42 @@
+modLoader = "javafml"
+loaderVersion="[4,)"
+source = "https://github.com/satisfyu/HerbalBrews"
+issueTrackerURL = "https://github.com/satisfyu/Let-s-Do-Hub"
+license = "All Rights Reserved"
+
+[[mixins]]
+config = "herbalbrews-neoforge.mixins.json"
+
+[[mods]]
+modId = "herbalbrews"
+
+version="1.1.4"
+displayName = "[Let's Do] HerbalBrews"
+
+credits = "MissLilitu"
+authors = "satisfy"
+description = '''
+Brew your bliss – discover new flowers, craft unique stations, and master the art of tea-making.
+'''
+logoFile = "pack.png"
+
+[[dependencies.herbalbrews]]
+modId = "neoforge"
+mandatory = true
+versionRange = "[21.1.0,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.herbalbrews]]
+modId = "minecraft"
+mandatory = true
+versionRange = "[1.21.1,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.herbalbrews]]
+modId = "architectury"
+mandatory = true
+versionRange = "[13.0.0,)"
+ordering = "AFTER"
+side = "BOTH"

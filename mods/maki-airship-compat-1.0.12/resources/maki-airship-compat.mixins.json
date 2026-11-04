@@ -1,0 +1,26 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "maki.airship.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "FoundationSeatUtilMixin",
+    "FoundationChairMixin",
+    "LivingSleepMixin",
+    "SleepDragMixin",
+    "FurnitureVehicleMixin"
+  ],
+  "client": [
+    "ClientPassengerMixin",
+    "ClientTickMixin",
+    "ClientRenderMixin",
+    "MountedCameraMixin",
+    "SleepingRenderMixin",
+    "EntityLightMixin",
+    "ShipShiftMixin",
+    "ShipZoomResetMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

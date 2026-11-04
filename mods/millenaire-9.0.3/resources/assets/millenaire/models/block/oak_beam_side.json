@@ -1,0 +1,6 @@
+{
+    "parent": "millenaire:block/beam_side",
+    "textures": {
+        "texture": "minecraft:block/oak_log"
+    }
+}

@@ -1,0 +1,23 @@
+{
+  "type": "farm_and_charm:pot_cooking",
+  "ingredients": [
+    {
+      "item": "minecraft:cocoa_beans"
+    },
+    {
+      "tag": "farm_and_charm:milk"
+    },
+    {
+      "tag": "farm_and_charm:butter"
+    }
+  ],
+  "requireContainer": true,
+  "container": {
+    "id": "minecraft:bowl"
+  },
+  "result": {
+    "id": "candlelight:chocolate_mousse",
+    "count": 4
+  },
+  "requiresLearning": false
+}

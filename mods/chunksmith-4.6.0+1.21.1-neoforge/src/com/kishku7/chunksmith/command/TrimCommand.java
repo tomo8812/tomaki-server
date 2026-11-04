@@ -1,0 +1,330 @@
+package com.kishku7.chunksmith.command;
+
+import com.kishku7.chunksmith.Chunksmith;
+import com.kishku7.chunksmith.Selection;
+import com.kishku7.chunksmith.nbt.LongTag;
+import com.kishku7.chunksmith.nbt.util.ChunkFilter;
+import com.kishku7.chunksmith.nbt.util.RegionFile;
+import com.kishku7.chunksmith.platform.Sender;
+import com.kishku7.chunksmith.platform.World;
+import com.kishku7.chunksmith.shape.Shape;
+import com.kishku7.chunksmith.shape.ShapeFactory;
+import com.kishku7.chunksmith.shape.ShapeType;
+import com.kishku7.chunksmith.util.ChunkCoordinate;
+import com.kishku7.chunksmith.util.Formatting;
+import com.kishku7.chunksmith.util.Input;
+import com.kishku7.chunksmith.util.Translator;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
+
+public class TrimCommand implements ChunksmithCommand {
+   private final Chunksmith chunky;
+
+   public TrimCommand(Chunksmith chunky) {
+      this.chunky = chunky;
+   }
+
+   @Override
+   public void execute(Sender sender, CommandArguments arguments) {
+      if (arguments.size() > 0) {
+         Optional<World> world = arguments.next().flatMap(arg -> Input.tryWorld(this.chunky, arg));
+         if (!world.isPresent()) {
+            sender.sendMessage("help_trim");
+            return;
+         }
+
+         this.chunky.getSelection().world(world.get());
+      }
+
+      if (arguments.size() > 1) {
+         Optional<String> shape = arguments.next().flatMap(Input::tryShape);
+         if (!shape.isPresent()) {
+            sender.sendMessage("help_trim");
+            return;
+         }
+
+         this.chunky.getSelection().shape(shape.get());
+      }
+
+      if (arguments.size() > 2) {
+         Optional<Double> centerX = arguments.next().flatMap(Input::tryDoubleSuffixed).filter(c -> !Input.isPastWorldLimit(c));
+         Optional<Double> centerZ = arguments.next().flatMap(Input::tryDoubleSuffixed).filter(c -> !Input.isPastWorldLimit(c));
+         if (!centerX.isPresent() || !centerZ.isPresent()) {
+            sender.sendMessage("help_trim");
+            return;
+         }
+
+         this.chunky.getSelection().center(centerX.get(), centerZ.get());
+      }
+
+      if (arguments.size() > 4) {
+         Optional<Double> radiusX = arguments.next().flatMap(Input::tryDoubleSuffixed).filter(r -> r >= 0.0 && !Input.isPastWorldLimit(r));
+         if (!radiusX.isPresent()) {
+            sender.sendMessage("help_trim");
+            return;
+         }
+
+         this.chunky.getSelection().radius(radiusX.get());
+      }
+
+      if (arguments.size() > 5) {
+         Optional<Double> radiusZ = arguments.next().flatMap(Input::tryDoubleSuffixed).filter(r -> r >= 0.0 && !Input.isPastWorldLimit(r));
+         if (!radiusZ.isPresent()) {
+            sender.sendMessage("help_trim");
+            return;
+         }
+
+         this.chunky.getSelection().radiusZ(radiusZ.get());
+      }
+
+      boolean inside;
+      if (arguments.size() > 6) {
+         Optional<String> side = arguments.next().map(String::toLowerCase).filter(s -> "outside".equals(s) || "inside".equals(s));
+         if (!side.isPresent()) {
+            sender.sendMessage("help_trim");
+            return;
+         }
+
+         inside = side.map("inside"::equals).orElse(false);
+      } else {
+         inside = false;
+      }
+
+      int inhabitedTime = arguments.next().flatMap(Input::tryIntegerSuffixed).orElse(Integer.MAX_VALUE);
+      boolean inhabitedTimeCheck = inhabitedTime < Integer.MAX_VALUE;
+      Selection selection = this.chunky.getSelection().build();
+      Shape shape = ShapeFactory.getShape(selection);
+      Runnable deletionAction = () -> this.chunky
+         .getScheduler()
+         .runTask(
+            () -> {
+               sender.sendMessagePrefixed(
+                  "format_start",
+                  selection.world().getName(),
+                  Translator.translate("shape_" + selection.shape()),
+                  Formatting.number(selection.centerX()),
+                  Formatting.number(selection.centerZ()),
+                  Formatting.radius(selection)
+               );
+               TrimCommand.Task trimTask = new TrimCommand.Task();
+               this.chunky.getTrimTasks().put(selection.world().getName(), trimTask);
+               Optional<Path> regionPath = selection.world().getRegionDirectory();
+               AtomicLong finishedRegions = new AtomicLong();
+               AtomicLong deleted = new AtomicLong();
+               long startTime = System.currentTimeMillis();
+               AtomicLong updateTime = new AtomicLong(startTime);
+
+               try {
+                  if (regionPath.isPresent()) {
+                     try (Stream<Path> files = Files.list(regionPath.get())) {
+                        List<Path> regions = files.filter(file -> ChunkCoordinate.fromRegionFile(file.getFileName().toString()).isPresent()).toList();
+                        long totalRegions = regions.size();
+
+                        for (Path region : regions) {
+                           if (trimTask.isCancelled()) {
+                              break;
+                           }
+
+                           deleted.getAndAdd(
+                              this.checkRegion(selection.world(), region.getFileName().toString(), shape, inside, inhabitedTimeCheck, inhabitedTime)
+                           );
+                           finishedRegions.getAndIncrement();
+                           if (!trimTask.isCancelled() && !this.chunky.getConfig().isSilent()) {
+                              long currentTime = System.currentTimeMillis();
+                              boolean updateIntervalElapsed = (currentTime - updateTime.get()) / 1000.0 > this.chunky.getConfig().getUpdateInterval();
+                              if (updateIntervalElapsed || finishedRegions.get() == totalRegions) {
+                                 this.chunky
+                                    .getServer()
+                                    .getConsole()
+                                    .sendMessagePrefixed(
+                                       "task_trim_update",
+                                       selection.world().getName(),
+                                       finishedRegions.get(),
+                                       String.format("%.2f", 100.0F * (float)finishedRegions.get() / (float)totalRegions)
+                                    );
+                                 updateTime.set(currentTime);
+                              }
+                           }
+                        }
+                     }
+                  }
+               } catch (IOException e) {
+                  e.printStackTrace();
+               }
+
+               long totalTime = System.currentTimeMillis() - startTime;
+               this.chunky.getTrimTasks().remove(selection.world().getName());
+               sender.sendMessagePrefixed("task_trim", deleted.get(), selection.world().getName(), String.format("%.3f", (float)totalTime / 1000.0F));
+            }
+         );
+      this.chunky.setPendingAction(sender, deletionAction);
+      sender.sendMessagePrefixed(
+         inside ? "format_trim_confirm_inside" : "format_trim_confirm",
+         selection.world().getName(),
+         Translator.translate("shape_" + selection.shape()),
+         Formatting.number(selection.centerX()),
+         Formatting.number(selection.centerZ()),
+         Formatting.radius(selection),
+         "/cs confirm"
+      );
+      if (inhabitedTimeCheck) {
+         sender.sendMessagePrefixed("format_trim_confirm_inhabited", Formatting.number(inhabitedTime));
+      }
+   }
+
+   private int checkRegion(World world, String regionFileName, Shape shape, boolean inside, boolean inhabitedTimeCheck, int inhabitedTime) {
+      Optional<ChunkCoordinate> regionCoordinate = ChunkCoordinate.fromRegionFile(regionFileName);
+      if (regionCoordinate.isEmpty()) {
+         return 0;
+      }
+
+      int chunkX = regionCoordinate.get().x() << 5;
+      int chunkZ = regionCoordinate.get().z() << 5;
+      return !inhabitedTimeCheck && this.shouldDeleteRegion(shape, inside, chunkX, chunkZ)
+         ? this.deleteRegion(world, regionFileName)
+         : this.trimRegion(world, regionFileName, shape, inside, chunkX, chunkZ, inhabitedTimeCheck, inhabitedTime);
+   }
+
+   private boolean shouldDeleteRegion(Shape shape, boolean inside, int chunkX, int chunkZ) {
+      for (int offsetX = 0; offsetX < 32; offsetX++) {
+         for (int offsetZ = 0; offsetZ < 32; offsetZ++) {
+            int chunkCenterX = (chunkX + offsetX << 4) + 8;
+            int chunkCenterZ = (chunkZ + offsetZ << 4) + 8;
+            if (inside != shape.isBounding(chunkCenterX, chunkCenterZ)) {
+               return false;
+            }
+         }
+      }
+
+      return true;
+   }
+
+   private int deleteRegion(World world, String regionFileName) {
+      try {
+         Path regionPath = world.getRegionDirectory().map(region -> region.resolve(regionFileName)).orElseThrow(IllegalStateException::new);
+         Files.deleteIfExists(regionPath);
+         Path poiPath = world.getPOIDirectory().map(region -> region.resolve(regionFileName)).orElse(null);
+         if (poiPath != null) {
+            Files.deleteIfExists(poiPath);
+         }
+
+         Path entitiesPath = world.getEntitiesDirectory().map(region -> region.resolve(regionFileName)).orElse(null);
+         if (entitiesPath != null) {
+            Files.deleteIfExists(entitiesPath);
+         }
+
+         return 1024;
+      } catch (IOException e) {
+         e.printStackTrace();
+         return 0;
+      }
+   }
+
+   private int trimRegion(
+      World world, String regionFileName, Shape shape, boolean inside, int chunkX, int chunkZ, boolean inhabitedTimeCheck, int inhabitedTime
+   ) {
+      Path regionPath = world.getRegionDirectory().map(region -> region.resolve(regionFileName)).orElseThrow(IllegalStateException::new);
+      Path poiPath = world.getPOIDirectory().map(region -> region.resolve(regionFileName)).orElse(null);
+      Path entitiesPath = world.getEntitiesDirectory().map(region -> region.resolve(regionFileName)).orElse(null);
+      int marked = 0;
+      int deleted = 0;
+      RegionFile regionData = inhabitedTimeCheck ? new RegionFile(regionPath.toFile(), ChunkFilter.of((byte)4, "InhabitedTime")) : null;
+
+      try (
+         RandomAccessFile regionFile = new RandomAccessFile(regionPath.toFile(), "rw");
+         RandomAccessFile poiFile = poiPath != null && !Files.notExists(poiPath) ? new RandomAccessFile(poiPath.toFile(), "rw") : null;
+         RandomAccessFile entitiesFile = entitiesPath != null && !Files.notExists(entitiesPath) ? new RandomAccessFile(entitiesPath.toFile(), "rw") : null;
+      ) {
+         if (regionFile.length() < 4096L) {
+            return 0;
+         }
+
+         boolean poiValid = poiFile != null && poiFile.length() >= 4096L;
+         boolean entitiesValid = entitiesFile != null && entitiesFile.length() >= 4096L;
+
+         for (int offsetX = 0; offsetX < 32; offsetX++) {
+            for (int offsetZ = 0; offsetZ < 32; offsetZ++) {
+               int offsetChunkX = chunkX + offsetX;
+               int offsetChunkZ = chunkZ + offsetZ;
+               int chunkCenterX = (offsetChunkX << 4) + 8;
+               int chunkCenterZ = (offsetChunkZ << 4) + 8;
+               boolean trimChunk;
+               if (inside) {
+                  trimChunk = shape.isBounding(chunkCenterX, chunkCenterZ);
+               } else {
+                  trimChunk = !shape.isBounding(chunkCenterX, chunkCenterZ);
+               }
+
+               boolean trimInhabited = regionData == null
+                  || regionData.getChunk(offsetChunkX, offsetChunkZ)
+                     .map(chunk -> chunk.getData() instanceof LongTag inhabited ? inhabited.value() <= inhabitedTime : true)
+                     .orElse(true);
+               if (trimChunk && trimInhabited) {
+                  marked++;
+                  int chunkLocation = (offsetX % 32 + offsetZ % 32 * 32) * 4;
+                  regionFile.seek(chunkLocation);
+                  if (regionFile.readInt() != 0) {
+                     regionFile.seek(chunkLocation);
+                     regionFile.writeInt(0);
+                     deleted++;
+                  }
+
+                  if (poiValid) {
+                     poiFile.seek(chunkLocation);
+                     if (poiFile.readInt() != 0) {
+                        poiFile.seek(chunkLocation);
+                        poiFile.writeInt(0);
+                     }
+                  }
+
+                  if (entitiesValid) {
+                     entitiesFile.seek(chunkLocation);
+                     if (entitiesFile.readInt() != 0) {
+                        entitiesFile.seek(chunkLocation);
+                        entitiesFile.writeInt(0);
+                     }
+                  }
+               }
+            }
+         }
+      } catch (IOException e) {
+         e.printStackTrace();
+      }
+
+      if (inhabitedTimeCheck && marked == 1024) {
+         this.deleteRegion(world, regionFileName);
+      }
+
+      return deleted;
+   }
+
+   @Override
+   public List<String> suggestions(CommandArguments arguments) {
+      if (arguments.size() == 1) {
+         List<String> suggestions = new ArrayList<>();
+         this.chunky.getServer().getWorlds().forEach(world -> suggestions.add(world.getName()));
+         return suggestions;
+      } else {
+         return arguments.size() == 2 ? ShapeType.all() : List.of();
+      }
+   }
+
+   public static final class Task {
+      private boolean cancelled;
+
+      public boolean isCancelled() {
+         return this.cancelled;
+      }
+
+      public void setCancelled(boolean cancelled) {
+         this.cancelled = cancelled;
+      }
+   }
+}

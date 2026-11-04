@@ -1,0 +1,196 @@
+{
+  "generator": {
+    "name": "Vineflower",
+    "sha256": "1dfcfe974395734fa467ce620661c7623d05ba83670de0529b1fbd63ff548b9d",
+    "version": "1.12.0"
+  },
+  "jars": {
+    "mods/Eureka-VS2-Fabric-MC1.21.1-v3.2.0.jar": {
+      "blob_oid": "8eeb734c9a27f60e21540ec5229bdd29d410056d",
+      "output": "mods/Eureka-VS2-Fabric-MC1.21.1-v3.2.0",
+      "sha256": "eeb232df12938309f965bafa3e8a99c5b9227182e1b5fd082628318bba3097fa"
+    },
+    "mods/GoldenAgeCombat-v21.1.3-1.21.1-NeoForge.jar": {
+      "blob_oid": "978206972d3d63f4b66486f4b682e8cf6d93be28",
+      "output": "mods/GoldenAgeCombat-v21.1.3-1.21.1-NeoForge",
+      "sha256": "31a3aebf5e99718928efcb253a6767c14cb8690fdd00b3b2f06f63be78ce39d6"
+    },
+    "mods/Jade-1.21.1-NeoForge-15.10.6.jar": {
+      "blob_oid": "cf72bfb0f6ff9a39da85ad123c10a29f82bd1f33",
+      "output": "mods/Jade-1.21.1-NeoForge-15.10.6",
+      "sha256": "276f1f65a20d04f536989c4f311949d770b52c440c23c2b904a08860f3c93810"
+    },
+    "mods/QuadHotbar-1.21.1-neoforge-1.1.0-beta1.jar": {
+      "blob_oid": "84362ac0593f8c598a8bf339c05683bf19180382",
+      "output": "mods/QuadHotbar-1.21.1-neoforge-1.1.0-beta1",
+      "sha256": "d5a3c185abd047faf8396fb5e5b59ade244ee4e5c6d11bde4d16f5ffde62258d"
+    },
+    "mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar": {
+      "blob_oid": "ee2e44106523336970d0a4c3e07079d0afbb2189",
+      "output": "mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7",
+      "sha256": "be8859f3872eaf12b2ce8794c6ba3d8ebfbdd2353d6f71d74caac7e1429de19e"
+    },
+    "mods/architectury-13.0.11-neoforge.jar": {
+      "blob_oid": "8a0563d0edcde8a81c712408603ecebc412099fb",
+      "output": "mods/architectury-13.0.11-neoforge",
+      "sha256": "9cc92f2c09533fc5482c60f993bd891c655a0e32b637037cdcb7c2b23adedeeb"
+    },
+    "mods/chunksmith-4.6.0+1.21.1-neoforge.jar": {
+      "blob_oid": "756d4ec6061a92953f7c613925be6349f6397dfb",
+      "output": "mods/chunksmith-4.6.0+1.21.1-neoforge",
+      "sha256": "0bf37facd76117b1e6a1b638232d840b60c1da5a2f74bb52d15e7c2e80011646"
+    },
+    "mods/clientsort-neoforge-3.89.2+1.21.1.jar": {
+      "blob_oid": "920afd5924fc73c46af9242e7ae369aeb0afc3c9",
+      "output": "mods/clientsort-neoforge-3.89.2+1.21.1",
+      "sha256": "de14d1671e25b5446b7a9cd17f3693202ddb78351675d166e2723cbeef7c27e7"
+    },
+    "mods/connector-2.0.0-beta.17+1.21.1-full-keyfix1.jar": {
+      "blob_oid": "8e1504833585990d28b8174a2ea55f3107ddb4ee",
+      "output": "mods/connector-2.0.0-beta.17+1.21.1-full-keyfix1",
+      "sha256": "bde9d18ca0ba979f853f458f350ec0d1797ecb79197ff0c745fba7516b67d4a5"
+    },
+    "mods/disabler-neoforge-1.21.1-1.3.jar": {
+      "blob_oid": "64d9ea930fe533891ba1c453c8fd3ae2130f4134",
+      "output": "mods/disabler-neoforge-1.21.1-1.3",
+      "sha256": "48af95ce27d291edc9db0f092824d5a23a9c7dcda901f78221718ae05ea758e0"
+    },
+    "mods/emi-1.1.24+1.21.1+neoforge.jar": {
+      "blob_oid": "543f8c5e8a1b0b6490cd97b0e3924772b9c4eb2b",
+      "output": "mods/emi-1.1.24+1.21.1+neoforge",
+      "sha256": "b68691f94f0727fc517cac2ab55bd6658d1179cc8cc715fe610b60c37469bc4c"
+    },
+    "mods/epicterrain-0.3.0-1.21.1.jar": {
+      "blob_oid": "9299f811088d87ae3de583fc23a82f9c5adc42bd",
+      "output": "mods/epicterrain-0.3.0-1.21.1",
+      "sha256": "373eae086a23f04a12f36b8f747d1450f6d348c2a2a5c89828e3517af866ed2b"
+    },
+    "mods/ferritecore-7.0.3-neoforge.jar": {
+      "blob_oid": "a2d53841440dc5d7b86a683087fb06aad5b5482a",
+      "output": "mods/ferritecore-7.0.3-neoforge",
+      "sha256": "d87ea28262715ebff45b8a82d493e6b468e7a4521bc021df5d88302196d030a8"
+    },
+    "mods/forgified-fabric-api-0.116.15+2.3.6+1.21.1.jar": {
+      "blob_oid": "e593a019bb14579754366d99555a974f5487ca8f",
+      "output": "mods/forgified-fabric-api-0.116.15+2.3.6+1.21.1",
+      "sha256": "bcbb5d8479032690d53debfcf61c0477080ff6d1d4dae9a9a85122b47377646a"
+    },
+    "mods/gravestone-neoforge-1.21.1-1.0.40.jar": {
+      "blob_oid": "7083ed35fcd1e26f3dc9192c691c3746da35c407",
+      "output": "mods/gravestone-neoforge-1.21.1-1.0.40",
+      "sha256": "204be9ccb8632a56a87aee9aab4c7874d0f6749f566c07f5dd420d24e24dc8b0"
+    },
+    "mods/letsdo-bakery-neoforge-2.1.11.jar": {
+      "blob_oid": "5fc68b2c71e03c5ac48dc493d24f7cbc1f12d0e9",
+      "output": "mods/letsdo-bakery-neoforge-2.1.11",
+      "sha256": "7cf41c0fad07939f47b67550029a5335da4ca761ef567c50ced888240063d474"
+    },
+    "mods/letsdo-brewery-neoforge-2.1.13.jar": {
+      "blob_oid": "9f7e5e72cd609d85ee28e0f43f1c306ea2562204",
+      "output": "mods/letsdo-brewery-neoforge-2.1.13",
+      "sha256": "86f19a428fd37fc4c6831dc940f401b178238c51f86a95da7809cc928c24df8b"
+    },
+    "mods/letsdo-candlelight-neoforge-2.1.15.jar": {
+      "blob_oid": "cd0a1e5e5d23abe98c4ed3ea1bea375121c612d3",
+      "output": "mods/letsdo-candlelight-neoforge-2.1.15",
+      "sha256": "277aac430f7861adac86c8ed1be160f860de64cd1d56088db1ef2711ab5a1a7d"
+    },
+    "mods/letsdo-farm_and_charm-neoforge-1.1.29.jar": {
+      "blob_oid": "0f0c00fe5dd85ddce51be036c7fc87f5fb9b4e8d",
+      "output": "mods/letsdo-farm_and_charm-neoforge-1.1.29",
+      "sha256": "cf5e8db36245a2d0644df364151b2b19494b4620a1b82d9e3d20eb62c1253f5f"
+    },
+    "mods/letsdo-herbalbrews-neoforge-1.1.4.jar": {
+      "blob_oid": "a5e0f6fe095bbecec2516254d66c8a90025d75d3",
+      "output": "mods/letsdo-herbalbrews-neoforge-1.1.4",
+      "sha256": "c84a3479d520e7a3da3f87272176ac9f3b2308ccc81cac3c51a4aac81c91406a"
+    },
+    "mods/lithium-neoforge-0.15.4+mc1.21.1.jar": {
+      "blob_oid": "20fd53e0160a503de7eaede9319ea005a918f6c6",
+      "output": "mods/lithium-neoforge-0.15.4+mc1.21.1",
+      "sha256": "488f33216030c1cb0baa33e59de3d657d08d5795a6c2080c8c8bbbc133fc8757"
+    },
+    "mods/maki-airship-compat-1.0.12.jar": {
+      "blob_oid": "e13a591f119b59de4f887e367210754cf3eb0bfb",
+      "output": "mods/maki-airship-compat-1.0.12",
+      "sha256": "189648344ea5526c15952c1827a68eae48d79932ebba42eae73c6480c6aaa2b0"
+    },
+    "mods/maki-assembly-tracking-1.0.0.jar": {
+      "blob_oid": "99ae05c723cee90b1f8e9c7aa05ac3becf4df91f",
+      "output": "mods/maki-assembly-tracking-1.0.0",
+      "sha256": "134af4d11ee35c3884307ef110f349b2e78d95bf39b5cebd88a5e625ec5555ee"
+    },
+    "mods/maki-diorama-share-1.0.0.jar": {
+      "blob_oid": "43f22449492d7d1cd3a4f09c7034a7e2801aa5b7",
+      "output": "mods/maki-diorama-share-1.0.0",
+      "sha256": "43a3d604ff3b65c1f198d877575cafa539bdf6972281cb4afbe9980675aa2939"
+    },
+    "mods/maki-lod-cpu-1.2.1.jar": {
+      "blob_oid": "4e2612a7a4819c1e4cb1e2aa7ddcd69494f44a30",
+      "output": "mods/maki-lod-cpu-1.2.1",
+      "sha256": "d317d94db125ebb73337d7011746917277182efbca93445d5789dd93460c03cf"
+    },
+    "mods/maki-millenaire-lod-compat-1.0.2.jar": {
+      "blob_oid": "f70837a38ddaec01604cf52488975c9b4c584f0d",
+      "output": "mods/maki-millenaire-lod-compat-1.0.2",
+      "sha256": "8985f77dbda554e1c57119408504308b42d93692907c6ff18511cc13662eafff"
+    },
+    "mods/maki-ship-anchor-fix-1.0.0.jar": {
+      "blob_oid": "cc8cfe9ca5f667293eb67c28599b154e04465efe",
+      "output": "mods/maki-ship-anchor-fix-1.0.0",
+      "sha256": "cc6022bbde7eb7ce116a9411b2a2e5ab07cdabddd128aaa33041251bba1a399f"
+    },
+    "mods/maki-ship-edge-1.0.0.jar": {
+      "blob_oid": "1395cf8114ad888e822009e5055cb1fa42436007",
+      "output": "mods/maki-ship-edge-1.0.0",
+      "sha256": "8117779ea276655a3a0079079f290a93faee3ba6404270b40649ea263e891c72"
+    },
+    "mods/maki-ship-footsteps-1.0.1.jar": {
+      "blob_oid": "861d930d1cb789a2c1f7921640cd31ac865ba8aa",
+      "output": "mods/maki-ship-footsteps-1.0.1",
+      "sha256": "6a6b5151989d7ebf2dc3815aea319852b44f796a63e76f4fc395d05b89dcafbe"
+    },
+    "mods/maki-ship-save-1.0.0.jar": {
+      "blob_oid": "6edcf5cad27cd315dbe2e0e07f4f288d7d4d26b1",
+      "output": "mods/maki-ship-save-1.0.0",
+      "sha256": "386ad6e5b2d5a5479671f99b0de82f84e5ac98f6162fb410ff71bff318bdd980"
+    },
+    "mods/millenaire-9.0.3.jar": {
+      "blob_oid": "f6d20e23e076014077670a344218478e9911014d",
+      "output": "mods/millenaire-9.0.3",
+      "sha256": "5882528027ac67e8759db3926ebef36abe2300029526582f80c7a988b583ec62"
+    },
+    "mods/modernfix-neoforge-5.27.27+mc1.21.1.jar": {
+      "blob_oid": "a2343b9163174ebdbba2c07c216186253967f521",
+      "output": "mods/modernfix-neoforge-5.27.27+mc1.21.1",
+      "sha256": "7010aae2e837122fe8dabd5932358e2ba334fcbc62ca6530cb1cb00402d2c63b"
+    },
+    "mods/puzzleslib-v21.1.66-mc1.21.1+neoforge.jar": {
+      "blob_oid": "18c8ded2a895163e5f1be954bae4ab20db27a604",
+      "output": "mods/puzzleslib-v21.1.66-mc1.21.1+neoforge",
+      "sha256": "cb02de7e1d4a133746ec7b43a64eddc2cb621122cdc49e134a15272f456c31f2"
+    },
+    "mods/sound-physics-remastered-neoforge-1.21.1-1.5.2.jar": {
+      "blob_oid": "acafeaec8a9ead6abb5b7e6014d2d00a77adef4a",
+      "output": "mods/sound-physics-remastered-neoforge-1.21.1-1.5.2",
+      "sha256": "108cac1fe49d0dc210183d69787db5a359cdc03c5b580eb8ab0208be7f072982"
+    },
+    "mods/terrain_slabs-neoforge-3.1.2.jar": {
+      "blob_oid": "09cc6bc611ebd14b9014a38501b1b966d3897427",
+      "output": "mods/terrain_slabs-neoforge-3.1.2",
+      "sha256": "6f439e78d40d46ba36966ea230f595d36c5bd2b6008f673117caca13a5827df3"
+    },
+    "mods/worldgenfeaturefix-neoforge-1.21-1.0.1.jar": {
+      "blob_oid": "fe1c35a2029b701990e70dabde6adae3c2c66a1a",
+      "output": "mods/worldgenfeaturefix-neoforge-1.21-1.0.1",
+      "sha256": "04fbbadb92840eba56863d79a057f9d2997f1882dd648b9ba43d5dd65fa05f9b"
+    },
+    "mods/zfastnoise-1.0.13+1.21.1+neoforge.jar": {
+      "blob_oid": "aa6d58207ad9b4a3b8000329b26820ac52c4cec2",
+      "output": "mods/zfastnoise-1.0.13+1.21.1+neoforge",
+      "sha256": "36ee58475c46c56e76c199eebe48dc95aacaa1133512617dcc46053339c2fb5d"
+    }
+  },
+  "pipeline_fingerprint": "168f2bb992f2e5cdfbd8b932c6bc0b9ea7e904a5744c62f9d9f7a7bc77a7783a",
+  "schema": 1
+}

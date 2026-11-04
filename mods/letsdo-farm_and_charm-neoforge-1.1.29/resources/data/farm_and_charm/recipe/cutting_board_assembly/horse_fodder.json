@@ -1,0 +1,18 @@
+{
+  "type": "farm_and_charm:cutting_board_assembly",
+  "ingredients": [
+    {
+      "tag": "farm_and_charm:wheat"
+    },
+    {
+      "item": "minecraft:apple"
+    },
+    {
+      "item": "minecraft:carrot"
+    }
+  ],
+  "result": {
+    "id": "farm_and_charm:horse_fodder",
+    "count": 1
+  }
+}

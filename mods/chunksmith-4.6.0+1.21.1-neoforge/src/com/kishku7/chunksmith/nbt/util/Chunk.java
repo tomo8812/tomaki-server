@@ -1,0 +1,49 @@
+package com.kishku7.chunksmith.nbt.util;
+
+import com.kishku7.chunksmith.nbt.Tag;
+
+public final class Chunk {
+   private int x;
+   private int z;
+   private Tag data;
+   private long lastModified;
+
+   public Chunk(int x, int z, Tag data, long lastModified) {
+      this.x = x;
+      this.z = z;
+      this.data = data;
+      this.lastModified = lastModified;
+   }
+
+   public Tag getData() {
+      return this.data;
+   }
+
+   public int getX() {
+      return this.x;
+   }
+
+   public void setX(int x) {
+      this.x = x;
+   }
+
+   public int getZ() {
+      return this.z;
+   }
+
+   public void setZ(int z) {
+      this.z = z;
+   }
+
+   public void setData(Tag data) {
+      this.data = data;
+   }
+
+   public long getLastModified() {
+      return this.lastModified;
+   }
+
+   public void setLastModified(long lastModified) {
+      this.lastModified = lastModified;
+   }
+}

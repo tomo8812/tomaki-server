@@ -1,0 +1,8 @@
+{
+  "parent": "foundation:block/template_counter",
+  "textures": {
+    "side": "candlelight:block/red_nether_bricks_kitchen_side",
+    "top": "candlelight:block/red_nether_bricks_stove_top",
+    "bottom": "candlelight:block/red_nether_bricks_kitchen_bottom"
+  }
+}

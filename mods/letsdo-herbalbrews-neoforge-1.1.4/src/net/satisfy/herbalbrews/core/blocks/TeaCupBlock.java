@@ -1,0 +1,96 @@
+package net.satisfy.herbalbrews.core.blocks;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponentMap;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.BlockEntityType;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.BlockBehaviour.Properties;
+import net.minecraft.world.level.block.state.StateDefinition.Builder;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.EnumProperty;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.Shapes;
+import net.minecraft.world.phys.shapes.VoxelShape;
+import net.satisfy.herbalbrews.core.blocks.entity.DrinkBlockEntity;
+import net.satisfy.herbalbrews.core.registry.EntityTypeRegistry;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+public class TeaCupBlock extends Block implements EntityBlock {
+   public static final EnumProperty<Direction> FACING = BlockStateProperties.HORIZONTAL_FACING;
+   private static final VoxelShape SHAPE = Shapes.box(0.125, 0.0, 0.125, 0.875, 0.875, 0.875);
+
+   public TeaCupBlock(Properties settings) {
+      super(settings);
+      this.registerDefaultState((BlockState)this.defaultBlockState().setValue(FACING, Direction.NORTH));
+   }
+
+   public void setPlacedBy(Level world, BlockPos pos, BlockState state, @Nullable LivingEntity placer, ItemStack stack) {
+      super.setPlacedBy(world, pos, state, placer, stack);
+      if (stack.has(DataComponents.POTION_CONTENTS)) {
+         BlockEntity be = world.getBlockEntity(pos);
+         if (be instanceof DrinkBlockEntity drink) {
+            PotionContents data = (PotionContents)stack.getOrDefault(DataComponents.POTION_CONTENTS, PotionContents.EMPTY);
+            drink.setComponents(DataComponentMap.builder().set(DataComponents.POTION_CONTENTS, data).build());
+            be.setChanged();
+         }
+      }
+   }
+
+   protected void createBlockStateDefinition(Builder<Block, BlockState> builder) {
+      builder.add(new Property[]{FACING});
+   }
+
+   @NotNull
+   public VoxelShape getShape(BlockState state, BlockGetter world, BlockPos pos, CollisionContext context) {
+      return SHAPE;
+   }
+
+   @Nullable
+   public BlockState getStateForPlacement(BlockPlaceContext ctx) {
+      return (BlockState)this.defaultBlockState().setValue(FACING, ctx.getHorizontalDirection().getOpposite());
+   }
+
+   @Nullable
+   public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+      return ((BlockEntityType)EntityTypeRegistry.DRINK_BLOCK_ENTITY.get()).create(pos, state);
+   }
+
+   public void playerDestroy(Level level, Player player, BlockPos pos, BlockState state, @Nullable BlockEntity be, ItemStack tool) {
+      if (be instanceof DrinkBlockEntity drink && !player.getAbilities().instabuild) {
+         ItemStack stack = new ItemStack(this.asItem());
+         drink.components();
+         if (!drink.components().isEmpty()) {
+            stack.set(DataComponents.POTION_CONTENTS, (PotionContents)drink.components().getOrDefault(DataComponents.POTION_CONTENTS, PotionContents.EMPTY));
+         }
+
+         popResource(level, pos, stack);
+      }
+
+      super.playerDestroy(level, player, pos, state, be, tool);
+   }
+
+   public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean isMoving) {
+      if (!state.is(newState.getBlock())) {
+         BlockEntity be = level.getBlockEntity(pos);
+         if (be instanceof DrinkBlockEntity) {
+            level.removeBlockEntity(pos);
+         }
+
+         super.onRemove(state, level, pos, newState, isMoving);
+      }
+   }
+}

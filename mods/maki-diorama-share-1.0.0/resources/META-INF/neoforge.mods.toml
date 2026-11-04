@@ -1,0 +1,25 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="maki_diorama_share"
+version="1.0.0"
+displayName="Maki Diorama Sharing"
+description="Server-backed waypoint and death history sharing, with per-viewer history limits."
+[[mixins]]
+config="maki-diorama-share.mixins.json"
+[[dependencies.maki_diorama_share]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.21.2)"
+side="BOTH"
+[[dependencies.maki_diorama_share]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.178,)"
+side="BOTH"
+[[dependencies.maki_diorama_share]]
+modId="diorama"
+type="required"
+versionRange="[0.5.0,0.6)"
+side="CLIENT"

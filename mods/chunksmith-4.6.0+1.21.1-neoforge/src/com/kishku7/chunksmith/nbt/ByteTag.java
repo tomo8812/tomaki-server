@@ -1,0 +1,62 @@
+package com.kishku7.chunksmith.nbt;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class ByteTag extends Tag {
+   private byte value;
+
+   protected ByteTag(String name) {
+      super(name);
+   }
+
+   public ByteTag(String name, byte value) {
+      super(name);
+      this.value = value;
+   }
+
+   @Override
+   public void read(DataInput input) throws IOException {
+      this.value = input.readByte();
+   }
+
+   @Override
+   public void skip(DataInput input) throws IOException {
+      input.skipBytes(1);
+   }
+
+   @Override
+   public void write(DataOutput output) throws IOException {
+      output.writeByte(this.value);
+   }
+
+   @Override
+   public Tag search(DataInput input, byte type, String name) throws IOException {
+      this.skip(input);
+      return null;
+   }
+
+   @Override
+   public byte type() {
+      return 1;
+   }
+
+   @Override
+   public String typeName() {
+      return "TAG_Byte";
+   }
+
+   @Override
+   public String print(int level) {
+      return "%s%s('%s'): %d".formatted(" ".repeat(level * 2), this.typeName(), this.name, this.value);
+   }
+
+   public byte value() {
+      return this.value;
+   }
+
+   public void value(byte value) {
+      this.value = value;
+   }
+}

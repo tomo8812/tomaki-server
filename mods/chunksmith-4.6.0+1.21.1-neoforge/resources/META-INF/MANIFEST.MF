@@ -1,0 +1,6 @@
+Manifest-Version: 1.0
+Implementation-Title: chunksmith-neoforge-1.21.1
+Implementation-Version: 4.6.0
+Implementation-Vendor: Kishku7
+MixinConfigs: chunksmith.mixins.json
+

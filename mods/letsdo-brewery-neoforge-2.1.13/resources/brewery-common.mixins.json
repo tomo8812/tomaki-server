@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "net.satisfy.brewery.core.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "minVersion": "0.8",
+  "client": [],
+  "mixins": [
+    "MobFollowPlayerMixin",
+    "VillagerDiscountMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

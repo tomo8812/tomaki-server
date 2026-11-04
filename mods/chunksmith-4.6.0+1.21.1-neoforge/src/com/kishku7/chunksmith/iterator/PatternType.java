@@ -1,0 +1,16 @@
+package com.kishku7.chunksmith.iterator;
+
+import java.util.List;
+
+public final class PatternType {
+   public static final String CONCENTRIC = "concentric";
+   public static final String LOOP = "loop";
+   public static final String SPIRAL = "spiral";
+   public static final String CSV = "csv";
+   public static final String REGION = "region";
+   public static final String WORLD = "world";
+   public static final List<String> ALL = List.of("concentric", "loop", "spiral", "csv", "region", "world");
+
+   private PatternType() {
+   }
+}

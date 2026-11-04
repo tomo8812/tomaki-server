@@ -1,0 +1,8 @@
+{
+  "parent": "foundation:block/template_cabinet",
+  "textures": {
+    "front": "candlelight:block/acacia_cabinet",
+    "side": "candlelight:block/acacia_drawer_side",
+    "top": "candlelight:block/acacia_cabinet_top"
+  }
+}

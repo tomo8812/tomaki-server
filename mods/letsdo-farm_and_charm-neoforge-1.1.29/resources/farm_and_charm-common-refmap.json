@@ -1,0 +1,198 @@
+{
+  "mappings": {
+    "net/satisfy/farm_and_charm/core/mixin/AbstractHorseMixin": {
+      "fedFood": "Lnet/minecraft/class_1496;method_30009(Lnet/minecraft/class_1657;Lnet/minecraft/class_1799;)Lnet/minecraft/class_1269;",
+      "isFood": "Lnet/minecraft/class_1496;method_6481(Lnet/minecraft/class_1799;)Z"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/AnimalEntityMixin": {
+      "<init>": "Lnet/minecraft/class_1429;<init>(Lnet/minecraft/class_1299;Lnet/minecraft/class_1937;)V",
+      "addAdditionalSaveData": "Lnet/minecraft/class_1429;method_5652(Lnet/minecraft/class_2487;)V",
+      "aiStep": "Lnet/minecraft/class_1429;method_6007()V",
+      "mobInteract": "Lnet/minecraft/class_1429;method_5992(Lnet/minecraft/class_1657;Lnet/minecraft/class_1268;)Lnet/minecraft/class_1269;",
+      "readAdditionalSaveData": "Lnet/minecraft/class_1429;method_5749(Lnet/minecraft/class_2487;)V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/CampfireBlockMixin": {
+      "dowse": "Lnet/minecraft/class_3922;method_29288(Lnet/minecraft/class_1297;Lnet/minecraft/class_1936;Lnet/minecraft/class_2338;Lnet/minecraft/class_2680;)V",
+      "makeParticles": "Lnet/minecraft/class_3922;method_17455(Lnet/minecraft/class_1937;Lnet/minecraft/class_2338;ZZ)V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/CatAvoidEntityGoalMixin": {
+      "canContinueToUse": "Lnet/minecraft/class_1451$class_3698;method_6266()Z",
+      "canUse": "Lnet/minecraft/class_1451$class_3698;method_6264()Z"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/CatGiftChanceMixin": {
+      "net.minecraft.world.entity.animal.Cat$CatRelaxOnOwnerGoal": "net/minecraft/class_1451$class_3699",
+      "stop": "Lnet/minecraft/class_1451$class_3699;method_6270()V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/CatMixin": {
+      "mobInteract": "Lnet/minecraft/class_1451;method_5992(Lnet/minecraft/class_1657;Lnet/minecraft/class_1268;)Lnet/minecraft/class_1269;",
+      "registerGoals": "Lnet/minecraft/class_1451;method_5959()V",
+      "tick": "Lnet/minecraft/class_1451;method_5773()V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/CatTemptGoalMixin": {
+      "canScare": "Lnet/minecraft/class_1451$class_3700;method_16081()Z"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/ChickenMixin": {
+      "addAdditionalSaveData": "Lnet/minecraft/class_1428;method_5652(Lnet/minecraft/class_2487;)V",
+      "aiStep": "Lnet/minecraft/class_1428;method_6007()V",
+      "readAdditionalSaveData": "Lnet/minecraft/class_1428;method_5749(Lnet/minecraft/class_2487;)V",
+      "registerGoals": "Lnet/minecraft/class_1428;method_5959()V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/CropBlockRainGrowthMixin": {
+      "randomTick": "Lnet/minecraft/class_2302;method_9514(Lnet/minecraft/class_2680;Lnet/minecraft/class_3218;Lnet/minecraft/class_2338;Lnet/minecraft/class_5819;)V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/EntityMixin": {
+      "spawnAtLocation(Lnet/minecraft/world/item/ItemStack;F)Lnet/minecraft/world/entity/item/ItemEntity;": "Lnet/minecraft/class_1297;method_5699(Lnet/minecraft/class_1799;F)Lnet/minecraft/class_1542;"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/ExperienceOrbMixin": {
+      "Lnet/minecraft/world/entity/ExperienceOrb;repairPlayerItems(Lnet/minecraft/server/level/ServerPlayer;I)I": "Lnet/minecraft/class_1303;method_35051(Lnet/minecraft/class_3222;I)I",
+      "playerTouch": "Lnet/minecraft/class_1303;method_5694(Lnet/minecraft/class_1657;)V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/FarmlandBlockMixin": {
+      "fallOn": "Lnet/minecraft/class_2344;method_9554(Lnet/minecraft/class_1937;Lnet/minecraft/class_2680;Lnet/minecraft/class_2338;Lnet/minecraft/class_1297;F)V",
+      "isNearWater": "Lnet/minecraft/class_2344;method_10126(Lnet/minecraft/class_4538;Lnet/minecraft/class_2338;)Z"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/FoxMixin": {
+      "isFood": "Lnet/minecraft/class_4019;method_6481(Lnet/minecraft/class_1799;)Z"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/ItemStackMixin": {
+      "finishUsingItem": "Lnet/minecraft/class_1799;method_7910(Lnet/minecraft/class_1937;Lnet/minecraft/class_1309;)Lnet/minecraft/class_1799;",
+      "getTooltipLines": "Lnet/minecraft/class_1799;method_7950(Lnet/minecraft/class_1792$class_9635;Lnet/minecraft/class_1657;Lnet/minecraft/class_1836;)Ljava/util/List;"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/LivingEntityMixin": {
+      "dropAllDeathLoot": "Lnet/minecraft/class_1309;method_16080(Lnet/minecraft/class_3218;Lnet/minecraft/class_1282;)V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/LivingEntityRendererMixin": {
+      "render(Lnet/minecraft/world/entity/LivingEntity;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V": "Lnet/minecraft/class_922;method_4054(Lnet/minecraft/class_1309;FFLnet/minecraft/class_4587;Lnet/minecraft/class_4597;I)V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/MobAccessor": {
+      "goalSelector": "field_6201:Lnet/minecraft/class_1355;"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/ParrotMixin": {
+      "isFood": "Lnet/minecraft/class_1453;method_6481(Lnet/minecraft/class_1799;)Z"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/PigMixin": {
+      "isFood": "Lnet/minecraft/class_1452;method_6481(Lnet/minecraft/class_1799;)Z",
+      "registerGoals": "Lnet/minecraft/class_1452;method_5959()V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/PlayerModelCartPullMixin": {
+      "setupAnim": "Lnet/minecraft/class_572;method_17087(Lnet/minecraft/class_1309;FFFFF)V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/RabbitMixin": {
+      "isFood": "Lnet/minecraft/class_1463;method_6481(Lnet/minecraft/class_1799;)Z"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/SplashManagerMixin": {
+      "prepare(Lnet/minecraft/server/packs/resources/ResourceManager;Lnet/minecraft/util/profiling/ProfilerFiller;)Ljava/util/List;": "Lnet/minecraft/class_4008;method_18176(Lnet/minecraft/class_3300;Lnet/minecraft/class_3695;)Ljava/util/List;"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/TemptGoalAccessor": {
+      "player": "field_6617:Lnet/minecraft/class_1657;"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/VanillaFarmlandPlantingParticlesMixin": {
+      "neighborChanged(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/Block;Lnet/minecraft/core/BlockPos;Z)V": "Lnet/minecraft/class_4970;method_9612(Lnet/minecraft/class_2680;Lnet/minecraft/class_1937;Lnet/minecraft/class_2338;Lnet/minecraft/class_2248;Lnet/minecraft/class_2338;Z)V"
+    },
+    "net/satisfy/farm_and_charm/core/mixin/WolfMixin": {
+      "die": "Lnet/minecraft/class_1493;method_6078(Lnet/minecraft/class_1282;)V",
+      "mobInteract": "Lnet/minecraft/class_1493;method_5992(Lnet/minecraft/class_1657;Lnet/minecraft/class_1268;)Lnet/minecraft/class_1269;",
+      "registerGoals": "Lnet/minecraft/class_1493;method_5959()V",
+      "tick": "Lnet/minecraft/class_1493;method_5773()V"
+    }
+  },
+  "data": {
+    "named:intermediary": {
+      "net/satisfy/farm_and_charm/core/mixin/AbstractHorseMixin": {
+        "fedFood": "Lnet/minecraft/class_1496;method_30009(Lnet/minecraft/class_1657;Lnet/minecraft/class_1799;)Lnet/minecraft/class_1269;",
+        "isFood": "Lnet/minecraft/class_1496;method_6481(Lnet/minecraft/class_1799;)Z"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/AnimalEntityMixin": {
+        "<init>": "Lnet/minecraft/class_1429;<init>(Lnet/minecraft/class_1299;Lnet/minecraft/class_1937;)V",
+        "addAdditionalSaveData": "Lnet/minecraft/class_1429;method_5652(Lnet/minecraft/class_2487;)V",
+        "aiStep": "Lnet/minecraft/class_1429;method_6007()V",
+        "mobInteract": "Lnet/minecraft/class_1429;method_5992(Lnet/minecraft/class_1657;Lnet/minecraft/class_1268;)Lnet/minecraft/class_1269;",
+        "readAdditionalSaveData": "Lnet/minecraft/class_1429;method_5749(Lnet/minecraft/class_2487;)V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/CampfireBlockMixin": {
+        "dowse": "Lnet/minecraft/class_3922;method_29288(Lnet/minecraft/class_1297;Lnet/minecraft/class_1936;Lnet/minecraft/class_2338;Lnet/minecraft/class_2680;)V",
+        "makeParticles": "Lnet/minecraft/class_3922;method_17455(Lnet/minecraft/class_1937;Lnet/minecraft/class_2338;ZZ)V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/CatAvoidEntityGoalMixin": {
+        "canContinueToUse": "Lnet/minecraft/class_1451$class_3698;method_6266()Z",
+        "canUse": "Lnet/minecraft/class_1451$class_3698;method_6264()Z"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/CatGiftChanceMixin": {
+        "net.minecraft.world.entity.animal.Cat$CatRelaxOnOwnerGoal": "net/minecraft/class_1451$class_3699",
+        "stop": "Lnet/minecraft/class_1451$class_3699;method_6270()V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/CatMixin": {
+        "mobInteract": "Lnet/minecraft/class_1451;method_5992(Lnet/minecraft/class_1657;Lnet/minecraft/class_1268;)Lnet/minecraft/class_1269;",
+        "registerGoals": "Lnet/minecraft/class_1451;method_5959()V",
+        "tick": "Lnet/minecraft/class_1451;method_5773()V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/CatTemptGoalMixin": {
+        "canScare": "Lnet/minecraft/class_1451$class_3700;method_16081()Z"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/ChickenMixin": {
+        "addAdditionalSaveData": "Lnet/minecraft/class_1428;method_5652(Lnet/minecraft/class_2487;)V",
+        "aiStep": "Lnet/minecraft/class_1428;method_6007()V",
+        "readAdditionalSaveData": "Lnet/minecraft/class_1428;method_5749(Lnet/minecraft/class_2487;)V",
+        "registerGoals": "Lnet/minecraft/class_1428;method_5959()V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/CropBlockRainGrowthMixin": {
+        "randomTick": "Lnet/minecraft/class_2302;method_9514(Lnet/minecraft/class_2680;Lnet/minecraft/class_3218;Lnet/minecraft/class_2338;Lnet/minecraft/class_5819;)V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/EntityMixin": {
+        "spawnAtLocation(Lnet/minecraft/world/item/ItemStack;F)Lnet/minecraft/world/entity/item/ItemEntity;": "Lnet/minecraft/class_1297;method_5699(Lnet/minecraft/class_1799;F)Lnet/minecraft/class_1542;"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/ExperienceOrbMixin": {
+        "Lnet/minecraft/world/entity/ExperienceOrb;repairPlayerItems(Lnet/minecraft/server/level/ServerPlayer;I)I": "Lnet/minecraft/class_1303;method_35051(Lnet/minecraft/class_3222;I)I",
+        "playerTouch": "Lnet/minecraft/class_1303;method_5694(Lnet/minecraft/class_1657;)V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/FarmlandBlockMixin": {
+        "fallOn": "Lnet/minecraft/class_2344;method_9554(Lnet/minecraft/class_1937;Lnet/minecraft/class_2680;Lnet/minecraft/class_2338;Lnet/minecraft/class_1297;F)V",
+        "isNearWater": "Lnet/minecraft/class_2344;method_10126(Lnet/minecraft/class_4538;Lnet/minecraft/class_2338;)Z"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/FoxMixin": {
+        "isFood": "Lnet/minecraft/class_4019;method_6481(Lnet/minecraft/class_1799;)Z"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/ItemStackMixin": {
+        "finishUsingItem": "Lnet/minecraft/class_1799;method_7910(Lnet/minecraft/class_1937;Lnet/minecraft/class_1309;)Lnet/minecraft/class_1799;",
+        "getTooltipLines": "Lnet/minecraft/class_1799;method_7950(Lnet/minecraft/class_1792$class_9635;Lnet/minecraft/class_1657;Lnet/minecraft/class_1836;)Ljava/util/List;"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/LivingEntityMixin": {
+        "dropAllDeathLoot": "Lnet/minecraft/class_1309;method_16080(Lnet/minecraft/class_3218;Lnet/minecraft/class_1282;)V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/LivingEntityRendererMixin": {
+        "render(Lnet/minecraft/world/entity/LivingEntity;FFLcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;I)V": "Lnet/minecraft/class_922;method_4054(Lnet/minecraft/class_1309;FFLnet/minecraft/class_4587;Lnet/minecraft/class_4597;I)V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/MobAccessor": {
+        "goalSelector": "field_6201:Lnet/minecraft/class_1355;"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/ParrotMixin": {
+        "isFood": "Lnet/minecraft/class_1453;method_6481(Lnet/minecraft/class_1799;)Z"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/PigMixin": {
+        "isFood": "Lnet/minecraft/class_1452;method_6481(Lnet/minecraft/class_1799;)Z",
+        "registerGoals": "Lnet/minecraft/class_1452;method_5959()V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/PlayerModelCartPullMixin": {
+        "setupAnim": "Lnet/minecraft/class_572;method_17087(Lnet/minecraft/class_1309;FFFFF)V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/RabbitMixin": {
+        "isFood": "Lnet/minecraft/class_1463;method_6481(Lnet/minecraft/class_1799;)Z"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/SplashManagerMixin": {
+        "prepare(Lnet/minecraft/server/packs/resources/ResourceManager;Lnet/minecraft/util/profiling/ProfilerFiller;)Ljava/util/List;": "Lnet/minecraft/class_4008;method_18176(Lnet/minecraft/class_3300;Lnet/minecraft/class_3695;)Ljava/util/List;"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/TemptGoalAccessor": {
+        "player": "field_6617:Lnet/minecraft/class_1657;"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/VanillaFarmlandPlantingParticlesMixin": {
+        "neighborChanged(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/Block;Lnet/minecraft/core/BlockPos;Z)V": "Lnet/minecraft/class_4970;method_9612(Lnet/minecraft/class_2680;Lnet/minecraft/class_1937;Lnet/minecraft/class_2338;Lnet/minecraft/class_2248;Lnet/minecraft/class_2338;Z)V"
+      },
+      "net/satisfy/farm_and_charm/core/mixin/WolfMixin": {
+        "die": "Lnet/minecraft/class_1493;method_6078(Lnet/minecraft/class_1282;)V",
+        "mobInteract": "Lnet/minecraft/class_1493;method_5992(Lnet/minecraft/class_1657;Lnet/minecraft/class_1268;)Lnet/minecraft/class_1269;",
+        "registerGoals": "Lnet/minecraft/class_1493;method_5959()V",
+        "tick": "Lnet/minecraft/class_1493;method_5773()V"
+      }
+    }
+  }
+}

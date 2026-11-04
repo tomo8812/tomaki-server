@@ -1,0 +1,12 @@
+{
+  "type": "farm_and_charm:mincer",
+  "ingredient": {
+    "item": "minecraft:bamboo_block"
+  },
+  "recipe_type": "WOOD",
+  "result": {
+    "id": "minecraft:stripped_bamboo_block",
+    "count": 1
+  },
+  "experience": 0.2
+}

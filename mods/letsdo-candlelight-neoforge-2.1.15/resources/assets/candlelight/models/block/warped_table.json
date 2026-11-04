@@ -1,0 +1,7 @@
+{
+  "parent": "foundation:block/template_table",
+  "textures": {
+    "top": "candlelight:block/warped_drawer_top",
+    "side": "candlelight:block/warped_table"
+  }
+}

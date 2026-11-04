@@ -1,0 +1,8 @@
+{
+  "parent": "foundation:block/template_counter",
+  "textures": {
+    "side": "candlelight:block/quartz_stove_side",
+    "top": "candlelight:block/quartz_counter_top",
+    "bottom": "candlelight:block/quartz_counter_top"
+  }
+}

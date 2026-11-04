@@ -1,0 +1,128 @@
+{
+  "mappings": {
+    "org/valkyrienskies/mod/fabric/mixin/compat/cc_restitched/MixinSpeakerSound": {
+      "tick": "Ldan200/computercraft/client/sound/SpeakerSound;method_16896()V"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/compat/cc_restitched/MixinWirelessModemPeripheral": {
+      "Ldan200/computercraft/shared/peripheral/modem/wireless/WirelessModemPeripheral;getPosition()Lnet/minecraft/world/phys/Vec3;": "Ldan200/computercraft/shared/peripheral/modem/wireless/WirelessModemPeripheral;getPosition()Lnet/minecraft/class_243;"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/compat/connectiblechains/MixinChainCollisionEntity": {
+      "canBeCollidedWith": "Lcom/github/legoatoom/connectiblechains/entity/ChainCollisionEntity;method_30948()Z"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/compat/connectiblechains/MixinChainable": {
+      "Lcom/github/legoatoom/connectiblechains/entity/ChainCollisionEntity;createCollision(Lnet/minecraft/world/entity/Entity;Lcom/github/legoatoom/connectiblechains/entity/Chainable$ChainData;)V": "Lcom/github/legoatoom/connectiblechains/entity/ChainCollisionEntity;createCollision(Lnet/minecraft/class_1297;Lcom/github/legoatoom/connectiblechains/entity/Chainable$ChainData;)V",
+      "attachChain(Lnet/minecraft/world/entity/decoration/HangingEntity;Lcom/github/legoatoom/connectiblechains/entity/Chainable$ChainData;Lnet/minecraft/world/entity/Entity;Z)V": "Lcom/github/legoatoom/connectiblechains/entity/Chainable;attachChain(Lnet/minecraft/class_1530;Lcom/github/legoatoom/connectiblechains/entity/Chainable$ChainData;Lnet/minecraft/class_1297;Z)V",
+      "tickChain": "Lcom/github/legoatoom/connectiblechains/entity/Chainable;tickChain(Lnet/minecraft/class_3218;Lnet/minecraft/class_1530;)V"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/compat/connectiblechains/client/MixinChainKnotEntityRenderer": {
+      "Lnet/minecraft/client/renderer/culling/Frustum;isVisible(Lnet/minecraft/world/phys/AABB;)Z": "Lnet/minecraft/class_4604;method_23093(Lnet/minecraft/class_238;)Z",
+      "render(Lcom/github/legoatoom/connectiblechains/entity/ChainKnotEntity;Lcom/github/legoatoom/connectiblechains/client/render/entity/state/ChainKnotEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IF)V": "Lcom/github/legoatoom/connectiblechains/client/render/entity/ChainKnotEntityRenderer;render(Lcom/github/legoatoom/connectiblechains/entity/ChainKnotEntity;Lcom/github/legoatoom/connectiblechains/client/render/entity/state/ChainKnotEntityRenderState;Lnet/minecraft/class_4587;Lnet/minecraft/class_4597;IF)V",
+      "renderChainLink": "Lcom/github/legoatoom/connectiblechains/client/render/entity/ChainKnotEntityRenderer;renderChainLink(Lnet/minecraft/class_4587;Lnet/minecraft/class_4597;Lcom/github/legoatoom/connectiblechains/client/render/entity/state/ChainKnotEntityRenderState$ChainData;)V",
+      "shouldRender(Lcom/github/legoatoom/connectiblechains/entity/ChainKnotEntity;Lnet/minecraft/client/renderer/culling/Frustum;DDD)Z": "Lcom/github/legoatoom/connectiblechains/client/render/entity/ChainKnotEntityRenderer;shouldRender(Lcom/github/legoatoom/connectiblechains/entity/ChainKnotEntity;Lnet/minecraft/class_4604;DDD)Z"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/compat/emf/MixinEMFAnimationEntityContext": {
+      "distanceOfEntityFrom": "Ltraben/entity_model_features/models/animation/EMFAnimationEntityContext;distanceOfEntityFrom(Lnet/minecraft/class_2338;)I"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/entity/MixinContainerEntity": {
+      "isChestVehicleStillValid": "Lnet/minecraft/class_7265;method_42294(Lnet/minecraft/class_1657;)Z"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/feature/command_suggestion_merge/MixinClientPacketListener": {
+      "handleCommands": "Lnet/minecraft/class_634;method_11145(Lnet/minecraft/class_2641;)V"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/feature/duplicate_keybindings/KeyMappingAccessor": {
+      "clickCount": "field_1661:I",
+      "key": "field_1655:Lnet/minecraft/class_3675$class_306;"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/feature/duplicate_keybindings/MixinKeyMapping": {
+      "click": "Lnet/minecraft/class_304;method_1420(Lnet/minecraft/class_3675$class_306;)V",
+      "resetMapping": "Lnet/minecraft/class_304;method_1426()V",
+      "set": "Lnet/minecraft/class_304;method_1416(Lnet/minecraft/class_3675$class_306;Z)V"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/feature/explosions/ClipContextMixin": {
+      "<init>(Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/level/ClipContext$Block;Lnet/minecraft/world/level/ClipContext$Fluid;Lnet/minecraft/world/entity/Entity;)V": "Lnet/minecraft/class_3959;<init>(Lnet/minecraft/class_243;Lnet/minecraft/class_243;Lnet/minecraft/class_3959$class_3960;Lnet/minecraft/class_3959$class_242;Lnet/minecraft/class_1297;)V",
+      "Lnet/minecraft/world/phys/shapes/CollisionContext;of(Lnet/minecraft/world/entity/Entity;)Lnet/minecraft/world/phys/shapes/CollisionContext;": "Lnet/minecraft/class_3726;method_16195(Lnet/minecraft/class_1297;)Lnet/minecraft/class_3726;"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/feature/fix_tp_ships_cross_dimension/MixinLevelChunk": {
+      "clearAllBlockEntities": "Lnet/minecraft/class_2818;method_38289()V"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/feature/vs_command_passthrough/MixinClientPacketListenerPassthrough": {
+      "sendCommand": "Lnet/minecraft/class_634;method_45730(Ljava/lang/String;)V"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/feature/water_in_ships_entity/MixinEntity": {
+      "Lnet/minecraft/world/level/Level;getFluidState(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/material/FluidState;": "Lnet/minecraft/class_1937;method_8316(Lnet/minecraft/class_2338;)Lnet/minecraft/class_3610;",
+      "Lnet/minecraft/world/level/material/FluidState;getHeight(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)F": "Lnet/minecraft/class_3610;method_15763(Lnet/minecraft/class_1922;Lnet/minecraft/class_2338;)F",
+      "Lnet/minecraft/world/phys/Vec3;length()D": "Lnet/minecraft/class_243;method_1033()D",
+      "Lnet/minecraft/world/phys/Vec3;scale(D)Lnet/minecraft/world/phys/Vec3;": "Lnet/minecraft/class_243;method_1021(D)Lnet/minecraft/class_243;",
+      "updateFluidHeightAndDoFluidPushing": "Lnet/minecraft/class_1297;method_5692(Lnet/minecraft/class_6862;D)Z",
+      "updateFluidOnEyes": "Lnet/minecraft/class_1297;method_5630()V"
+    },
+    "org/valkyrienskies/mod/fabric/mixin/world/level/block/FireMixin": {
+      "onPlace": "Lnet/minecraft/class_2358;method_9615(Lnet/minecraft/class_2680;Lnet/minecraft/class_1937;Lnet/minecraft/class_2338;Lnet/minecraft/class_2680;Z)V",
+      "tick": "Lnet/minecraft/class_2358;method_9588(Lnet/minecraft/class_2680;Lnet/minecraft/class_3218;Lnet/minecraft/class_2338;Lnet/minecraft/class_5819;)V"
+    }
+  },
+  "data": {
+    "named:intermediary": {
+      "org/valkyrienskies/mod/fabric/mixin/compat/cc_restitched/MixinSpeakerSound": {
+        "tick": "Ldan200/computercraft/client/sound/SpeakerSound;method_16896()V"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/compat/cc_restitched/MixinWirelessModemPeripheral": {
+        "Ldan200/computercraft/shared/peripheral/modem/wireless/WirelessModemPeripheral;getPosition()Lnet/minecraft/world/phys/Vec3;": "Ldan200/computercraft/shared/peripheral/modem/wireless/WirelessModemPeripheral;getPosition()Lnet/minecraft/class_243;"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/compat/connectiblechains/MixinChainCollisionEntity": {
+        "canBeCollidedWith": "Lcom/github/legoatoom/connectiblechains/entity/ChainCollisionEntity;method_30948()Z"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/compat/connectiblechains/MixinChainable": {
+        "Lcom/github/legoatoom/connectiblechains/entity/ChainCollisionEntity;createCollision(Lnet/minecraft/world/entity/Entity;Lcom/github/legoatoom/connectiblechains/entity/Chainable$ChainData;)V": "Lcom/github/legoatoom/connectiblechains/entity/ChainCollisionEntity;createCollision(Lnet/minecraft/class_1297;Lcom/github/legoatoom/connectiblechains/entity/Chainable$ChainData;)V",
+        "attachChain(Lnet/minecraft/world/entity/decoration/HangingEntity;Lcom/github/legoatoom/connectiblechains/entity/Chainable$ChainData;Lnet/minecraft/world/entity/Entity;Z)V": "Lcom/github/legoatoom/connectiblechains/entity/Chainable;attachChain(Lnet/minecraft/class_1530;Lcom/github/legoatoom/connectiblechains/entity/Chainable$ChainData;Lnet/minecraft/class_1297;Z)V",
+        "tickChain": "Lcom/github/legoatoom/connectiblechains/entity/Chainable;tickChain(Lnet/minecraft/class_3218;Lnet/minecraft/class_1530;)V"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/compat/connectiblechains/client/MixinChainKnotEntityRenderer": {
+        "Lnet/minecraft/client/renderer/culling/Frustum;isVisible(Lnet/minecraft/world/phys/AABB;)Z": "Lnet/minecraft/class_4604;method_23093(Lnet/minecraft/class_238;)Z",
+        "render(Lcom/github/legoatoom/connectiblechains/entity/ChainKnotEntity;Lcom/github/legoatoom/connectiblechains/client/render/entity/state/ChainKnotEntityRenderState;Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/renderer/MultiBufferSource;IF)V": "Lcom/github/legoatoom/connectiblechains/client/render/entity/ChainKnotEntityRenderer;render(Lcom/github/legoatoom/connectiblechains/entity/ChainKnotEntity;Lcom/github/legoatoom/connectiblechains/client/render/entity/state/ChainKnotEntityRenderState;Lnet/minecraft/class_4587;Lnet/minecraft/class_4597;IF)V",
+        "renderChainLink": "Lcom/github/legoatoom/connectiblechains/client/render/entity/ChainKnotEntityRenderer;renderChainLink(Lnet/minecraft/class_4587;Lnet/minecraft/class_4597;Lcom/github/legoatoom/connectiblechains/client/render/entity/state/ChainKnotEntityRenderState$ChainData;)V",
+        "shouldRender(Lcom/github/legoatoom/connectiblechains/entity/ChainKnotEntity;Lnet/minecraft/client/renderer/culling/Frustum;DDD)Z": "Lcom/github/legoatoom/connectiblechains/client/render/entity/ChainKnotEntityRenderer;shouldRender(Lcom/github/legoatoom/connectiblechains/entity/ChainKnotEntity;Lnet/minecraft/class_4604;DDD)Z"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/compat/emf/MixinEMFAnimationEntityContext": {
+        "distanceOfEntityFrom": "Ltraben/entity_model_features/models/animation/EMFAnimationEntityContext;distanceOfEntityFrom(Lnet/minecraft/class_2338;)I"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/entity/MixinContainerEntity": {
+        "isChestVehicleStillValid": "Lnet/minecraft/class_7265;method_42294(Lnet/minecraft/class_1657;)Z"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/feature/command_suggestion_merge/MixinClientPacketListener": {
+        "handleCommands": "Lnet/minecraft/class_634;method_11145(Lnet/minecraft/class_2641;)V"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/feature/duplicate_keybindings/KeyMappingAccessor": {
+        "clickCount": "field_1661:I",
+        "key": "field_1655:Lnet/minecraft/class_3675$class_306;"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/feature/duplicate_keybindings/MixinKeyMapping": {
+        "click": "Lnet/minecraft/class_304;method_1420(Lnet/minecraft/class_3675$class_306;)V",
+        "resetMapping": "Lnet/minecraft/class_304;method_1426()V",
+        "set": "Lnet/minecraft/class_304;method_1416(Lnet/minecraft/class_3675$class_306;Z)V"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/feature/explosions/ClipContextMixin": {
+        "<init>(Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/phys/Vec3;Lnet/minecraft/world/level/ClipContext$Block;Lnet/minecraft/world/level/ClipContext$Fluid;Lnet/minecraft/world/entity/Entity;)V": "Lnet/minecraft/class_3959;<init>(Lnet/minecraft/class_243;Lnet/minecraft/class_243;Lnet/minecraft/class_3959$class_3960;Lnet/minecraft/class_3959$class_242;Lnet/minecraft/class_1297;)V",
+        "Lnet/minecraft/world/phys/shapes/CollisionContext;of(Lnet/minecraft/world/entity/Entity;)Lnet/minecraft/world/phys/shapes/CollisionContext;": "Lnet/minecraft/class_3726;method_16195(Lnet/minecraft/class_1297;)Lnet/minecraft/class_3726;"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/feature/fix_tp_ships_cross_dimension/MixinLevelChunk": {
+        "clearAllBlockEntities": "Lnet/minecraft/class_2818;method_38289()V"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/feature/vs_command_passthrough/MixinClientPacketListenerPassthrough": {
+        "sendCommand": "Lnet/minecraft/class_634;method_45730(Ljava/lang/String;)V"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/feature/water_in_ships_entity/MixinEntity": {
+        "Lnet/minecraft/world/level/Level;getFluidState(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/material/FluidState;": "Lnet/minecraft/class_1937;method_8316(Lnet/minecraft/class_2338;)Lnet/minecraft/class_3610;",
+        "Lnet/minecraft/world/level/material/FluidState;getHeight(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)F": "Lnet/minecraft/class_3610;method_15763(Lnet/minecraft/class_1922;Lnet/minecraft/class_2338;)F",
+        "Lnet/minecraft/world/phys/Vec3;length()D": "Lnet/minecraft/class_243;method_1033()D",
+        "Lnet/minecraft/world/phys/Vec3;scale(D)Lnet/minecraft/world/phys/Vec3;": "Lnet/minecraft/class_243;method_1021(D)Lnet/minecraft/class_243;",
+        "updateFluidHeightAndDoFluidPushing": "Lnet/minecraft/class_1297;method_5692(Lnet/minecraft/class_6862;D)Z",
+        "updateFluidOnEyes": "Lnet/minecraft/class_1297;method_5630()V"
+      },
+      "org/valkyrienskies/mod/fabric/mixin/world/level/block/FireMixin": {
+        "onPlace": "Lnet/minecraft/class_2358;method_9615(Lnet/minecraft/class_2680;Lnet/minecraft/class_1937;Lnet/minecraft/class_2338;Lnet/minecraft/class_2680;Z)V",
+        "tick": "Lnet/minecraft/class_2358;method_9588(Lnet/minecraft/class_2680;Lnet/minecraft/class_3218;Lnet/minecraft/class_2338;Lnet/minecraft/class_5819;)V"
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+    "minVersion": "0.8.0",
+    "compatibilityLevel": "JAVA_21",
+    "required": true,
+    "package": "fuzs.puzzleslib.mixin",
+    "mixins": [
+        "AbstractMinecartMixin",
+        "DataCommandsMixin",
+        "EnchantCommandMixin"
+    ],
+    "client": [
+        "client.ClientSuggestionProviderMixin",
+        "client.EditBoxMixin",
+        "client.ModelBakeryMixin"
+    ],
+    "server": [
+        "server.DedicatedServerSettingsMixin",
+        "server.EulaMixin"
+    ],
+    "plugin": "fuzs.puzzleslib.mixin.MixinConfigPluginImpl",
+    "injectors": {
+        "defaultRequire": 1
+    },
+    "overwrites": {
+        "requireAnnotations": true
+    },
+    "mixinextras": {
+        "minVersion": "0.5.0"
+    }
+}

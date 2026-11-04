@@ -1,0 +1,49 @@
+modLoader = "javafml"
+loaderVersion = "*"
+license = "MPL-2.0"
+issueTrackerURL = "https://github.com/Fuzss/goldenagecombat/issues"
+
+[[mods]]
+modId = "goldenagecombat"
+displayName = "Golden Age Combat"
+description = "Classic combat has returned! Get ready for some fast-paced combat action and lots of fun!"
+version = "21.1.3"
+authors = "Fuzs"
+logoFile = "mod_banner.png"
+logoBlur = false
+displayURL = "https://github.com/Fuzss/goldenagecombat"
+updateJSONURL = "https://raw.githubusercontent.com/Fuzss/modresources/main/update/goldenagecombat.json"
+displayTest = "MATCH_VERSION"
+
+[[mixins]]
+config="goldenagecombat.common.mixins.json"
+
+[[mixins]]
+config="goldenagecombat.neoforge.mixins.json"
+
+[[dependencies.goldenagecombat]]
+modId = "neoforge"
+mandatory = true
+type = "required"
+versionRange = "[21.1.21,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.goldenagecombat]]
+modId = "minecraft"
+mandatory = true
+type = "required"
+versionRange = "[1.21.1]"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.goldenagecombat]]
+modId = "puzzleslib"
+mandatory = true
+type = "required"
+versionRange = "[21.1.7,)"
+ordering = "NONE"
+side = "BOTH"
+
+[modproperties.goldenagecombat]
+catalogueImageIcon = "mod_logo.png"

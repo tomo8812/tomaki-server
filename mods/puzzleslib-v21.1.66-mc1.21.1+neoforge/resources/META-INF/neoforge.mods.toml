@@ -1,0 +1,36 @@
+modLoader = "javafml"
+loaderVersion = "*"
+license = "MPL-2.0"
+licenseURL = "https://github.com/Fuzss/puzzles-lib/blob/main/LICENSE.md"
+issueTrackerURL = "https://github.com/Fuzss/puzzles-lib/issues"
+
+[[mods]]
+    modId = "puzzleslib"
+    version = "21.1.66"
+    displayName = "Puzzles Lib"
+    description = "Why it's called Puzzles, you ask? That's the puzzle!"
+    iconFile = "pack.png"
+    logoFile = "pack.png"
+    updateJSONURL = "https://curseupdate.com/495476/puzzleslib?ml=neoforge"
+    authors = "Fuzs"
+    displayURL = "https://www.curseforge.com/minecraft/mc-mods/puzzles-lib"
+
+[[mixins]]
+    config = "puzzleslib.common.mixins.json"
+
+[[mixins]]
+    config = "puzzleslib.neoforge.mixins.json"
+
+[[dependencies.puzzleslib]]
+    modId = "minecraft"
+    mandatory = true
+    type = "REQUIRED"
+    versionRange = "[1.21.1,1.21.2)"
+    referralUrl = "https://www.minecraft.net/"
+
+[[dependencies.puzzleslib]]
+    modId = "neoforge"
+    mandatory = true
+    type = "REQUIRED"
+    versionRange = "[21.1.21,)"
+    referralUrl = "https://neoforged.net/"

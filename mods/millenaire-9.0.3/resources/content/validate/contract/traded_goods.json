@@ -1,0 +1,19 @@
+{
+  "family": "traded_goods",
+  "_comment": "Every key TradeGoodsLoader reads. Kept in step by FieldContractReflectionGuardTest.",
+  "fields": [
+    { "path": "goods[]", "type": "array", "required": true },
+    { "path": "goods[].id", "type": "string", "required": true },
+    { "path": "goods[].disabled", "type": "boolean" },
+    { "path": "goods[].item", "type": "string", "required": true, "requiredUnless": "disabled" },
+    { "path": "goods[].selling_price", "type": "int" },
+    { "path": "goods[].buying_price", "type": "int" },
+    { "path": "goods[].reserved_quantity", "type": "int" },
+    { "path": "goods[].target_quantity", "type": "int" },
+    { "path": "goods[].auto_generate", "type": "boolean" },
+    { "path": "goods[].min_reputation", "type": "int" },
+    { "path": "goods[].category", "type": "string" },
+    { "path": "goods[].travel_book_display", "type": "boolean" },
+    { "path": "goods[].foreign_merchant_price", "type": "int" }
+  ]
+}

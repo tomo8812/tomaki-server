@@ -1,0 +1,9 @@
+{
+  "parent": "foundation:block/template_stove",
+  "textures": {
+    "front": "candlelight:block/stone_bricks_stove_front",
+    "side": "candlelight:block/stone_bricks_stove_side",
+    "top": "candlelight:block/stove_top",
+    "bottom": "candlelight:block/stone_bricks_stove_bottom"
+  }
+}

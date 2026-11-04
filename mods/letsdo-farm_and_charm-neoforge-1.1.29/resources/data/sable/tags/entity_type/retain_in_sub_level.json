@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    {
+      "id": "foundation:chair",
+      "required": false
+    }
+  ]
+}

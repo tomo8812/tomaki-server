@@ -1,0 +1,7 @@
+{
+  "parent": "foundation:block/template_table_connected_support",
+  "textures": {
+    "top": "candlelight:block/jungle_table_connected",
+    "side": "candlelight:block/jungle_table"
+  }
+}

@@ -1,0 +1,105 @@
+package net.satisfy.brewery.core.block;
+
+import com.mojang.serialization.MapCodec;
+import java.util.List;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.Item.TooltipContext;
+import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.HorizontalDirectionalBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.BlockBehaviour.Properties;
+import net.minecraft.world.level.block.state.StateDefinition.Builder;
+import net.minecraft.world.level.block.state.properties.EnumProperty;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.satisfy.brewery.core.block.entity.BrewstationBlockEntity;
+import net.satisfy.brewery.core.block.property.BrewMaterial;
+import net.satisfy.brewery.core.registry.BlockStateRegistry;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+public class BrewingstationBlock extends HorizontalDirectionalBlock {
+   public static final EnumProperty<BrewMaterial> MATERIAL = BlockStateRegistry.MATERIAL;
+   public static final MapCodec<BrewingstationBlock> CODEC = simpleCodec(BrewingstationBlock::new);
+
+   public BrewingstationBlock(Properties properties) {
+      super(properties);
+      this.registerDefaultState(this.defaultBlockState());
+   }
+
+   protected MapCodec<? extends HorizontalDirectionalBlock> codec() {
+      return CODEC;
+   }
+
+   public BlockState getStateForPlacement(BlockPlaceContext context) {
+      return (BlockState)this.defaultBlockState().setValue(FACING, context.getHorizontalDirection().getOpposite());
+   }
+
+   @NotNull
+   public ItemStack getCloneItemStack(LevelReader levelReader, BlockPos pos, BlockState state) {
+      BrewstationBlockEntity blockEntity = this.getController(pos, levelReader);
+      if (blockEntity != null) {
+         ItemStack beerStack = blockEntity.peekBeer();
+         if (beerStack != null && !beerStack.isEmpty()) {
+            return beerStack;
+         }
+      }
+
+      return super.getCloneItemStack(levelReader, pos, state);
+   }
+
+   protected void createBlockStateDefinition(Builder<Block, BlockState> builder) {
+      super.createBlockStateDefinition(builder);
+      builder.add(new Property[]{MATERIAL, FACING});
+   }
+
+   @NotNull
+   public BlockState playerWillDestroy(Level level, BlockPos pos, BlockState state, Player player) {
+      BrewstationBlockEntity brewstationEntity = this.getController(pos, level);
+      if (brewstationEntity != null) {
+         brewstationEntity.getComponents()
+            .stream()
+            .filter(componentPos -> !componentPos.equals(pos))
+            .forEach(componentPos -> level.removeBlock(componentPos, false));
+      }
+
+      return super.playerWillDestroy(level, pos, state, player);
+   }
+
+   @Nullable
+   protected BrewstationBlockEntity getController(BlockPos centerPos, Level level) {
+      return this.findController(centerPos, level);
+   }
+
+   @Nullable
+   protected BrewstationBlockEntity getController(BlockPos centerPos, BlockGetter getter) {
+      return this.findController(centerPos, getter);
+   }
+
+   private <T extends BlockGetter> BrewstationBlockEntity findController(BlockPos centerPos, T blockGetter) {
+      for (int dy = 0; dy >= -1; dy--) {
+         for (int x = -1; x <= 1; x++) {
+            for (int z = -1; z <= 1; z++) {
+               if (blockGetter.getBlockEntity(centerPos.offset(x, dy, z)) instanceof BrewstationBlockEntity brewstationEntity
+                  && brewstationEntity.isPartOf(centerPos)) {
+                  return brewstationEntity;
+               }
+            }
+         }
+      }
+
+      return null;
+   }
+
+   public void appendHoverText(ItemStack itemStack, TooltipContext tooltipContext, List<Component> list, TooltipFlag tooltipFlag) {
+      list.add(Component.translatable("tooltip.farm_and_charm.canbeplaced").withStyle(ChatFormatting.GRAY));
+   }
+}

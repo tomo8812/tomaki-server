@@ -1,0 +1,6 @@
+{
+  "parent": "foundation:block/template_wall_decoration",
+  "textures": {
+    "decoration": "candlelight:item/heart"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "parent": "millenaire:block/xunaan_hive",
+  "overrides": [
+    {
+      "predicate": { "millenaire:honey_level": 1.0 },
+      "model": "millenaire:block/xunaan_hive_full"
+    }
+  ]
+}

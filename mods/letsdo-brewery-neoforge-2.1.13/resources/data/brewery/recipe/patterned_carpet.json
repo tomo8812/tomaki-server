@@ -1,0 +1,16 @@
+{
+  "type": "brewery:patterned_carpet",
+  "group": "carpet",
+  "key": {
+    "#": {
+      "item": "brewery:patterned_wool"
+    }
+  },
+  "pattern": [
+    "##"
+  ],
+  "result": {
+    "count": 3,
+    "id": "brewery:patterned_carpet"
+  }
+}

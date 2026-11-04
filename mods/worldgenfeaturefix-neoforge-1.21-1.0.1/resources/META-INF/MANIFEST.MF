@@ -1,0 +1,9 @@
+Manifest-Version: 1.0
+Specification-Title: WorldgenFeatureFix
+Specification-Vendor: SimonShiki
+Specification-Version: 1.0.1
+Implementation-Title: neoforge
+Implementation-Version: 1.0.1
+Implementation-Vendor: SimonShiki
+Built-On-Minecraft: 1.21
+

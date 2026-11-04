@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "package": "org.valkyrienskies.eureka.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "client": [
+    "client.PlayerEntityModelMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "minVersion": "0.8",
+  "refmap": "eureka-1-21-1-common-refmap.json"
+}

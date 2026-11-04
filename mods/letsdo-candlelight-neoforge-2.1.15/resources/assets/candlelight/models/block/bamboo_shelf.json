@@ -1,0 +1,7 @@
+{
+  "parent": "candlelight:block/template_shelf",
+  "textures": {
+    "wood": "candlelight:block/bamboo_cabinet_top",
+    "bracket": "candlelight:block/counter_top"
+  }
+}

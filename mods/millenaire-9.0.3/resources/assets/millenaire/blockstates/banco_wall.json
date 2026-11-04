@@ -1,0 +1,44 @@
+{
+  "multipart": [
+    { "when": { "up": "true", "progress": "0" }, "apply": { "model": "millenaire:block/banco_wall_post_wet" } },
+    { "when": { "up": "true", "progress": "1" }, "apply": { "model": "millenaire:block/banco_wall_post_drying1" } },
+    { "when": { "up": "true", "progress": "2" }, "apply": { "model": "millenaire:block/banco_wall_post_drying2" } },
+    { "when": { "up": "true", "progress": "3" }, "apply": { "model": "millenaire:block/banco_wall_post_dry" } },
+
+    { "when": { "north": "low", "progress": "0" }, "apply": { "model": "millenaire:block/banco_wall_side_wet",     "uvlock": true } },
+    { "when": { "north": "low", "progress": "1" }, "apply": { "model": "millenaire:block/banco_wall_side_drying1", "uvlock": true } },
+    { "when": { "north": "low", "progress": "2" }, "apply": { "model": "millenaire:block/banco_wall_side_drying2", "uvlock": true } },
+    { "when": { "north": "low", "progress": "3" }, "apply": { "model": "millenaire:block/banco_wall_side_dry",     "uvlock": true } },
+    { "when": { "north": "tall", "progress": "0" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_wet",     "uvlock": true } },
+    { "when": { "north": "tall", "progress": "1" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_drying1", "uvlock": true } },
+    { "when": { "north": "tall", "progress": "2" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_drying2", "uvlock": true } },
+    { "when": { "north": "tall", "progress": "3" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_dry",     "uvlock": true } },
+
+    { "when": { "east": "low", "progress": "0" }, "apply": { "model": "millenaire:block/banco_wall_side_wet",     "y": 90, "uvlock": true } },
+    { "when": { "east": "low", "progress": "1" }, "apply": { "model": "millenaire:block/banco_wall_side_drying1", "y": 90, "uvlock": true } },
+    { "when": { "east": "low", "progress": "2" }, "apply": { "model": "millenaire:block/banco_wall_side_drying2", "y": 90, "uvlock": true } },
+    { "when": { "east": "low", "progress": "3" }, "apply": { "model": "millenaire:block/banco_wall_side_dry",     "y": 90, "uvlock": true } },
+    { "when": { "east": "tall", "progress": "0" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_wet",     "y": 90, "uvlock": true } },
+    { "when": { "east": "tall", "progress": "1" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_drying1", "y": 90, "uvlock": true } },
+    { "when": { "east": "tall", "progress": "2" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_drying2", "y": 90, "uvlock": true } },
+    { "when": { "east": "tall", "progress": "3" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_dry",     "y": 90, "uvlock": true } },
+
+    { "when": { "south": "low", "progress": "0" }, "apply": { "model": "millenaire:block/banco_wall_side_wet",     "y": 180, "uvlock": true } },
+    { "when": { "south": "low", "progress": "1" }, "apply": { "model": "millenaire:block/banco_wall_side_drying1", "y": 180, "uvlock": true } },
+    { "when": { "south": "low", "progress": "2" }, "apply": { "model": "millenaire:block/banco_wall_side_drying2", "y": 180, "uvlock": true } },
+    { "when": { "south": "low", "progress": "3" }, "apply": { "model": "millenaire:block/banco_wall_side_dry",     "y": 180, "uvlock": true } },
+    { "when": { "south": "tall", "progress": "0" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_wet",     "y": 180, "uvlock": true } },
+    { "when": { "south": "tall", "progress": "1" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_drying1", "y": 180, "uvlock": true } },
+    { "when": { "south": "tall", "progress": "2" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_drying2", "y": 180, "uvlock": true } },
+    { "when": { "south": "tall", "progress": "3" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_dry",     "y": 180, "uvlock": true } },
+
+    { "when": { "west": "low", "progress": "0" }, "apply": { "model": "millenaire:block/banco_wall_side_wet",     "y": 270, "uvlock": true } },
+    { "when": { "west": "low", "progress": "1" }, "apply": { "model": "millenaire:block/banco_wall_side_drying1", "y": 270, "uvlock": true } },
+    { "when": { "west": "low", "progress": "2" }, "apply": { "model": "millenaire:block/banco_wall_side_drying2", "y": 270, "uvlock": true } },
+    { "when": { "west": "low", "progress": "3" }, "apply": { "model": "millenaire:block/banco_wall_side_dry",     "y": 270, "uvlock": true } },
+    { "when": { "west": "tall", "progress": "0" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_wet",     "y": 270, "uvlock": true } },
+    { "when": { "west": "tall", "progress": "1" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_drying1", "y": 270, "uvlock": true } },
+    { "when": { "west": "tall", "progress": "2" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_drying2", "y": 270, "uvlock": true } },
+    { "when": { "west": "tall", "progress": "3" }, "apply": { "model": "millenaire:block/banco_wall_side_tall_dry",     "y": 270, "uvlock": true } }
+  ]
+}

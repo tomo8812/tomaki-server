@@ -1,0 +1,10 @@
+{
+  "parent": "brewery:block/template_wooden_brewingstation_oven",
+  "textures": {
+    "4": "brewery:block/brewing_station/wood/wooden_brewing_station_top_1",
+    "7": "brewery:block/brewing_station/wood/wooden_brewing_station_side_4",
+    "10": "brewery:block/brewing_station/wood/wooden_brewing_station_side_1",
+    "11": "brewery:block/brewing_station/wood/wooden_brewing_station_top_2",
+    "particle": "brewery:block/brewing_station/wood/wooden_brewing_station_side_4"
+  }
+}

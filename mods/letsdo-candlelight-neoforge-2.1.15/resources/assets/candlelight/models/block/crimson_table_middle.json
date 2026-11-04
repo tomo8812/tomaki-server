@@ -1,0 +1,7 @@
+{
+  "parent": "foundation:block/template_table_middle",
+  "textures": {
+    "top": "candlelight:block/crimson_table_mid",
+    "side": "candlelight:block/crimson_table"
+  }
+}

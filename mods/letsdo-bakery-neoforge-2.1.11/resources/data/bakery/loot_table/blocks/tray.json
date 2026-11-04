@@ -1,0 +1,29 @@
+{
+  "type": "minecraft:block",
+  "pools": [
+    {
+      "bonus_rolls": 0.0,
+      "conditions": [
+        {
+          "condition": "minecraft:survives_explosion"
+        }
+      ],
+      "entries": [
+        {
+          "type": "minecraft:item",
+          "name": "bakery:tray",
+          "functions": [
+            {
+              "function": "minecraft:copy_state",
+              "block": "bakery:tray",
+              "properties": [
+                "color"
+              ]
+            }
+          ]
+        }
+      ],
+      "rolls": 1.0
+    }
+  ]
+}

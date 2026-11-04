@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "id": "vs_eureka",
+  "version": "1.5.3-beta.4-td.4+b0d9511582",
+  "name": "VS Eureka Mod",
+  "description": "Basically Archimedes Ships, but with VS2 as the backend!",
+  "authors": [
+    "ewoudje",
+    "Tri0de",
+    "Rubydesic",
+    "millennIumAMbiguity"
+  ],
+  "contributors": [
+    "Copper",
+    "Anarava",
+    "VS Discord"
+  ],
+  "contact": {
+    "homepage": "https://valkyrienskies.org/",
+    "sources": "https://github.com/ValkyrienSkies/Eureka",
+    "issues": "https://github.com/ValkyrienSkies/Eureka/issues"
+  },
+  "license": "Apache-2.0",
+  "icon": "assets/vs_eureka/icon.png",
+  "environment": "*",
+  "entrypoints": {
+    "main": [
+      "org.valkyrienskies.eureka.fabric.EurekaModFabric"
+    ],
+    "client": [
+      "org.valkyrienskies.eureka.fabric.EurekaModFabric$Client"
+    ],
+    "preLaunch": [
+      "org.valkyrienskies.eureka.fabric.ValkyrienPreLaunch"
+    ],
+    "modmenu": [
+      "org.valkyrienskies.eureka.fabric.EurekaModFabric$ModMenu"
+    ],
+    "fabric-datagen": [
+      "org.valkyrienskies.eureka.fabric.EurekaDataGenerator"
+    ]
+  },
+  "mixins": [
+    "vs_eureka-common.mixins.json",
+    "vs_eureka.mixins.json"
+  ],
+  "depends": {
+    "minecraft": "\u003e\u003d1.21.1",
+    "valkyrienskies": "\u003e\u003d2.4.12-td.8",
+    "fabricloader": "\u003e\u003d0.14.21"
+  },
+  "accessWidener": "vs_eureka.accesswidener",
+  "jars": [
+    {
+      "file": "META-INF/jars/mixinextras-fabric-0.3.5.jar"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+Maki Ship Anchor Fix 1.0.0
+Target: Minecraft 1.21.1 / NeoForge / VS 2.4.12-td.9+66a13242ed (Connector environment)
+
+Design invariants:
+- No Eureka/Foundation/seat/helm/chair class or block is hardcoded.
+- Riding authority comes from VS ShipMountedToData.
+- Sleeping authority is the actual post-placement Player position captured into ship-local space.
+- Sleep following uses a lower-priority LivingEntity.tick TAIL so supplied compatibility hooks run first.
+- Entity#setPos is used so physical position and AABB move together on server and clients.
+- The first normal movement packet after dismount/wake realigns vanilla accepted-position baselines,
+  preventing a stale click-time coordinate frame from being restored during the handoff.
+- No custom movement packets are added and VS packet handling is not replaced.
+- No ChunkMap tracking, render, camera, LOD, footsteps, or assembly hooks are modified.
+
+Compatibility checked against the supplied mods.zip and supplied Maki custom mods.
+The exact VS dependency is intentional because newer VS builds contain a broader upstream entity-dragging rewrite.

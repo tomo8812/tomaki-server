@@ -1,0 +1,89 @@
+package net.satisfy.farm_and_charm.client.renderer.block;
+
+import com.mojang.blaze3d.vertex.PoseStack;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+import com.mojang.math.Axis;
+import net.minecraft.client.model.geom.ModelPart;
+import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.client.renderer.blockentity.BlockEntityRenderer;
+import net.minecraft.client.renderer.blockentity.BlockEntityRendererProvider.Context;
+import net.minecraft.core.Direction;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.Mth;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.satisfy.farm_and_charm.client.model.MincerModel;
+import net.satisfy.farm_and_charm.core.block.MincerBlock;
+import net.satisfy.farm_and_charm.core.block.entity.MincerBlockEntity;
+import net.satisfy.farm_and_charm.platform.PlatformHelper;
+import org.joml.Vector3f;
+
+public class MincerRenderer implements BlockEntityRenderer<MincerBlockEntity> {
+   private static final ResourceLocation TEXTURE = ResourceLocation.fromNamespaceAndPath("farm_and_charm", "textures/entity/mincer.png");
+   private static final float WOBBLE_ANGLE = 3.0F;
+   private static final float WOBBLE_HOP = 0.02F;
+   private final ModelPart mincer;
+   private final ModelPart crank;
+
+   public MincerRenderer(Context context) {
+      ModelPart root = context.bakeLayer(MincerModel.LAYER_LOCATION);
+      this.mincer = root.getChild("mincer");
+      this.crank = root.getChild("crank");
+   }
+
+   public void render(MincerBlockEntity blockEntity, float partialTicks, PoseStack poseStack, MultiBufferSource multiBufferSource, int light, int overlay) {
+      Level level = blockEntity.getLevel();
+      if (level != null) {
+         BlockState blockState = level.getBlockState(blockEntity.getBlockPos());
+         if (blockState.getBlock() instanceof MincerBlock) {
+            poseStack.pushPose();
+            Direction facing = (Direction)blockState.getValue(MincerBlock.FACING);
+            Vector3f offset = new Vector3f();
+            float rotationDegrees = 0.0F;
+            switch (facing) {
+               case NORTH:
+                  offset.set(1.0F, 0.0F, 1.0F);
+                  rotationDegrees = 180.0F;
+                  break;
+               case EAST:
+                  offset.set(0.0F, 0.0F, 1.0F);
+                  rotationDegrees = 90.0F;
+                  break;
+               case SOUTH:
+                  offset.set(0.0F, 0.0F, 0.0F);
+                  break;
+               case WEST:
+                  offset.set(1.0F, 0.0F, 0.0F);
+                  rotationDegrees = 270.0F;
+            }
+
+            poseStack.translate(offset.x, offset.y, offset.z);
+            poseStack.mulPose(Axis.YP.rotationDegrees(rotationDegrees));
+            float crankAngle = blockEntity.getInterpolatedCrankAngle(partialTicks);
+            float wobble = blockEntity.getCrankSpeed() / 0.5F;
+            if (PlatformHelper.animationsEnabled() && wobble > 0.01F) {
+               poseStack.translate(0.5F, Math.abs(Mth.sin(crankAngle)) * wobble * 0.02F, 0.5F);
+               poseStack.mulPose(Axis.XP.rotationDegrees(Mth.sin(crankAngle) * wobble * 3.0F));
+               poseStack.mulPose(Axis.ZP.rotationDegrees(Mth.cos(crankAngle * 2.0F) * wobble * 3.0F * 0.4F));
+               poseStack.translate(-0.5F, 0.0F, -0.5F);
+            }
+
+            VertexConsumer vc = multiBufferSource.getBuffer(RenderType.entityCutoutNoCull(TEXTURE));
+            this.mincer.render(poseStack, vc, light, overlay);
+            poseStack.translate(0.5F, 0.625F, 0.5F);
+            poseStack.mulPose(Axis.XP.rotation(crankAngle));
+            poseStack.translate(-0.5F, -0.625F, -0.5F);
+            this.crank.render(poseStack, vc, light, overlay);
+            poseStack.popPose();
+         }
+      }
+   }
+
+   // $VF: synthetic method
+   // $VF: bridge method
+   public void render(BlockEntity param1, float nullx, PoseStack nullxx, MultiBufferSource nullxxx, int nullxxxx, int nullxxxxx) {
+      this.render((MincerBlockEntity)var1, nullx, nullxx, nullxxx, nullxxxx, nullxxxxx);
+   }
+}

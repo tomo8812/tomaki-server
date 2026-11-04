@@ -1,0 +1,12 @@
+{
+  "parent": "brewery:block/template_brewingstation_oven",
+  "textures": {
+    "3": "brewery:block/brewing_station/netherite/netherite_brewing_station_side_bottom_1",
+    "4": "brewery:block/brewing_station/netherite/netherite_brewing_station_bottom_2",
+    "5": "brewery:block/brewing_station/netherite/netherite_brewing_station_bottom_1",
+    "7": "brewery:block/brewing_station/netherite/netherite_brewing_station_side_4_on",
+    "10": "brewery:block/brewing_station/netherite/netherite_brewing_station_side_3",
+    "11": "brewery:block/brewing_station/netherite/netherite_brewing_station_top_3",
+    "particle": "brewery:block/brewing_station/netherite/netherite_brewing_station_side_bottom_1"
+  }
+}

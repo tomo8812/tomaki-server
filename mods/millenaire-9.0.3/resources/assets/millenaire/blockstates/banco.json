@@ -1,0 +1,8 @@
+{
+    "variants": {
+        "progress=wet":     { "model": "millenaire:block/banco_wet" },
+        "progress=drying1": { "model": "millenaire:block/banco_drying1" },
+        "progress=drying2": { "model": "millenaire:block/banco_drying2" },
+        "progress=dry":     { "model": "millenaire:block/banco_dry" }
+    }
+}

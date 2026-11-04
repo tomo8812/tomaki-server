@@ -1,0 +1,8 @@
+{
+  "parent": "foundation:block/template_kitchen_sink",
+  "textures": {
+    "side": "candlelight:block/sandstone_kitchen_side",
+    "bottom": "candlelight:block/sandstone_counter_top",
+    "top": "candlelight:block/sandstone_kitchen_side"
+  }
+}

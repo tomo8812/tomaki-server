@@ -1,0 +1,12 @@
+{
+  "type": "farm_and_charm:mincer",
+  "ingredient": {
+    "item": "minecraft:golden_horse_armor"
+  },
+  "recipe_type": "METAL",
+  "result": {
+    "id": "minecraft:gold_nugget",
+    "count": 12
+  },
+  "experience": 0.2
+}

@@ -1,0 +1,37 @@
+package org.valkyrienskies.core.impl.shadow;
+
+import java.util.Locale;
+
+public final class oU extends ArithmeticException implements pv {
+   private static final long b = -6024911025449780478L;
+   public final pu a = new pu(this);
+
+   public oU() {
+      this.a.a(px.ARITHMETIC_EXCEPTION);
+   }
+
+   public oU(pw var1, Object... var2) {
+      this.a.a(var1, var2);
+   }
+
+   @Override
+   public final pu a() {
+      return this.a;
+   }
+
+   @Override
+   public final String getMessage() {
+      pu var1 = this.a;
+      Locale var2 = Locale.US;
+      var1 = this.a;
+      return this.a.a(var2, ": ");
+   }
+
+   @Override
+   public final String getLocalizedMessage() {
+      pu var1;
+      pu var10000 = var1 = this.a;
+      Locale var2 = Locale.getDefault();
+      return var10000.a(var2, ": ");
+   }
+}

@@ -1,0 +1,14 @@
+{
+  "mappings": {
+    "org/valkyrienskies/eureka/mixin/client/PlayerEntityModelMixin": {
+      "setupAnim(Lnet/minecraft/world/entity/LivingEntity;FFFFF)V": "Lnet/minecraft/class_591;method_17087(Lnet/minecraft/class_1309;FFFFF)V"
+    }
+  },
+  "data": {
+    "named:intermediary": {
+      "org/valkyrienskies/eureka/mixin/client/PlayerEntityModelMixin": {
+        "setupAnim(Lnet/minecraft/world/entity/LivingEntity;FFFFF)V": "Lnet/minecraft/class_591;method_17087(Lnet/minecraft/class_1309;FFFFF)V"
+      }
+    }
+  }
+}

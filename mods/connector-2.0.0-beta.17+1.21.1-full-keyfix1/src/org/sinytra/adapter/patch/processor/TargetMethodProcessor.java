@@ -1,0 +1,34 @@
+package org.sinytra.adapter.patch.processor;
+
+import java.util.List;
+import org.objectweb.asm.tree.MethodNode;
+import org.sinytra.adapter.analysis.locals.LocalVarAnalyzer;
+import org.sinytra.adapter.env.ctx.LocalVariable;
+import org.sinytra.adapter.env.ctx.MixinContext;
+import org.sinytra.adapter.patch.Recipe;
+import org.sinytra.adapter.patch.TxResult;
+import org.sinytra.adapter.patch.config.Configuration;
+import org.sinytra.adapter.util.AdapterUtil;
+
+public class TargetMethodProcessor implements Processor {
+   @Override
+   public TxResult process(MixinContext context, Configuration dirty, Recipe recipe) {
+      if (dirty.getTargetMethod() == null) {
+         return TxResult.FAIL;
+      }
+
+      upgradeCapturedLocals(context.methodNode(), context, recipe);
+      return TxResult.SUCCESS;
+   }
+
+   private static void upgradeCapturedLocals(MethodNode methodNode, MixinContext context, Recipe recipe) {
+      AdapterUtil.CapturedLocals capturedLocals = AdapterUtil.getCapturedLocals(context, recipe);
+      if (capturedLocals != null) {
+         List<LocalVariable> availableLocals = context.methods().getTargetMethodLocals(capturedLocals.target());
+         if (availableLocals != null && availableLocals.isEmpty()) {
+            LocalVarAnalyzer.CapturedLocalsTransform transform = LocalVarAnalyzer.analyzeCapturedLocals(capturedLocals, methodNode);
+            transform.remover().apply(context);
+         }
+      }
+   }
+}

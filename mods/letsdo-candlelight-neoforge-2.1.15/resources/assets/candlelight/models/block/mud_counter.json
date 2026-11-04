@@ -1,0 +1,8 @@
+{
+  "parent": "foundation:block/template_counter",
+  "textures": {
+    "side": "candlelight:block/mud_kitchen_side",
+    "top": "candlelight:block/mud_counter_top",
+    "bottom": "candlelight:block/mud_stove_side"
+  }
+}

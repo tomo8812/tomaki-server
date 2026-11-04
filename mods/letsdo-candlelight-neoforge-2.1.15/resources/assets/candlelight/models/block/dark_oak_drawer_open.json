@@ -1,0 +1,9 @@
+{
+  "parent": "foundation:block/template_drawer_open",
+  "textures": {
+    "front": "candlelight:block/dark_oak_drawer",
+    "side": "candlelight:block/dark_oak_cabinet_side",
+    "top": "candlelight:block/dark_oak_cabinet_side",
+    "inside": "candlelight:block/dark_oak_cabinet_open"
+  }
+}

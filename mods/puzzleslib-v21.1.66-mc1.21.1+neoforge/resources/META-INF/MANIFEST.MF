@@ -1,0 +1,18 @@
+Manifest-Version: 1.0
+Specification-Title: Puzzles Lib
+Specification-Version: 21.1.66
+Specification-Vendor: Fuzs
+Implementation-Title: Puzzles Lib
+Implementation-Version: 21.1.66
+Implementation-Vendor: Fuzs
+Implementation-Timestamp: 2026-10-26T09:47:56+0100
+Implementation-URL: https://github.com/Fuzss/puzzles-lib
+Build-Jdk-Name: OpenJDK 64-Bit Server VM
+Build-Jdk-Version: 25.0.2+10-LTS
+Build-Jdk-Vendor: Amazon.com Inc.
+Build-Jdk-Spec-Name: Java Virtual Machine Specification
+Build-Jdk-Spec-Version: 25
+Build-Jdk-Spec-Vendor: Oracle Corporation
+Build-Os-Name: Mac OS X (aarch64)
+Build-Os-Version: 15.8
+

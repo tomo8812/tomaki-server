@@ -1,0 +1,9 @@
+{
+  "parent": "foundation:block/template_drawer_open",
+  "textures": {
+    "side": "candlelight:block/bamboo_cabinet_side",
+    "front": "candlelight:block/bamboo_drawer_front",
+    "inside": "candlelight:block/bamboo_cabinet_open",
+    "top": "candlelight:block/bamboo_cabinet_top"
+  }
+}

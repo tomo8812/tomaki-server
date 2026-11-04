@@ -1,0 +1,6 @@
+{
+  "type": "neoforge:add_features",
+  "biomes": "#minecraft:is_jungle",
+  "features": "herbalbrews:coffee_patch_chance",
+  "step": "vegetal_decoration"
+}

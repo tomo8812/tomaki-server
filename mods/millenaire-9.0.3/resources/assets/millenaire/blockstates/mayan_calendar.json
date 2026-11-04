@@ -1,0 +1,13 @@
+{
+  "__comment": "iso-legacy mayan_calendar.json — 'facing=up' dropped (LadderBlock's FACING is horizontal-only); waterlogged=true/false added since MayanCalendarBlock extends vanilla LadderBlock (same visual either way).",
+  "variants": {
+    "facing=south,waterlogged=false": { "model": "millenaire:block/mayan_calendar" },
+    "facing=south,waterlogged=true":  { "model": "millenaire:block/mayan_calendar" },
+    "facing=east,waterlogged=false":  { "model": "millenaire:block/mayan_calendar", "y": 270 },
+    "facing=east,waterlogged=true":   { "model": "millenaire:block/mayan_calendar", "y": 270 },
+    "facing=west,waterlogged=false":  { "model": "millenaire:block/mayan_calendar", "y": 90 },
+    "facing=west,waterlogged=true":   { "model": "millenaire:block/mayan_calendar", "y": 90 },
+    "facing=north,waterlogged=false": { "model": "millenaire:block/mayan_calendar", "y": 180 },
+    "facing=north,waterlogged=true":  { "model": "millenaire:block/mayan_calendar", "y": 180 }
+  }
+}

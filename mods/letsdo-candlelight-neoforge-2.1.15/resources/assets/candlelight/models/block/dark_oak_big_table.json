@@ -1,0 +1,6 @@
+{
+  "parent": "foundation:block/template_big_table",
+  "textures": {
+    "table": "candlelight:block/dark_oak_big_table"
+  }
+}

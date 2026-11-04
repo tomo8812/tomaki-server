@@ -1,0 +1,8 @@
+{
+    "parent": "minecraft:block/crop",
+    "textures": {
+        "crop": "millenaire:block/millet0",
+        "particle" : "millenaire:block/millet0"
+    },
+    "render_type": "minecraft:cutout"
+}

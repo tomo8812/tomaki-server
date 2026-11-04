@@ -1,0 +1,7 @@
+{
+    "parent": "block/cube_column",
+    "textures": {
+        "end": "millenaire:block/banco_dry",
+        "side": "millenaire:block/banco_painted1"
+    }
+}

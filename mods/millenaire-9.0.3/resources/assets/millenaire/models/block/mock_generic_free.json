@@ -1,0 +1,7 @@
+{
+  "parent": "millenaire:block/mock_generic_material_base",
+  "textures": {
+    "fill": "millenaire:block/mock_free",
+    "overlay": "millenaire:block/mock_generic_free_overlay"
+  }
+}

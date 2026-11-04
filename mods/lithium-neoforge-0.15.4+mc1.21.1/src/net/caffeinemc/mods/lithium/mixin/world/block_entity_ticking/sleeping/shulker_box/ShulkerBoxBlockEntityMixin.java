@@ -1,0 +1,62 @@
+package net.caffeinemc.mods.lithium.mixin.world.block_entity_ticking.sleeping.shulker_box;
+
+import net.caffeinemc.mods.lithium.common.block.entity.SleepingBlockEntity;
+import net.caffeinemc.mods.lithium.mixin.world.block_entity_ticking.sleeping.WrappedBlockEntityTickInvokerAccessor;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity;
+import net.minecraft.world.level.block.entity.TickingBlockEntity;
+import net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity.AnimationStatus;
+import net.minecraft.world.level.block.state.BlockState;
+import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+@Mixin(ShulkerBoxBlockEntity.class)
+public class ShulkerBoxBlockEntityMixin implements SleepingBlockEntity {
+   @Shadow
+   private AnimationStatus animationStatus;
+   @Shadow
+   private float progress;
+   @Shadow
+   private float progressOld;
+   private WrappedBlockEntityTickInvokerAccessor tickWrapper = null;
+   private TickingBlockEntity sleepingTicker = null;
+
+   @Override
+   public WrappedBlockEntityTickInvokerAccessor lithium$getTickWrapper() {
+      return this.tickWrapper;
+   }
+
+   @Override
+   public void lithium$setTickWrapper(WrappedBlockEntityTickInvokerAccessor tickWrapper) {
+      this.tickWrapper = tickWrapper;
+   }
+
+   @Override
+   public TickingBlockEntity lithium$getSleepingTicker() {
+      return this.sleepingTicker;
+   }
+
+   @Override
+   public void lithium$setSleepingTicker(TickingBlockEntity sleepingTicker) {
+      this.sleepingTicker = sleepingTicker;
+   }
+
+   @Inject(method = "triggerEvent(II)Z", at = @At("HEAD"))
+   private void wakeUpOnSyncedBlockEvent(int type, int data, CallbackInfoReturnable<Boolean> cir) {
+      if (this.sleepingTicker != null) {
+         this.wakeUpNow();
+      }
+   }
+
+   @Inject(method = "updateAnimation", at = @At("RETURN"))
+   private void sleepOnAnimationEnd(Level world, BlockPos pos, BlockState state, CallbackInfo ci) {
+      if (this.animationStatus == AnimationStatus.CLOSED && this.progressOld == 0.0F && this.progress == 0.0F) {
+         this.lithium$startSleeping();
+      }
+   }
+}

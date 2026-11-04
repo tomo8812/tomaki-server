@@ -1,0 +1,13 @@
+Manifest-Version: 1.0
+Specification-Title: Golden Age Combat
+Specification-Version: 21.1.3
+Specification-Vendor: Fuzs
+Implementation-Title: Golden Age Combat
+Implementation-Version: 21.1.3
+Implementation-Vendor: Fuzs
+Implementation-Timestamp: 2026-05-03T05:17:13+0200
+Implementation-Timestamp-Milli: 1777778233244
+Implementation-URL: https://github.com/Fuzss/goldenagecombat
+Built-On-Java: 21.0.7+6-LTS (Amazon.com Inc.)
+Built-On-Minecraft: 1.21.1
+

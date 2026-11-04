@@ -1,0 +1,89 @@
+package net.satisfy.bakery.core.block;
+
+import java.util.List;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.ItemInteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.Item.TooltipContext;
+import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.EntityBlock;
+import net.minecraft.world.level.block.Mirror;
+import net.minecraft.world.level.block.RenderShape;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.BlockBehaviour.Properties;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.phys.shapes.VoxelShape;
+import net.satisfy.bakery.client.BakeryClient;
+import net.satisfy.bakery.core.block.entity.StreetSignBlockEntity;
+import net.satisfy.foundation.block.FacingBlock;
+import org.jetbrains.annotations.NotNull;
+
+public class StreetSignBlock extends FacingBlock implements EntityBlock {
+   private static final VoxelShape SHAPE = box(1.0, 0.0, 1.0, 14.0, 15.0, 14.0);
+
+   public StreetSignBlock(Properties settings) {
+      super(settings);
+   }
+
+   @NotNull
+   public VoxelShape getShape(BlockState state, BlockGetter world, BlockPos pos, CollisionContext context) {
+      return SHAPE;
+   }
+
+   @NotNull
+   public BlockState mirror(BlockState state, Mirror mirror) {
+      return state.rotate(mirror.getRotation((Direction)state.getValue(FACING)));
+   }
+
+   public BlockEntity newBlockEntity(BlockPos pos, BlockState state) {
+      return new StreetSignBlockEntity(pos, state);
+   }
+
+   @NotNull
+   protected ItemInteractionResult useItemOn(
+      ItemStack itemStack, BlockState state, Level level, BlockPos pos, Player player, InteractionHand hand, BlockHitResult blockHitResult
+   ) {
+      ItemStack heldItem = player.getItemInHand(hand);
+      if (level.getBlockEntity(pos) instanceof StreetSignBlockEntity signEntity) {
+         if (heldItem.is(Items.GLOW_INK_SAC)) {
+            if (!signEntity.isGlowing()) {
+               signEntity.setGlowing(true);
+               if (!player.isCreative()) {
+                  heldItem.shrink(1);
+               }
+
+               return ItemInteractionResult.SUCCESS;
+            } else {
+               return ItemInteractionResult.CONSUME;
+            }
+         } else {
+            if (level.isClientSide) {
+               BakeryClient.openStreetSignScreen(signEntity);
+            }
+
+            return ItemInteractionResult.SUCCESS;
+         }
+      } else {
+         return ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
+      }
+   }
+
+   @NotNull
+   public RenderShape getRenderShape(BlockState state) {
+      return RenderShape.MODEL;
+   }
+
+   public void appendHoverText(ItemStack itemStack, TooltipContext tooltipContext, List<Component> list, TooltipFlag tooltipFlag) {
+      list.add(Component.translatable("tooltip.farm_and_charm.canbeplaced").withStyle(ChatFormatting.GRAY));
+   }
+}

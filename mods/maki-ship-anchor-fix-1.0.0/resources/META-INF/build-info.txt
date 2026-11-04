@@ -1,0 +1,6 @@
+Artifact: maki-ship-anchor-fix-1.0.0.jar
+Java: 21
+Minecraft: 1.21.1
+NeoForge: 21.1.x
+Valkyrien Skies target: 2.4.12-td.9+66a13242ed / supplied connectorfix7 jar
+Build method: javac --release 21 against compile-only API stubs; no stubs are packaged.

@@ -1,0 +1,60 @@
+package net.satisfy.farm_and_charm.core.block.crops;
+
+import net.minecraft.core.BlockPos;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ItemLike;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.CropBlock;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.BlockBehaviour.Properties;
+import net.minecraft.world.level.block.state.StateDefinition.Builder;
+import net.minecraft.world.level.block.state.properties.IntegerProperty;
+import net.minecraft.world.level.block.state.properties.Property;
+import net.minecraft.world.phys.BlockHitResult;
+import net.satisfy.farm_and_charm.core.registry.ObjectRegistry;
+import org.jetbrains.annotations.NotNull;
+
+public class StrawberryCropBlock extends CropBlock {
+   public static final IntegerProperty AGE = IntegerProperty.create("age", 0, 5);
+
+   public StrawberryCropBlock(Properties settings) {
+      super(settings);
+   }
+
+   @NotNull
+   protected ItemLike getBaseSeedId() {
+      return (ItemLike)ObjectRegistry.STRAWBERRY_SEEDS.get();
+   }
+
+   public int getMaxAge() {
+      return 5;
+   }
+
+   @NotNull
+   public IntegerProperty getAgeProperty() {
+      return AGE;
+   }
+
+   protected void createBlockStateDefinition(Builder<Block, BlockState> builder) {
+      builder.add(new Property[]{AGE});
+   }
+
+   @NotNull
+   protected InteractionResult useWithoutItem(BlockState state, Level world, BlockPos pos, Player player, BlockHitResult blockHitResult) {
+      int i = (Integer)state.getValue(AGE);
+      if (i == this.getMaxAge()) {
+         int strawberryCount = world.random.nextInt(2) + 1;
+         popResource(world, pos, new ItemStack((ItemLike)ObjectRegistry.STRAWBERRY.get(), strawberryCount));
+         world.playSound(null, pos, SoundEvents.SWEET_BERRY_BUSH_PICK_BERRIES, SoundSource.BLOCKS, 1.0F, 0.8F + world.random.nextFloat() * 0.4F);
+         world.setBlock(pos, (BlockState)state.setValue(AGE, 1), 2);
+         return InteractionResult.sidedSuccess(world.isClientSide);
+      } else {
+         return super.useWithoutItem(state, world, pos, player, blockHitResult);
+      }
+   }
+}

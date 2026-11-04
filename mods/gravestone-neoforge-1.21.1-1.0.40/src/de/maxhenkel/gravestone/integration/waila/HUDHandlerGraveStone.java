@@ -1,0 +1,58 @@
+package de.maxhenkel.gravestone.integration.waila;
+
+import de.maxhenkel.gravestone.GraveUtils;
+import de.maxhenkel.gravestone.tileentity.GraveStoneTileEntity;
+import net.minecraft.ChatFormatting;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import snownee.jade.api.Accessor;
+import snownee.jade.api.BlockAccessor;
+import snownee.jade.api.IBlockComponentProvider;
+import snownee.jade.api.IServerDataProvider;
+import snownee.jade.api.ITooltip;
+import snownee.jade.api.config.IPluginConfig;
+
+public class HUDHandlerGraveStone implements IBlockComponentProvider, IServerDataProvider<BlockAccessor> {
+   public static final HUDHandlerGraveStone INSTANCE = new HUDHandlerGraveStone();
+   private static final ResourceLocation OBJECT_NAME_TAG = ResourceLocation.fromNamespaceAndPath("jade", "object_name");
+   private static final ResourceLocation UID = ResourceLocation.fromNamespaceAndPath("gravestone", "grave");
+
+   public void appendTooltip(ITooltip iTooltip, BlockAccessor blockAccessor, IPluginConfig iPluginConfig) {
+      if (blockAccessor.getBlockEntity() instanceof GraveStoneTileEntity grave) {
+         iTooltip.remove(OBJECT_NAME_TAG);
+         iTooltip.add(grave.getName().copy().withStyle(ChatFormatting.WHITE));
+         Component time = GraveUtils.getDate(grave.getDeath().getTimestamp());
+         if (time != null) {
+            iTooltip.add(Component.translatable("message.gravestone.date_of_death", new Object[]{time}));
+         }
+
+         CompoundTag data = blockAccessor.getServerData();
+         if (data.contains("ItemCount")) {
+            iTooltip.add(Component.translatable("message.gravestone.item_count", new Object[]{data.getInt("ItemCount")}));
+         }
+      }
+   }
+
+   public void appendServerData(CompoundTag compoundTag, BlockAccessor blockAccessor) {
+      if (blockAccessor.getBlockEntity() instanceof GraveStoneTileEntity grave) {
+         compoundTag.putInt("ItemCount", (int)grave.getDeath().getAllItems().stream().filter(itemStack -> !itemStack.isEmpty()).count());
+      }
+   }
+
+   public ResourceLocation getUid() {
+      return UID;
+   }
+
+   // $VF: synthetic method
+   // $VF: bridge method
+   public void appendTooltip(ITooltip param1, Accessor nullx, IPluginConfig nullxx) {
+      this.appendTooltip(var1, (BlockAccessor)nullx, nullxx);
+   }
+
+   // $VF: synthetic method
+   // $VF: bridge method
+   public void appendServerData(CompoundTag param1, Accessor nullx) {
+      this.appendServerData(var1, (BlockAccessor)nullx);
+   }
+}

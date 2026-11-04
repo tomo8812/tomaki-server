@@ -1,0 +1,7 @@
+{
+  "parent": "foundation:block/template_table_connected_support",
+  "textures": {
+    "top": "candlelight:block/warped_table_connected",
+    "side": "candlelight:block/warped_table"
+  }
+}

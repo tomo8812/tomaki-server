@@ -1,0 +1,16 @@
+{
+    "variants": {
+        "type=bottom,progress=0": { "model": "millenaire:block/banco_slab_bottom_wet" },
+        "type=bottom,progress=1": { "model": "millenaire:block/banco_slab_bottom_drying1" },
+        "type=bottom,progress=2": { "model": "millenaire:block/banco_slab_bottom_drying2" },
+        "type=bottom,progress=3": { "model": "millenaire:block/banco_slab_bottom_dry" },
+        "type=top,progress=0":    { "model": "millenaire:block/banco_slab_top_wet" },
+        "type=top,progress=1":    { "model": "millenaire:block/banco_slab_top_drying1" },
+        "type=top,progress=2":    { "model": "millenaire:block/banco_slab_top_drying2" },
+        "type=top,progress=3":    { "model": "millenaire:block/banco_slab_top_dry" },
+        "type=double,progress=0": { "model": "millenaire:block/banco_wet" },
+        "type=double,progress=1": { "model": "millenaire:block/banco_drying1" },
+        "type=double,progress=2": { "model": "millenaire:block/banco_drying2" },
+        "type=double,progress=3": { "model": "millenaire:block/banco_dry" }
+    }
+}
