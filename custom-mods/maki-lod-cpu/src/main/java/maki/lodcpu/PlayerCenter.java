@@ -7,6 +7,7 @@ import com.kishku7.chunksmith.util.Parameter;
 import java.nio.file.*;
 import java.lang.invoke.MethodHandle;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.nbt.*;
@@ -32,6 +33,9 @@ public final class PlayerCenter {
     private static boolean checkedVs,positionError;
     private static Integer appliedX,appliedZ;
     private static GenerationTask lastTask;
+    private static final ConcurrentLinkedQueue<NativeTaskLifecycle> nativeTaskLifecycle=new ConcurrentLinkedQueue<>();
+    private static volatile GenerationTask controllerStopTask;
+    private record NativeTaskLifecycle(GenerationTask task,boolean started){}
     static final class Saved {String player,uuid;Integer x,z;boolean disabled;long savedAt;}
 
     private static Settings settings(){return CpuGovernor.settings();}
@@ -40,7 +44,7 @@ public final class PlayerCenter {
         owner=server;boot=now;lastCheck=lastSave=lastReport=lastCenterChange=healthySince=0;
         emptySince=server.getPlayerCount()==0?now:0;hadPlayers=server.getPlayerCount()>0;
         manualPause=loadPause=false;requested=true;positionError=false;reason="startup-wait";
-        appliedX=appliedZ=null;lastTask=null;
+        appliedX=appliedZ=null;lastTask=null;nativeTaskLifecycle.clear();controllerStopTask=null;
         stateFile=server.getWorldPath(LevelResource.ROOT).resolve("data/maki_lod_follow.json");
         saved=new Saved();saved.player=settings().followPlayer;saved.uuid=settings().followUuid;
         try{
@@ -103,7 +107,7 @@ public final class PlayerCenter {
             save(System.currentTimeMillis());
         }
     }
-    public static void shutdown(MinecraftServer server){if(owner==server&&saved!=null)save(System.currentTimeMillis());owner=null;}
+    public static void shutdown(MinecraftServer server){if(owner==server&&saved!=null)save(System.currentTimeMillis());owner=null;nativeTaskLifecycle.clear();controllerStopTask=null;}
     private static void save(long now){
         if(stateFile==null)return;
         try{
@@ -122,11 +126,43 @@ public final class PlayerCenter {
             reason="external-task-active";
             return false;
         }
-        if(current!=null&&!current.isStopping())current.stop(false);
+        if(current!=null&&!current.isStopping()){
+            controllerStopTask=current;
+            try{current.stop(false);}finally{controllerStopTask=null;}
+        }
         return true;
     }
-    public static void nativePause(){manualPause=true;requested=false;reason="manual-pause";}
-    public static void nativeResume(){manualPause=false;requested=true;}
+    public static void nativeTaskStarted(GenerationTask task){
+        if(task!=null&&TaskOwnership.isOwned(task))nativeTaskLifecycle.add(new NativeTaskLifecycle(task,true));
+    }
+    public static void nativeTaskStopping(GenerationTask task){
+        if(task!=null&&TaskOwnership.isOwned(task)&&task!=controllerStopTask)
+            nativeTaskLifecycle.add(new NativeTaskLifecycle(task,false));
+    }
+    private static void markManualPause(){manualPause=true;requested=false;reason="manual-pause";}
+    private static boolean sameTaskSelection(GenerationTask first,GenerationTask second){
+        if(first==null||second==null)return false;
+        var a=first.getSelection();var b=second.getSelection();
+        return WORLD.equals(a.world().getName())&&WORLD.equals(b.world().getName())
+            &&Double.compare(a.centerX(),b.centerX())==0&&Double.compare(a.centerZ(),b.centerZ())==0
+            &&Double.compare(a.radiusX(),b.radiusX())==0&&Double.compare(a.radiusZ(),b.radiusZ())==0
+            &&Double.compare(a.horizon(),b.horizon())==0&&a.shape().equals(b.shape())
+            &&a.pattern().toString().equals(b.pattern().toString());
+    }
+    private static void applyNativeTaskLifecycle(){
+        NativeTaskLifecycle event;
+        while((event=nativeTaskLifecycle.poll())!=null){
+            GenerationTask task=event.task();
+            if(!WORLD.equals(task.getSelection().world().getName())||!TaskOwnership.isOwned(task))continue;
+            if(!event.started()){
+                if(task==lastTask)markManualPause();
+            }else if(manualPause&&sameTaskSelection(lastTask,task)){
+                lastTask=task;
+                appliedX=(int)task.getSelection().centerX();appliedZ=(int)task.getSelection().centerZ();
+                manualPause=false;requested=false;reason="generating";
+            }
+        }
+    }
 
     public static void tick(MinecraftServer server){
         long now=System.currentTimeMillis();
@@ -138,6 +174,7 @@ public final class PlayerCenter {
         if(now-lastSave>=10_000)save(now);
         if(!ChunksmithProvider.isLoaded())return;
         var chunky=ChunksmithProvider.get();if(chunky==null)return;
+        applyNativeTaskLifecycle();
         boolean online=server.getPlayerCount()>0,active=enabled();
         if(hadPlayers&&!online){emptySince=now;requested=true;pause(chunky);}
         if(!hadPlayers&&online){requested=true;emptySince=0;}
