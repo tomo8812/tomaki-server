@@ -1,0 +1,23 @@
+# Minecraft runtime/world data: NOT managed by this repository
+/world/
+/world_nether/
+/world_the_end/
+/saves/
+/logs/
+/crash-reports/
+/backups/
+/backup/
+/libraries/
+/versions/
+/cache/
+/local/
+/debug/
+/run/
+/session.lock
+*.log
+*.log.gz
+*.tmp
+*.pid
+.DS_Store
+Thumbs.db
+desktop.ini

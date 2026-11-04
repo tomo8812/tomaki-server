@@ -1,0 +1,544 @@
+{
+  "_README": "Eureka recipes restored from the official pre-port 1.20.1/main recipe definitions. RecipeOverrides converts these entries to Minecraft 1.21.1 format. Reload with /reload after editing. The removed vs_eureka:balloon entry is the non-upstream recipe ID, not the balloon item.",
+  "vs_eureka:acacia_ship_helm": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stick",
+      "minecraft:acacia_fence",
+      "minecraft:stick",
+      "minecraft:acacia_fence",
+      "minecraft:gold_ingot",
+      "minecraft:acacia_fence",
+      "minecraft:stick",
+      "minecraft:acacia_slab",
+      "minecraft:stick"
+    ],
+    "result": "vs_eureka:acacia_ship_helm",
+    "count": 1,
+    "group": "ship_helm"
+  },
+  "vs_eureka:anchor": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:lead",
+      "minecraft:iron_ingot",
+      "minecraft:lead",
+      "",
+      "minecraft:iron_ingot",
+      "",
+      "minecraft:iron_ingot",
+      "minecraft:iron_block",
+      "minecraft:iron_ingot"
+    ],
+    "result": "vs_eureka:anchor",
+    "count": 1
+  },
+  "vs_eureka:ballast": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stone",
+      "minecraft:cobblestone",
+      "minecraft:stone",
+      "minecraft:cobblestone",
+      "",
+      "minecraft:cobblestone",
+      "minecraft:stone",
+      "minecraft:cobblestone",
+      "minecraft:stone"
+    ],
+    "result": "vs_eureka:ballast",
+    "count": 1
+  },
+  "vs_eureka:balloon_leather": {
+    "type": "shaped",
+    "slots": [
+      "",
+      "minecraft:leather",
+      "",
+      "minecraft:leather",
+      "",
+      "minecraft:leather",
+      "",
+      "minecraft:leather",
+      ""
+    ],
+    "result": "vs_eureka:balloon",
+    "count": 4,
+    "group": "balloons"
+  },
+  "vs_eureka:balloon_membrane": {
+    "type": "shaped",
+    "slots": [
+      "",
+      "minecraft:phantom_membrane",
+      "",
+      "minecraft:phantom_membrane",
+      "",
+      "minecraft:phantom_membrane",
+      "",
+      "minecraft:phantom_membrane",
+      ""
+    ],
+    "result": "vs_eureka:balloon",
+    "count": 32,
+    "group": "balloons"
+  },
+  "vs_eureka:balloon_paper": {
+    "type": "shaped",
+    "slots": [
+      "",
+      "minecraft:paper",
+      "",
+      "minecraft:paper",
+      "",
+      "minecraft:paper",
+      "",
+      "minecraft:paper",
+      ""
+    ],
+    "result": "vs_eureka:balloon",
+    "count": 2,
+    "group": "balloons"
+  },
+  "vs_eureka:balloon_wool": {
+    "type": "shaped",
+    "slots": [
+      "",
+      "#minecraft:wool",
+      "",
+      "#minecraft:wool",
+      "",
+      "#minecraft:wool",
+      "",
+      "#minecraft:wool",
+      ""
+    ],
+    "result": "vs_eureka:balloon",
+    "count": 4,
+    "group": "balloons"
+  },
+  "vs_eureka:birch_ship_helm": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stick",
+      "minecraft:birch_fence",
+      "minecraft:stick",
+      "minecraft:birch_fence",
+      "minecraft:gold_ingot",
+      "minecraft:birch_fence",
+      "minecraft:stick",
+      "minecraft:birch_slab",
+      "minecraft:stick"
+    ],
+    "result": "vs_eureka:birch_ship_helm",
+    "count": 1,
+    "group": "ship_helm"
+  },
+  "vs_eureka:black_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:black_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:black_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:blue_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:blue_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:blue_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:brown_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:brown_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:brown_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:crimson_ship_helm": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stick",
+      "minecraft:crimson_fence",
+      "minecraft:stick",
+      "minecraft:crimson_fence",
+      "minecraft:gold_ingot",
+      "minecraft:crimson_fence",
+      "minecraft:stick",
+      "minecraft:crimson_slab",
+      "minecraft:stick"
+    ],
+    "result": "vs_eureka:crimson_ship_helm",
+    "count": 1,
+    "group": "ship_helm"
+  },
+  "vs_eureka:cyan_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:cyan_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:cyan_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:dark_oak_ship_helm": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stick",
+      "minecraft:dark_oak_fence",
+      "minecraft:stick",
+      "minecraft:dark_oak_fence",
+      "minecraft:gold_ingot",
+      "minecraft:dark_oak_fence",
+      "minecraft:stick",
+      "minecraft:dark_oak_slab",
+      "minecraft:stick"
+    ],
+    "result": "vs_eureka:dark_oak_ship_helm",
+    "count": 1,
+    "group": "ship_helm"
+  },
+  "vs_eureka:engine": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stone",
+      "minecraft:stone",
+      "minecraft:stone",
+      "minecraft:iron_ingot",
+      "minecraft:blast_furnace",
+      "minecraft:glass_pane",
+      "minecraft:smooth_stone",
+      "minecraft:smooth_stone",
+      "minecraft:smooth_stone"
+    ],
+    "result": "vs_eureka:engine",
+    "count": 1
+  },
+  "vs_eureka:floater": {
+    "type": "shaped",
+    "slots": [
+      "",
+      "minecraft:string",
+      "",
+      "minecraft:string",
+      "#minecraft:planks",
+      "minecraft:string",
+      "",
+      "minecraft:string",
+      ""
+    ],
+    "result": "vs_eureka:floater",
+    "count": 16
+  },
+  "vs_eureka:gray_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:gray_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:gray_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:green_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:green_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:green_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:jungle_ship_helm": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stick",
+      "minecraft:jungle_fence",
+      "minecraft:stick",
+      "minecraft:jungle_fence",
+      "minecraft:gold_ingot",
+      "minecraft:jungle_fence",
+      "minecraft:stick",
+      "minecraft:jungle_slab",
+      "minecraft:stick"
+    ],
+    "result": "vs_eureka:jungle_ship_helm",
+    "count": 1,
+    "group": "ship_helm"
+  },
+  "vs_eureka:light_blue_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:light_blue_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:light_blue_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:light_gray_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:light_gray_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:light_gray_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:lime_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:lime_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:lime_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:magenta_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:magenta_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:magenta_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:oak_ship_helm": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stick",
+      "minecraft:oak_fence",
+      "minecraft:stick",
+      "minecraft:oak_fence",
+      "minecraft:gold_ingot",
+      "minecraft:oak_fence",
+      "minecraft:stick",
+      "minecraft:oak_slab",
+      "minecraft:stick"
+    ],
+    "result": "vs_eureka:oak_ship_helm",
+    "count": 1,
+    "group": "ship_helm"
+  },
+  "vs_eureka:orange_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:orange_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:orange_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:pink_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:pink_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:pink_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:purple_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:purple_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:purple_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:red_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:red_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:red_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:spruce_ship_helm": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stick",
+      "minecraft:spruce_fence",
+      "minecraft:stick",
+      "minecraft:spruce_fence",
+      "minecraft:gold_ingot",
+      "minecraft:spruce_fence",
+      "minecraft:stick",
+      "minecraft:spruce_slab",
+      "minecraft:stick"
+    ],
+    "result": "vs_eureka:spruce_ship_helm",
+    "count": 1,
+    "group": "ship_helm"
+  },
+  "vs_eureka:warped_ship_helm": {
+    "type": "shaped",
+    "slots": [
+      "minecraft:stick",
+      "minecraft:warped_fence",
+      "minecraft:stick",
+      "minecraft:warped_fence",
+      "minecraft:gold_ingot",
+      "minecraft:warped_fence",
+      "minecraft:stick",
+      "minecraft:warped_slab",
+      "minecraft:stick"
+    ],
+    "result": "vs_eureka:warped_ship_helm",
+    "count": 1,
+    "group": "ship_helm"
+  },
+  "vs_eureka:white_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:white_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:white_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:yellow_balloon": {
+    "type": "shapeless",
+    "slots": [
+      "#vs_eureka:balloons",
+      "minecraft:yellow_dye",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "result": "vs_eureka:yellow_balloon",
+    "count": 1,
+    "group": "colored_balloons"
+  },
+  "vs_eureka:balloon": "remove"
+}

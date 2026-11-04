@@ -1,0 +1,22 @@
+{
+  "blocked_mobs": [],
+  "blocked_biomes": [],
+  "biome_exceptions": [
+    "minecraft:mushroom_fields"
+  ],
+  "blocked_structures": [
+    "minecraft:village_plains",
+    "minecraft:village_desert",
+    "minecraft:village_savanna",
+    "minecraft:village_snowy",
+    "minecraft:village_taiga"
+  ],
+  "blocked_dimensions": [],
+  "blocked_items": [],
+  "storage_scan": {
+    "enabled": true,
+    "interval_ticks": 300,
+    "block_entities_per_tick": 512,
+    "skipped_namespaces": []
+  }
+}

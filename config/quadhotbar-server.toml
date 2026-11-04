@@ -1,0 +1,39 @@
+#Allow Freedom (extra inventory pages and up to eight hotbars). Disabling hides stored pages without deleting items.
+allowFreedom = true
+#Allow opening and using the all-pages inventory overview, including its keybind.
+allowPageOverview = true
+#Allow the grid button in the inventory. The keybind is controlled by allowPageOverview.
+showOverviewButton = true
+#Allow the page overview beside chests, furnaces and other item containers. The original container stays open.
+allowContainerOverview = true
+#Preserve extra-page slot positions for Corpse/GraveStone death inventories. Items still follow normal death drops and keepInventory.
+deathPageCompatibility = true
+#CLIENT lets each player choose; DOCKED or STANDALONE forces that layout.
+#Allowed Values: CLIENT, DOCKED, STANDALONE
+overviewLayout = "CLIENT"
+#Maximum overview width in item slots: 9, 18 or 27. Intermediate values round down to a multiple of 9.
+# Default: 27
+# Range: 9 ~ 27
+maxOverviewWidth = 27
+#Maximum overview viewport height in item slots; the display also limits its visible size.
+# Default: 50
+# Range: 1 ~ 50
+maxOverviewHeight = 50
+#Maximum inventory pages allowed per player in this world (1-100). Hidden pages retain their items.
+# Default: 100
+# Range: 1 ~ 100
+maxInventoryPages = 100
+#Maximum number of hotbars shown at once per player in this world (2-8).
+# Default: 8
+# Range: 2 ~ 8
+maxHotbarRows = 8
+#Operators bypass global limits by default. Set false to apply global limits to operators too. Explicit playerOverrides always apply.
+exemptOperators = true
+#Minecraft usernames exempt from global limits (case-insensitive). No items are shared between players or worlds.
+#Example: unrestrictedPlayers = ["Player1", "Player2"]
+unrestrictedPlayers = []
+#Per-player rules, applied after operator/whitelist exemptions. Unspecified settings keep that player's effective defaults.
+#Example: playerOverrides = ["Player1; maxInventoryPages=2; maxHotbarRows=4", "Player2; allowPageOverview=false"]
+#Supported keys: allowFreedom, allowPageOverview, showOverviewButton, allowContainerOverview, overviewLayout, maxInventoryPages, maxHotbarRows, maxOverviewWidth, maxOverviewHeight.
+#deathPageCompatibility is world-wide, not a permission override. Restart the world/server after editing these settings.
+playerOverrides = []
