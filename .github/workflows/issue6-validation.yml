@@ -1,0 +1,95 @@
+name: issue-6-validation
+
+on:
+  push:
+    branches:
+      - fix/issue-6
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-6
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Verify Foundation signatures and split boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          unzip -p mods/letsdo-bakery-neoforge-2.1.11.jar META-INF/jars/foundation-neoforge-1.0.6.jar > /tmp/foundation-1.0.6.jar
+          unzip -p mods/letsdo-farm_and_charm-neoforge-1.1.29.jar META-INF/jars/foundation-neoforge-1.0.7.jar > /tmp/foundation-1.0.7.jar
+
+          for v in 1.0.6 1.0.7; do
+            javap -classpath /tmp/foundation-${v}.jar -s -p net.satisfy.foundation.seat.SeatUtil > /tmp/SeatUtil-${v}.txt
+            javap -classpath /tmp/foundation-${v}.jar -s -p net.satisfy.foundation.seat.ChairEntity > /tmp/ChairEntity-${v}.txt
+
+            grep -F '(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;D)Lnet/minecraft/world/ItemInteractionResult;' /tmp/SeatUtil-${v}.txt
+            grep -F '(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/satisfy/foundation/seat/ChairEntity;Lnet/minecraft/core/BlockPos;)Z' /tmp/SeatUtil-${v}.txt
+            grep -F '(Lnet/minecraft/world/entity/LivingEntity;)Lnet/minecraft/world/phys/Vec3;' /tmp/ChairEntity-${v}.txt
+            grep -F '(Lnet/minecraft/world/entity/Entity$RemovalReason;)V' /tmp/ChairEntity-${v}.txt
+          done
+
+          python3 <<'PY'
+          import zipfile
+
+          core = "mods/maki-airship-compat-1.0.13.jar"
+          adapter = "mods/maki-airship-foundation-compat-1.0.0.jar"
+
+          with zipfile.ZipFile(core) as z:
+              names = z.namelist()
+              assert not any(n.startswith("data/foundation/") for n in names)
+              assert "maki/airship/mixin/FoundationSeatUtilMixin.class" not in names
+              assert "maki/airship/mixin/FoundationChairMixin.class" not in names
+              assert "maki/airship/mixin/FurnitureVehicleMixin.class" not in names
+              assert "maki/airship/SeatCompat.class" not in names
+              assert "maki/airship/ShipFurnitureSeats.class" not in names
+              assert b'modId="foundation"' not in z.read("META-INF/neoforge.mods.toml")
+              for name in names:
+                  if name.endswith(".class"):
+                      assert b"net/satisfy/foundation" not in z.read(name), name
+
+          with zipfile.ZipFile(adapter) as z:
+              names = set(z.namelist())
+              for required in (
+                  "maki/airship/mixin/FoundationSeatUtilMixin.class",
+                  "maki/airship/mixin/FoundationChairMixin.class",
+                  "maki/airship/mixin/FurnitureVehicleMixin.class",
+                  "maki/airship/SeatCompat.class",
+                  "maki/airship/ShipFurnitureSeats.class",
+                  "data/foundation/vs_entities/chair.json",
+                  "maki/airship/foundation/FoundationCompat.class",
+              ):
+                  assert required in names, required
+              metadata = z.read("META-INF/neoforge.mods.toml")
+              assert b'modId="foundation"' in metadata
+              assert b'modId="maki_airship_compat"' in metadata
+
+          print("foundation_signature_validation=PASS")
+          print("core_foundation_isolation=PASS")
+          print("foundation_adapter_contents=PASS")
+          PY
+
+          javap -classpath mods/maki-airship-foundation-compat-1.0.0.jar -v maki.airship.foundation.FoundationCompat | grep -A6 'RuntimeVisibleAnnotations'
+
+      - name: Remove temporary validation workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm .github/workflows/issue6-validation.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: remove temporary issue 6 validation workflow"
+          git push origin HEAD:fix/issue-6
