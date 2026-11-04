@@ -3,6 +3,7 @@ package maki.lodcpu.mixin;
 import java.util.concurrent.atomic.AtomicInteger;
 import maki.lodcpu.CpuGovernor;
 import maki.lodcpu.TaskOwnership;
+import maki.lodcpu.PlayerCenter;
 import maki.lodcpu.WorkTelemetry;
 import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.Selection;
@@ -23,6 +24,16 @@ public abstract class GenerationTaskMixin {
 
     @Unique
     private boolean maki$owned(){return TaskOwnership.isOwned((GenerationTask)(Object)this);}
+
+    @Inject(method="run()V",at=@At("HEAD"),require=1)
+    private void maki$taskStarted(CallbackInfo ci){
+        if(maki$owned())PlayerCenter.nativeTaskStarted((GenerationTask)(Object)this);
+    }
+
+    @Inject(method="stop(Z)V",at=@At("HEAD"),require=1)
+    private void maki$taskStopping(boolean cancelled,CallbackInfo ci){
+        if(maki$owned())PlayerCenter.nativeTaskStopping((GenerationTask)(Object)this);
+    }
 
     @Unique
     private void maki$clamp(){
