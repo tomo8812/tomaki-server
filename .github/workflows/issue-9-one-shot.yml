@@ -29,12 +29,12 @@ jobs:
           cat > "$work/PatchCompat.java" <<'JAVA'
           import java.nio.file.Files;
           import java.nio.file.Path;
-          import jdk.internal.org.objectweb.asm.ClassReader;
-          import jdk.internal.org.objectweb.asm.ClassVisitor;
-          import jdk.internal.org.objectweb.asm.ClassWriter;
-          import jdk.internal.org.objectweb.asm.Label;
-          import jdk.internal.org.objectweb.asm.MethodVisitor;
-          import jdk.internal.org.objectweb.asm.Opcodes;
+          import org.objectweb.asm.ClassReader;
+          import org.objectweb.asm.ClassVisitor;
+          import org.objectweb.asm.ClassWriter;
+          import org.objectweb.asm.Label;
+          import org.objectweb.asm.MethodVisitor;
+          import org.objectweb.asm.Opcodes;
 
           public final class PatchCompat {
               private static final String LOD_SUPPORT = "com/kishku7/chunksmith/lod/LodSupport";
@@ -126,9 +126,9 @@ jobs:
           }
           JAVA
 
-          javac --add-exports java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED "$work/PatchCompat.java"
+          javac --add-exports java.base/org.objectweb.asm=ALL-UNNAMED "$work/PatchCompat.java"
           unzip -p "$old" maki/millenairelod/Compat.class > "$work/Compat.class"
-          java --add-exports java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED -cp "$work" PatchCompat "$work/Compat.class" "$work/Compat.patched.class"
+          java --add-exports java.base/org.objectweb.asm=ALL-UNNAMED -cp "$work" PatchCompat "$work/Compat.class" "$work/Compat.patched.class"
 
           python3 - "$old" "$new" "$work/Compat.patched.class" <<'PY'
           import sys, zipfile
@@ -154,6 +154,9 @@ jobs:
           grep -q 'LodSupport.presenceIndexFor' "$work/javap.txt"
           grep -q 'CsLodPresenceIndex.hasLod' "$work/javap.txt"
           grep -q 'LodSupport.offer' "$work/javap.txt"
+          test "$(grep -c 'LodSupport.offer' "$work/javap.txt")" -eq 1
+          unzip -p "$new" META-INF/neoforge.mods.toml | grep -q 'version="1.0.3"'
+          unzip -t "$new" >/dev/null
 
           git rm -- .github/workflows/issue-9-one-shot.yml
           git add "$old" "$new" || true
