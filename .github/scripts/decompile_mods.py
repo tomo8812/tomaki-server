@@ -84,6 +84,15 @@ def output_path_for(jar_path: str) -> str:
     return str(PurePosixPath("mods") / rel.with_suffix(""))
 
 
+def git_index_has_prefix(generated_root: Path, path: str) -> bool:
+    proc = subprocess.run(
+        ["git", "-C", str(generated_root), "ls-files", "-z", "--", path],
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    return bool(proc.stdout)
+
+
 def load_manifest(generated_root: Path) -> dict:
     path = generated_root / ".decompile-manifest.json"
     if not path.exists():
@@ -129,7 +138,7 @@ def make_plan(source_root: Path, generated_root: Path, force_all: bool) -> dict:
                 continue
             oid = entry.get("blob_oid")
             out = entry.get("output")
-            if oid and out and (generated_root / out).is_dir():
+            if oid and out and ((generated_root / out).is_dir() or git_index_has_prefix(generated_root, out)):
                 reusable_by_oid.setdefault(oid, []).append((old_path, entry))
 
     for jar_path, oid in current.items():
@@ -140,7 +149,7 @@ def make_plan(source_root: Path, generated_root: Path, force_all: bool) -> dict:
             and isinstance(old, dict)
             and old.get("blob_oid") == oid
             and old.get("output") == output
-            and (generated_root / output).is_dir()
+            and ((generated_root / output).is_dir() or git_index_has_prefix(generated_root, output))
         ):
             unchanged.append(jar_path)
             continue
@@ -149,7 +158,7 @@ def make_plan(source_root: Path, generated_root: Path, force_all: bool) -> dict:
         if not rebuild_all:
             for source_path, source_entry in reusable_by_oid.get(oid, []):
                 source_output = source_entry.get("output")
-                if source_output and source_output != output and (generated_root / source_output).is_dir():
+                if source_output and source_output != output and ((generated_root / source_output).is_dir() or git_index_has_prefix(generated_root, source_output)):
                     reuse.append({
                         "jar": jar_path,
                         "blob_oid": oid,
@@ -256,7 +265,22 @@ def decompile_one(source_root: Path, generated_root: Path, vineflower: Path, ite
     temp_parent = generated_root / ".tmp-decompile"
     temp_parent.mkdir(parents=True, exist_ok=True)
     temp_dir = Path(tempfile.mkdtemp(prefix="jar-", dir=temp_parent))
+    materialized_jar: Path | None = None
     try:
+        # Main is blobless/sparse. Pull only this changed JAR blob on demand.
+        if not jar.is_file():
+            fd, temp_name = tempfile.mkstemp(prefix="input-", suffix=".jar", dir=temp_parent)
+            os.close(fd)
+            materialized_jar = Path(temp_name)
+            with materialized_jar.open("wb") as out:
+                subprocess.run(
+                    ["git", "show", f"HEAD:{jar_path}"],
+                    cwd=source_root,
+                    check=True,
+                    stdout=out,
+                )
+            jar = materialized_jar
+
         src_dir = temp_dir / "src"
         resources_dir = temp_dir / "resources"
         src_dir.mkdir(parents=True, exist_ok=True)
@@ -286,6 +310,9 @@ def decompile_one(source_root: Path, generated_root: Path, vineflower: Path, ite
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
+    finally:
+        if materialized_jar is not None:
+            materialized_jar.unlink(missing_ok=True)
 
 
 def copytree_hardlink(src: Path, dst: Path) -> None:
@@ -416,11 +443,21 @@ def apply_plan(source_root: Path, generated_root: Path, plan: dict, vineflower: 
 
     shutil.rmtree(generated_root / ".tmp-decompile", ignore_errors=True)
 
-    stage_paths = {".decompile-manifest.json", "README.md"}
-    stage_paths.update(item["output"] for item in plan["decompile"])
-    stage_paths.update(item["output"] for item in plan["reuse"])
-    stage_paths.update(item["output"] for item in plan["removed"])
-    run(["git", "-C", str(generated_root), "add", "-A", "--", *sorted(stage_paths)])
+    replacement_paths = {item["output"] for item in plan["decompile"]}
+    replacement_paths.update(item["output"] for item in plan["reuse"])
+    removed_paths = {item["output"] for item in plan["removed"]}
+
+    # Sparse checkout leaves untouched generated trees absent from disk. Remove only the
+    # affected prefixes from the index, then add back replacements. This preserves every
+    # unchanged JAR without downloading its generated source tree.
+    for path in sorted(replacement_paths | removed_paths):
+        subprocess.run(
+            ["git", "-C", str(generated_root), "rm", "-r", "--cached", "--sparse", "--ignore-unmatch", "--", path],
+            check=True,
+        )
+    for path in sorted(replacement_paths):
+        run(["git", "-C", str(generated_root), "add", "--sparse", "-A", "--", path])
+    run(["git", "-C", str(generated_root), "add", "--sparse", "-A", "--", ".decompile-manifest.json", "README.md"])
 
 
 def main() -> int:
