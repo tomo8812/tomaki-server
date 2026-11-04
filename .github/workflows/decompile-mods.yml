@@ -1,0 +1,145 @@
+name: Decompile changed mod JARs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mods/*.jar'
+      - 'mods/**/*.jar'
+      - '.github/scripts/decompile_mods.py'
+      - '.github/workflows/decompile-mods.yml'
+  workflow_dispatch:
+    inputs:
+      force_all:
+        description: 'Rebuild every current JAR even when content is unchanged'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: decompile-mods
+  cancel-in-progress: true
+
+env:
+  GENERATED_BRANCH: decompiled
+  GENERATED_DIR: ${{ runner.temp }}/decompiled-worktree
+  PLAN_FILE: ${{ runner.temp }}/decompile-plan.json
+  VINEFLOWER_VERSION: '1.12.0'
+  VINEFLOWER_SHA256: '1dfcfe974395734fa467ce620661c7623d05ba83670de0529b1fbd63ff548b9d'
+
+jobs:
+  decompile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout current server repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Prepare generated branch worktree
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$GENERATED_DIR"
+          if git fetch --no-tags --depth=1 origin "$GENERATED_BRANCH:refs/remotes/origin/$GENERATED_BRANCH" 2>/dev/null; then
+            git worktree add -B "$GENERATED_BRANCH" "$GENERATED_DIR" "refs/remotes/origin/$GENERATED_BRANCH"
+          else
+            git worktree add --detach "$GENERATED_DIR" HEAD
+            git -C "$GENERATED_DIR" checkout --orphan "$GENERATED_BRANCH"
+            git -C "$GENERATED_DIR" rm -rf .
+          fi
+
+      - name: Detect actual JAR changes
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          FORCE=""
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.force_all }}" == "true" ]]; then
+            FORCE="--force-all"
+          fi
+          python3 .github/scripts/decompile_mods.py plan \
+            --source-root . \
+            --generated-root "$GENERATED_DIR" \
+            --plan-file "$PLAN_FILE" \
+            $FORCE
+
+      - name: Check preinstalled Java
+        id: java
+        if: steps.plan.outputs.needs_decompiler == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          NEED_SETUP=true
+          if command -v java >/dev/null 2>&1; then
+            MAJOR="$(java -version 2>&1 | awk -F '[\".]' '/version/ {print $2; exit}')"
+            if [[ "$MAJOR" =~ ^[0-9]+$ ]] && (( MAJOR >= 17 )); then
+              NEED_SETUP=false
+            fi
+          fi
+          echo "need_setup=$NEED_SETUP" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java only when runner Java is insufficient
+        if: steps.plan.outputs.needs_decompiler == 'true' && steps.java.outputs.need_setup == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Download pinned Vineflower only when needed
+        if: steps.plan.outputs.needs_decompiler == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VF="$RUNNER_TEMP/vineflower.jar"
+          curl --fail --location --silent --show-error --retry 3 \
+            "https://github.com/Vineflower/vineflower/releases/download/${VINEFLOWER_VERSION}/vineflower-${VINEFLOWER_VERSION}.jar" \
+            --output "$VF"
+          echo "${VINEFLOWER_SHA256}  $VF" | sha256sum --check --status
+
+      - name: Apply decompile delta
+        if: steps.plan.outputs.needs_work == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          VF_ARGS=()
+          if [[ "${{ steps.plan.outputs.needs_decompiler }}" == "true" ]]; then
+            VF_ARGS=(--vineflower "$RUNNER_TEMP/vineflower.jar")
+          fi
+          python3 .github/scripts/decompile_mods.py apply \
+            --source-root . \
+            --generated-root "$GENERATED_DIR" \
+            --plan-file "$PLAN_FILE" \
+            "${VF_ARGS[@]}"
+
+      - name: Publish generated delta
+        if: steps.plan.outputs.needs_work == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git -C "$GENERATED_DIR" diff --cached --quiet; then
+            echo "No generated changes to publish."
+            exit 0
+          fi
+          git -C "$GENERATED_DIR" config user.name "github-actions[bot]"
+          git -C "$GENERATED_DIR" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$GENERATED_DIR" commit -m "chore: sync decompiled mods (${GITHUB_SHA::7})"
+          git -C "$GENERATED_DIR" push origin "HEAD:refs/heads/$GENERATED_BRANCH"
+
+      - name: Job summary
+        if: always() && steps.plan.outcome == 'success'
+        shell: bash
+        run: |
+          {
+            echo "### Mod decompile delta"
+            echo "- Decompiled: ${{ steps.plan.outputs.decompile_count }}"
+            echo "- Reused without decompiling: ${{ steps.plan.outputs.reuse_count }}"
+            echo "- Removed: ${{ steps.plan.outputs.removed_count }}"
+            echo "- Unchanged: ${{ steps.plan.outputs.unchanged_count }}"
+            echo "- Full rebuild: ${{ steps.plan.outputs.rebuild_all }}"
+          } >> "$GITHUB_STEP_SUMMARY"
