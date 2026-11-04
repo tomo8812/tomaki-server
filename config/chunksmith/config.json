@@ -24,7 +24,7 @@
   "lodFromExploredChunks": true,
   "lodBackchannelPort": 0,
   "lodIndexBudgetMb": 8192,
-  "worldEnterPregen": true,
+  "worldEnterPregen": false,
   "worldEnterLod": "auto",
   "worldEnterPregenRadius": 4096,
   "worldEnterLodHorizon": 0,
