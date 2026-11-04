@@ -155,7 +155,7 @@ public final class PlayerCenter {
             GenerationTask task=event.task();
             if(!WORLD.equals(task.getSelection().world().getName())||!TaskOwnership.isOwned(task))continue;
             if(!event.started()){
-                if(task==lastTask||event.cancelled()&&sameTaskSelection(lastTask,task))markManualPause();
+                if(task==lastTask||event.cancelled()&&(lastTask==null||sameTaskSelection(lastTask,task)))markManualPause();
             }else if(manualPause&&sameTaskSelection(lastTask,task)){
                 lastTask=task;
                 appliedX=(int)task.getSelection().centerX();appliedZ=(int)task.getSelection().centerZ();
