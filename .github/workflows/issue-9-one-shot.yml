@@ -126,9 +126,10 @@ jobs:
           }
           JAVA
 
-          javac --add-exports java.base/org.objectweb.asm=ALL-UNNAMED "$work/PatchCompat.java"
+          curl -fsSL https://repo.maven.apache.org/maven2/org/ow2/asm/asm/9.7.1/asm-9.7.1.jar -o "$work/asm.jar"
+          javac -cp "$work/asm.jar" "$work/PatchCompat.java"
           unzip -p "$old" maki/millenairelod/Compat.class > "$work/Compat.class"
-          java --add-exports java.base/org.objectweb.asm=ALL-UNNAMED -cp "$work" PatchCompat "$work/Compat.class" "$work/Compat.patched.class"
+          java -cp "$work:$work/asm.jar" PatchCompat "$work/Compat.class" "$work/Compat.patched.class"
 
           python3 - "$old" "$new" "$work/Compat.patched.class" <<'PY'
           import sys, zipfile
