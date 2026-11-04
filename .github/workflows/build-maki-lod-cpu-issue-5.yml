@@ -5,6 +5,7 @@ on:
     branches: [fix/issue-5]
     paths:
       - '.github/workflows/build-maki-lod-cpu-issue-5.yml'
+      - 'custom-mods/maki-lod-cpu/**'
 
 permissions:
   contents: write
