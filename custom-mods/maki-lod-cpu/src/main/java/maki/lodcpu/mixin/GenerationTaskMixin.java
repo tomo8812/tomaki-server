@@ -32,7 +32,7 @@ public abstract class GenerationTaskMixin {
 
     @Inject(method="stop(Z)V",at=@At("HEAD"),require=1)
     private void maki$taskStopping(boolean cancelled,CallbackInfo ci){
-        if(maki$owned())PlayerCenter.nativeTaskStopping((GenerationTask)(Object)this);
+        if(maki$owned())PlayerCenter.nativeTaskStopping((GenerationTask)(Object)this,cancelled);
     }
 
     @Unique
