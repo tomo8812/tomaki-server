@@ -35,7 +35,7 @@ public final class PlayerCenter {
     private static GenerationTask lastTask;
     private static final ConcurrentLinkedQueue<NativeTaskLifecycle> nativeTaskLifecycle=new ConcurrentLinkedQueue<>();
     private static volatile GenerationTask controllerStopTask;
-    private record NativeTaskLifecycle(GenerationTask task,boolean started){}
+    private record NativeTaskLifecycle(GenerationTask task,boolean started,boolean cancelled){}
     static final class Saved {String player,uuid;Integer x,z;boolean disabled;long savedAt;}
 
     private static Settings settings(){return CpuGovernor.settings();}
@@ -133,11 +133,11 @@ public final class PlayerCenter {
         return true;
     }
     public static void nativeTaskStarted(GenerationTask task){
-        if(task!=null&&TaskOwnership.isOwned(task))nativeTaskLifecycle.add(new NativeTaskLifecycle(task,true));
+        if(task!=null&&TaskOwnership.isOwned(task))nativeTaskLifecycle.add(new NativeTaskLifecycle(task,true,false));
     }
-    public static void nativeTaskStopping(GenerationTask task){
+    public static void nativeTaskStopping(GenerationTask task,boolean cancelled){
         if(task!=null&&TaskOwnership.isOwned(task)&&task!=controllerStopTask)
-            nativeTaskLifecycle.add(new NativeTaskLifecycle(task,false));
+            nativeTaskLifecycle.add(new NativeTaskLifecycle(task,false,cancelled));
     }
     private static void markManualPause(){manualPause=true;requested=false;reason="manual-pause";}
     private static boolean sameTaskSelection(GenerationTask first,GenerationTask second){
@@ -155,7 +155,7 @@ public final class PlayerCenter {
             GenerationTask task=event.task();
             if(!WORLD.equals(task.getSelection().world().getName())||!TaskOwnership.isOwned(task))continue;
             if(!event.started()){
-                if(task==lastTask)markManualPause();
+                if(task==lastTask||event.cancelled()&&sameTaskSelection(lastTask,task))markManualPause();
             }else if(manualPause&&sameTaskSelection(lastTask,task)){
                 lastTask=task;
                 appliedX=(int)task.getSelection().centerX();appliedZ=(int)task.getSelection().centerZ();
