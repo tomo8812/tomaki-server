@@ -1,0 +1,164 @@
+name: issue-9 one-shot jar patch
+
+on:
+  push:
+    branches:
+      - fix/issue-9
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message != 'fix: avoid duplicate initial Millenaire LOD enqueue'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-9
+          fetch-depth: 1
+
+      - name: Patch maki-millenaire-lod-compat jar
+        shell: bash
+        run: |
+          set -euo pipefail
+          old='mods/maki-millenaire-lod-compat-1.0.2.jar'
+          new='mods/maki-millenaire-lod-compat-1.0.3.jar'
+          work="$(mktemp -d)"
+
+          cat > "$work/PatchCompat.java" <<'JAVA'
+          import java.nio.file.Files;
+          import java.nio.file.Path;
+          import jdk.internal.org.objectweb.asm.ClassReader;
+          import jdk.internal.org.objectweb.asm.ClassVisitor;
+          import jdk.internal.org.objectweb.asm.ClassWriter;
+          import jdk.internal.org.objectweb.asm.Label;
+          import jdk.internal.org.objectweb.asm.MethodVisitor;
+          import jdk.internal.org.objectweb.asm.Opcodes;
+
+          public final class PatchCompat {
+              private static final String LOD_SUPPORT = "com/kishku7/chunksmith/lod/LodSupport";
+              private static final String PRESENCE = "com/kishku7/chunksmith/lod/CsLodPresenceIndex";
+              private static final String LEVEL = "net/minecraft/server/level/ServerLevel";
+              private static final String CHUNK = "net/minecraft/world/level/chunk/LevelChunk";
+              private static final String CHUNK_POS = "net/minecraft/world/level/ChunkPos";
+
+              public static void main(String[] args) throws Exception {
+                  byte[] input = Files.readAllBytes(Path.of(args[0]));
+                  ClassReader reader = new ClassReader(input);
+                  ClassWriter writer = new ClassWriter(reader, ClassWriter.COMPUTE_FRAMES | ClassWriter.COMPUTE_MAXS) {
+                      @Override
+                      protected String getCommonSuperClass(String type1, String type2) {
+                          return "java/lang/Object";
+                      }
+                  };
+                  int[] patched = {0};
+
+                  ClassVisitor visitor = new ClassVisitor(Opcodes.ASM9, writer) {
+                      @Override
+                      public MethodVisitor visitMethod(int access, String name, String descriptor,
+                                                       String signature, String[] exceptions) {
+                          MethodVisitor delegate = super.visitMethod(access, name, descriptor, signature, exceptions);
+                          if (!name.equals("refresh")
+                                  || !descriptor.equals("(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/ChunkAccess;)V")) {
+                              return delegate;
+                          }
+
+                          return new MethodVisitor(Opcodes.ASM9, delegate) {
+                              @Override
+                              public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                          String methodDescriptor, boolean isInterface) {
+                                  if (opcode == Opcodes.INVOKESTATIC
+                                          && owner.equals(LOD_SUPPORT)
+                                          && methodName.equals("offer")
+                                          && methodDescriptor.equals("(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;)V")) {
+                                      patched[0]++;
+                                      Label skip = new Label();
+
+                                      // The original invocation has (ServerLevel, LevelChunk) on the operand stack.
+                                      super.visitVarInsn(Opcodes.ASTORE, 11);
+                                      super.visitVarInsn(Opcodes.ASTORE, 10);
+
+                                      // Only refresh LODs that already exist. Initial capture remains owned by
+                                      // Chunksmith ExploredLodGuard, which marks presence only after offer succeeds.
+                                      super.visitVarInsn(Opcodes.ALOAD, 10);
+                                      super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, LEVEL, "getServer",
+                                              "()Lnet/minecraft/server/MinecraftServer;", false);
+                                      super.visitVarInsn(Opcodes.ALOAD, 10);
+                                      super.visitMethodInsn(Opcodes.INVOKESTATIC, LOD_SUPPORT, "dimensionId",
+                                              "(Lnet/minecraft/server/level/ServerLevel;)Ljava/lang/String;", false);
+                                      super.visitMethodInsn(Opcodes.INVOKESTATIC, LOD_SUPPORT, "presenceIndexFor",
+                                              "(Lnet/minecraft/server/MinecraftServer;Ljava/lang/String;)Lcom/kishku7/chunksmith/lod/CsLodPresenceIndex;", false);
+                                      super.visitVarInsn(Opcodes.ASTORE, 12);
+                                      super.visitVarInsn(Opcodes.ALOAD, 12);
+                                      super.visitJumpInsn(Opcodes.IFNULL, skip);
+
+                                      super.visitVarInsn(Opcodes.ALOAD, 12);
+                                      super.visitVarInsn(Opcodes.ALOAD, 11);
+                                      super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CHUNK, "getPos",
+                                              "()Lnet/minecraft/world/level/ChunkPos;", false);
+                                      super.visitFieldInsn(Opcodes.GETFIELD, CHUNK_POS, "x", "I");
+                                      super.visitVarInsn(Opcodes.ALOAD, 11);
+                                      super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, CHUNK, "getPos",
+                                              "()Lnet/minecraft/world/level/ChunkPos;", false);
+                                      super.visitFieldInsn(Opcodes.GETFIELD, CHUNK_POS, "z", "I");
+                                      super.visitMethodInsn(Opcodes.INVOKEVIRTUAL, PRESENCE, "hasLod", "(II)Z", false);
+                                      super.visitJumpInsn(Opcodes.IFEQ, skip);
+
+                                      super.visitVarInsn(Opcodes.ALOAD, 10);
+                                      super.visitVarInsn(Opcodes.ALOAD, 11);
+                                      super.visitMethodInsn(opcode, owner, methodName, methodDescriptor, isInterface);
+                                      super.visitLabel(skip);
+                                      return;
+                                  }
+                                  super.visitMethodInsn(opcode, owner, methodName, methodDescriptor, isInterface);
+                              }
+                          };
+                      }
+                  };
+
+                  reader.accept(visitor, ClassReader.EXPAND_FRAMES);
+                  if (patched[0] != 1) {
+                      throw new IllegalStateException("Expected exactly one LodSupport.offer call in Compat.refresh, patched " + patched[0]);
+                  }
+                  Files.write(Path.of(args[1]), writer.toByteArray());
+              }
+          }
+          JAVA
+
+          javac --add-exports java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED "$work/PatchCompat.java"
+          unzip -p "$old" maki/millenairelod/Compat.class > "$work/Compat.class"
+          java --add-exports java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED -cp "$work" PatchCompat "$work/Compat.class" "$work/Compat.patched.class"
+
+          python3 - "$old" "$new" "$work/Compat.patched.class" <<'PY'
+          import sys, zipfile
+          old, new, patched = sys.argv[1:]
+          patched_bytes = open(patched, "rb").read()
+          with zipfile.ZipFile(old, "r") as zin, zipfile.ZipFile(new, "w") as zout:
+              for info in zin.infolist():
+                  data = zin.read(info.filename)
+                  if info.filename == "maki/millenairelod/Compat.class":
+                      data = patched_bytes
+                  elif info.filename == "META-INF/neoforge.mods.toml":
+                      text = data.decode("utf-8")
+                      text = text.replace('version="1.0.2"', 'version="1.0.3"', 1)
+                      data = text.encode("utf-8")
+                  zout.writestr(info, data)
+          PY
+
+          rm "$old"
+
+          mkdir -p "$work/classes"
+          (cd "$work/classes" && jar xf "$GITHUB_WORKSPACE/$new" maki/millenairelod/Compat.class)
+          javap -classpath "$new" -c -p maki.millenairelod.Compat > "$work/javap.txt"
+          grep -q 'LodSupport.presenceIndexFor' "$work/javap.txt"
+          grep -q 'CsLodPresenceIndex.hasLod' "$work/javap.txt"
+          grep -q 'LodSupport.offer' "$work/javap.txt"
+
+          git rm -- .github/workflows/issue-9-one-shot.yml
+          git add "$old" "$new" || true
+          git add -A
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git commit -m 'fix: avoid duplicate initial Millenaire LOD enqueue'
+          git push origin HEAD:fix/issue-9
