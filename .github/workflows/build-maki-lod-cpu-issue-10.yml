@@ -1,10 +1,8 @@
 name: Build maki-lod-cpu issue 10 on ownership base
 
 on:
-  push:
-    branches: [fix/issue-10]
-    paths:
-      - '.github/workflows/build-maki-lod-cpu-issue-10.yml'
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
