@@ -25,8 +25,8 @@ concurrency:
 
 env:
   GENERATED_BRANCH: decompiled
-  GENERATED_DIR: ${{ runner.temp }}/decompiled-worktree
-  PLAN_FILE: ${{ runner.temp }}/decompile-plan.json
+  GENERATED_DIR: /tmp/decompiled-worktree
+  PLAN_FILE: /tmp/decompile-plan.json
   VINEFLOWER_VERSION: '1.12.0'
   VINEFLOWER_SHA256: '1dfcfe974395734fa467ce620661c7623d05ba83670de0529b1fbd63ff548b9d'
 
