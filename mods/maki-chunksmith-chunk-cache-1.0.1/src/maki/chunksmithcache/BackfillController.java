@@ -65,56 +65,52 @@ public final class BackfillController {
          if (var1.activeLevel != null && var1.activePos != null && playerNear(var1.activeLevel, var1.activePos)) {
             handoffToPlayer(var1);
          }
-      } else if (var1.ticks % 20L == 0L && !var1.scanning) {
-         if (var0.getPlayerCount() == 0) {
-            if (!(var0.getAverageTickTimeNanos() / 1000000.0 > 40.0)) {
-               if (MillenaireBridge.canBackfillSafely()) {
-                  try {
-                     if (ChunksmithProvider.isLoaded() && !ChunksmithProvider.get().getGenerationTasks().isEmpty()) {
+      } else if (var1.ticks % 20L == 0L
+         && !var1.scanning
+         && var0.getPlayerCount() == 0
+         && !(var0.getAverageTickTimeNanos() / 1000000.0 > 40.0)
+         && MillenaireBridge.canBackfillSafely()) {
+         try {
+            if (ChunksmithProvider.isLoaded() && !ChunksmithProvider.get().getGenerationTasks().isEmpty()) {
+               return;
+            }
+         } catch (Throwable var7) {
+            return;
+         }
+
+         ArrayList var8 = new ArrayList();
+
+         for (ServerLevel var4 : LEVELS) {
+            String var5 = Fingerprint.forLevel(var4);
+            if (var5 != null) {
+               var8.add(new BackfillController.ScanLevel(var4, var5));
+            }
+         }
+
+         if (!var8.isEmpty()) {
+            var1.scanning = true;
+            CompletableFuture.<BackfillController.Candidate>supplyAsync(() -> findCandidate(var8, var1), SCAN)
+               .whenComplete((var2, var3) -> var0.execute(() -> {
+                  var1.scanning = false;
+                  if (var3 == null && var2 != null && !var1.busy && var0.getPlayerCount() == 0 && !(var0.getAverageTickTimeNanos() / 1000000.0 > 40.0)) {
+                     try {
+                        if (ChunksmithProvider.isLoaded() && !ChunksmithProvider.get().getGenerationTasks().isEmpty()) {
+                           return;
+                        }
+                     } catch (Throwable var7x) {
                         return;
                      }
-                  } catch (Throwable var7) {
-                     return;
-                  }
 
-                  ArrayList var8 = new ArrayList();
-
-                  for (ServerLevel var4 : LEVELS) {
-                     String var5 = Fingerprint.forLevel(var4);
-                     if (var5 != null) {
-                        var8.add(new BackfillController.ScanLevel(var4, var5));
+                     ServerLevel var4x = var2.level();
+                     BackfillController.Target var5x = var2.target();
+                     ChunkPos var6 = var5x.pos();
+                     if (var4x.getChunkSource().hasChunk(var6.x, var6.z)) {
+                        advanceCursor(var4x, var1.cursor.get(CacheManager.dimensionKey(var4x)));
+                     } else {
+                        start(var4x, var5x, var1);
                      }
                   }
-
-                  if (!var8.isEmpty()) {
-                     var1.scanning = true;
-                     CompletableFuture.<BackfillController.Candidate>supplyAsync(() -> findCandidate(var8, var1), SCAN)
-                        .whenComplete((var2, var3) -> var0.execute(() -> {
-                           var1.scanning = false;
-                           if (var3 == null && var2 != null && !var1.busy) {
-                              if (var0.getPlayerCount() == 0 && !(var0.getAverageTickTimeNanos() / 1000000.0 > 40.0)) {
-                                 try {
-                                    if (ChunksmithProvider.isLoaded() && !ChunksmithProvider.get().getGenerationTasks().isEmpty()) {
-                                       return;
-                                    }
-                                 } catch (Throwable var7x) {
-                                    return;
-                                 }
-
-                                 ServerLevel var4x = var2.level();
-                                 BackfillController.Target var5x = var2.target();
-                                 ChunkPos var6 = var5x.pos();
-                                 if (var4x.getChunkSource().hasChunk(var6.x, var6.z)) {
-                                    advanceCursor(var4x, var1.cursor.get(CacheManager.dimensionKey(var4x)));
-                                 } else {
-                                    start(var4x, var5x, var1);
-                                 }
-                              }
-                           }
-                        }));
-                  }
-               }
-            }
+               }));
          }
       }
    }
@@ -164,8 +160,8 @@ public final class BackfillController {
 
                                  LevelChunk[] var9 = new LevelChunk[1];
                                  ChunkResultBridge.ifSuccess(var7, var1xxx -> {
-                                    if (var1xxx instanceof LevelChunk var2xx) {
-                                       var9[0] = var2xx;
+                                    if (var1xxx instanceof LevelChunk var2xxx) {
+                                       var9[0] = var2xxx;
                                     }
                                  });
                                  if (var9[0] == null) {
@@ -283,9 +279,9 @@ public final class BackfillController {
          return null;
       }
 
-      ArrayList var4 = new ArrayList();
+      ArrayList<Path> var4 = new ArrayList<>();
 
-      try (Stream var5 = Files.list(var3)) {
+      try (Stream<Path> var5 = Files.list(var3)) {
          var5.filter(var0x -> var0x.getFileName().toString().startsWith("r.") && var0x.getFileName().toString().endsWith(".cslod"))
             .sorted(Comparator.comparing(var0x -> var0x.getFileName().toString()))
             .forEach(var4::add);
@@ -312,9 +308,9 @@ public final class BackfillController {
 
       for (int var20 = var1.region; var20 < var4.size(); var20++) {
          int var6 = var20 == var1.region ? var1.slot : 0;
-         int[] var7 = parseRegion(((Path)var4.get(var20)).getFileName().toString());
+         int[] var7 = parseRegion(var4.get(var20).getFileName().toString());
          if (var7 != null) {
-            byte[] var8 = readHeader((Path)var4.get(var20));
+            byte[] var8 = readHeader(var4.get(var20));
             if (var8 != null) {
                ByteBuffer var9 = ByteBuffer.wrap(var8).order(ByteOrder.BIG_ENDIAN);
 
@@ -329,7 +325,7 @@ public final class BackfillController {
                      ChunkPos var15 = new ChunkPos(var13, var14);
                      if (!normalRegionContains(var0, var15) && !CacheManager.cacheExists(var0, var15, var2)) {
                         var1.exhaustedAt = 0L;
-                        return new BackfillController.Target(var15, (Path)var4.get(var20), var10, var11, var12);
+                        return new BackfillController.Target(var15, var4.get(var20), var10, var11, var12);
                      }
                   }
                }

@@ -45,11 +45,11 @@ public abstract class LivingSleepAnchorMixin implements SleepAnchorAccess {
    private void maki$followSleepAnchor(CallbackInfo var1) {
       LivingEntity var2 = (LivingEntity)this;
       if (var2 instanceof Player && var2.isSleeping()) {
-         Optional var3 = var2.getSleepingPos();
+         Optional<BlockPos> var3 = var2.getSleepingPos();
          if (var3.isEmpty()) {
             this.maki$clear();
          } else {
-            BlockPos var4 = (BlockPos)var3.get();
+            BlockPos var4 = var3.get();
             LoadedShip var5 = VSGameUtilsKt.getLoadedShipManagingPos(var2.level(), var4);
             if (var5 == null) {
                this.maki$clear();
@@ -82,8 +82,8 @@ public abstract class LivingSleepAnchorMixin implements SleepAnchorAccess {
    public boolean maki$isSleepAnchorActive() {
       LivingEntity var1 = (LivingEntity)this;
       if (var1 instanceof Player && var1.isSleeping() && this.maki$localAnchor != null && this.maki$shipId != Long.MIN_VALUE) {
-         Optional var2 = var1.getSleepingPos();
-         if (!var2.isEmpty() && this.maki$sameBed((BlockPos)var2.get())) {
+         Optional<BlockPos> var2 = var1.getSleepingPos();
+         if (!var2.isEmpty() && this.maki$sameBed(var2.get())) {
             LoadedShip var3 = VSGameUtilsKt.getLoadedShipManagingPos(var1.level(), (Vec3i)var2.get());
             return var3 != null && var3.getId() == this.maki$shipId;
          } else {

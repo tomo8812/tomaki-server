@@ -95,13 +95,13 @@ final class Fingerprint {
 
    private static void hashTree(MessageDigest var0, Path var1, boolean var2) throws IOException {
       if (Files.isDirectory(var1)) {
-         ArrayList var3 = new ArrayList();
+         ArrayList<Path> var3 = new ArrayList<>();
 
-         try (Stream var4 = FingerprintWalkBridge.walk(var1)) {
+         try (Stream<Path> var4 = FingerprintWalkBridge.walk(var1)) {
             var4.filter(var0x -> Files.isRegularFile(var0x)).forEach(var3::add);
          }
 
-         var3.sort(Comparator.comparing(var1x -> var1.relativize(var1x).toString()));
+         var3.sort(Comparator.comparing(var1xx -> var1.relativize(var1xx).toString()));
          byte[] var15 = new byte[65536];
 
          for (Path var6 : var3) {

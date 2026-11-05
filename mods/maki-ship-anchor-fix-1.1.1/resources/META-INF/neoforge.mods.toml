@@ -4,7 +4,7 @@ license="All Rights Reserved"
 
 [[mods]]
 modId="maki_ship_anchor_fix"
-version="1.1.0"
+version="1.1.1"
 displayName="Maki Ship Anchor Fix"
 description="Generic VS2 ship-local physical player anchoring for riding and sleeping; owns the authoritative sleeping physical anchor and native-drag suppression lifecycle."
 

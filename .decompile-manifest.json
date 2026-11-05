@@ -125,10 +125,10 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "134af4d11ee35c3884307ef110f349b2e78d95bf39b5cebd88a5e625ec5555ee"
     },
-    "mods/maki-chunksmith-chunk-cache-1.0.0.jar": {
-      "blob_oid": "7037b59c9285c253e545ce62800b533ae274ba2c",
-      "output": "mods/maki-chunksmith-chunk-cache-1.0.0",
-      "sha256": "771bc090658e9703f57e94d47d9bf6f3498a772e3b126e7d8b9017842c0c4a73"
+    "mods/maki-chunksmith-chunk-cache-1.0.1.jar": {
+      "blob_oid": "cb8e04e991924c82d8fd2be4a70ac66768340ecf",
+      "output": "mods/maki-chunksmith-chunk-cache-1.0.1",
+      "sha256": "fc5532d06aa483008a4726842708bc5583b6515f529c7302af8bbd711665fe02"
     },
     "mods/maki-diorama-share-1.0.0.jar": {
       "blob_oid": "43f22449492d7d1cd3a4f09c7034a7e2801aa5b7",
@@ -155,10 +155,10 @@
       "output": "mods/maki-millenaire-lod-compat-1.0.4",
       "sha256": "cdbd70cf4e3e803e4a74e14c60d75793b1ae894e34c01f23b02f9e330db9b9a6"
     },
-    "mods/maki-ship-anchor-fix-1.1.0.jar": {
-      "blob_oid": "8c88545ce1c9377c38e3c3441aef3897c0e47a3c",
-      "output": "mods/maki-ship-anchor-fix-1.1.0",
-      "sha256": "7e6727f0225c4e70ddb5d2a7972b676f20c2c0ceef413497e374f3dab259ce92"
+    "mods/maki-ship-anchor-fix-1.1.1.jar": {
+      "blob_oid": "b8de8637363e58e34ce9fd125155bf6b0e3b803d",
+      "output": "mods/maki-ship-anchor-fix-1.1.1",
+      "sha256": "96be6d6b107a49326a5ed3cfecbd0d85374e159c217f37c6ed521b6b6715dffe"
     },
     "mods/maki-ship-edge-1.0.0.jar": {
       "blob_oid": "1395cf8114ad888e822009e5055cb1fa42436007",

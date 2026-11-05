@@ -24,7 +24,7 @@ public abstract class ChunkMapReadMixin {
 
    @Inject(method = "readChunk(Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;", at = @At("RETURN"), cancellable = true)
    private void maki$readCacheOnMiss(ChunkPos var1, CallbackInfoReturnable<CompletableFuture<Optional<CompoundTag>>> var2) {
-      CompletableFuture var3 = (CompletableFuture)var2.getReturnValue();
+      CompletableFuture<Optional<CompoundTag>> var3 = (CompletableFuture<Optional<CompoundTag>>)var2.getReturnValue();
       if (var3 != null) {
          var2.setReturnValue(
             var3.thenCompose(var2x -> var2x.isPresent() ? CompletableFuture.completedFuture(var2x) : CacheManager.loadIfPresent(this.level, var1))
@@ -34,7 +34,7 @@ public abstract class ChunkMapReadMixin {
 
    @Inject(method = "scheduleChunkLoad(Lnet/minecraft/world/level/ChunkPos;)Ljava/util/concurrent/CompletableFuture;", at = @At("RETURN"), cancellable = true)
    private void maki$promoteLoadedCache(ChunkPos var1, CallbackInfoReturnable<CompletableFuture<ChunkAccess>> var2) {
-      CompletableFuture var3 = (CompletableFuture)var2.getReturnValue();
+      CompletableFuture<ChunkAccess> var3 = (CompletableFuture<ChunkAccess>)var2.getReturnValue();
       if (var3 != null) {
          var2.setReturnValue(var3.<ChunkAccess>thenApply(var2x -> {
             if (var2x != null && PromotionLedger.consume(this.level, var1)) {

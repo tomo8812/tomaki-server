@@ -49,10 +49,8 @@ public final class CacheManager {
    }
 
    public static void captureFromChunksmith(ServerLevel var0, LevelChunk var1) {
-      if (var0 != null && var1 != null && !BackfillGuard.active(var0, var1.getPos())) {
-         if (HorizonGuard.drop(var0, var1.getPos())) {
-            capture(var0, var1, false);
-         }
+      if (var0 != null && var1 != null && !BackfillGuard.active(var0, var1.getPos()) && HorizonGuard.drop(var0, var1.getPos())) {
+         capture(var0, var1, false);
       }
    }
 
@@ -258,7 +256,7 @@ public final class CacheManager {
                      return;
                   }
 
-                  try (Stream var3x = Files.list(var3)) {
+                  try (Stream<Path> var3x = Files.list(var3)) {
                      for (Path var5x : var3x.toList()) {
                         String var6 = var5x.getFileName().toString();
                         if (Files.isDirectory(var5x) && !var6.equals(var1) && var6.matches("[0-9a-f]{24}")) {
@@ -278,7 +276,7 @@ public final class CacheManager {
    }
 
    private static void deleteTree(Path var0) throws IOException {
-      try (Stream var1 = Files.walk(var0)) {
+      try (Stream<Path> var1 = Files.walk(var0)) {
          for (Path var3 : var1.sorted(Comparator.reverseOrder()).toList()) {
             Files.deleteIfExists(var3);
          }

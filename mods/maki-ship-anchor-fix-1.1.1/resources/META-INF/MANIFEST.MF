@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Implementation-Title: Maki Ship Anchor Fix
+Implementation-Version: 1.1.1
+
