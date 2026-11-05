@@ -3,7 +3,7 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_lod_cpu_online_fix"
-version="1.0.0"
+version="1.0.1"
 displayName="Maki LOD CPU Online Limit Fix"
 description="Restores adaptive online generation in maki-lod-cpu while enforcing online-max-concurrent."
 [[dependencies.maki_lod_cpu_online_fix]]

@@ -42,4 +42,13 @@ public abstract class AdaptivePolicyMixin {
     private int maki$useOnlineMaximum(Settings settings) {
         return this.maki$onlineAdaptive ? Math.min(settings.max, settings.onlineMax) : settings.max;
     }
+
+    @Redirect(
+        method = "update(Lmaki/lodcpu/AdaptiveSample;ILmaki/lodcpu/Settings;)I",
+        at = @At(value = "FIELD", target = "Lmaki/lodcpu/Settings;min:I"),
+        require = 1
+    )
+    private int maki$useOnlineMinimum(Settings settings) {
+        return this.maki$onlineAdaptive ? Math.min(settings.min, settings.onlineMax) : settings.min;
+    }
 }
