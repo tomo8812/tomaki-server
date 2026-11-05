@@ -37,7 +37,7 @@ jobs:
           cp "$JAR" mods/maki-ship-save-1.0.2.jar
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mods/maki-ship-save-1.0.0.jar mods/maki-ship-save-1.0.1.jar mods/maki-ship-save-1.0.2.jar
+          git add -A -- mods/maki-ship-save-1.0.0.jar mods/maki-ship-save-1.0.2.jar
           if git diff --cached --quiet; then
             exit 0
           fi
