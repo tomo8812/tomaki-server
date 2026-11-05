@@ -1,8 +1,6 @@
 package maki.shipsave;
 
 import com.kishku7.chunksmith.lod.LodHorizon.Existing;
-import com.kishku7.chunksmith.shape.Shape;
-import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,9 +29,16 @@ public final class SaveProtection {
       }
    }
 
-   public static Existing scopedExisting(Existing var0, Shape var1) {
-      Objects.requireNonNull(var1, "shape");
-      LOG.info("Scoped LOD discard to Chunksmith task shape {}; shipyard writes always preserved", new Object[]{var1.name()});
-      return (var2, var3) -> !var1.isBounding((var2 << 4) + 8, (var3 << 4) + 8) || var0 != null && var0.isGenerated(var2, var3);
+   public static Existing scopedExisting(Existing var0, int var1, int var2, int var3, int var4) {
+      if (var3 >= 0 && var4 >= 0) {
+         long var5 = (long)var1 - var3;
+         long var7 = (long)var1 + var3;
+         long var9 = (long)var2 - var4;
+         long var11 = (long)var2 + var4;
+         LOG.info("Scoped LOD discard bounds: chunks [{},{}]..[{},{}]; shipyard writes always preserved", new Object[]{var5, var9, var7, var11});
+         return (var9x, var10) -> var9x < var5 || var9x > var7 || var10 < var9 || var10 > var11 || var0 != null && var0.isGenerated(var9x, var10);
+      } else {
+         throw new IllegalArgumentException("Negative selection radius");
+      }
    }
 }

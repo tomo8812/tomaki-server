@@ -69,6 +69,7 @@ public final class Compat {
    }
 
    public static boolean protectedChunk(ServerLevel var0, ChunkPos var1) {
+      ReservationLifecycle.expire(var0);
       if (var0 != null && var1 != null) {
          Compat.Protection var2 = PROTECTION.computeIfAbsent(var0, var0x -> new Compat.Protection());
          if (var2.tick != var0.getGameTime()) {
@@ -92,16 +93,20 @@ public final class Compat {
    public static void reserve(ServerLevel var0, BlockPos var1, int var2) {
       Compat.Protection var3 = PROTECTION.computeIfAbsent(var0, var0x -> new Compat.Protection());
       var3.tick = Long.MIN_VALUE;
-      if (LodHorizon.isArmed(LodSupport.dimensionId(var0))) {
+      if (!LodHorizon.isArmed(LodSupport.dimensionId(var0))) {
+         ReservationLifecycle.begin(var0, var1, var2);
+      } else {
          ChunkPos var4 = new ChunkPos(var1);
          int var5 = Math.max(0, (var2 + 15) / 16) + 4;
-         LodHorizon.keepAround(LodSupport.dimensionId(var0), var4.x, var4.z, var5);
+         ReservationLifecycle.ignoreKeepAround(LodSupport.dimensionId(var0), var4.x, var4.z, var5);
 
          for (int var6 = var4.x - var5; var6 <= var4.x + var5; var6++) {
             for (int var7 = var4.z - var5; var7 <= var4.z + var5; var7++) {
                var3.reservations.add(ChunkPos.asLong(var6, var7));
             }
          }
+
+         ReservationLifecycle.begin(var0, var1, var2);
       }
    }
 
@@ -118,6 +123,46 @@ public final class Compat {
             }
          }
       }
+   }
+
+   // $VF: synthetic method
+   public static Object maki$protection(Object var0) {
+      return PROTECTION.get(var0);
+   }
+
+   // $VF: synthetic method
+   public static Object maki$reservations(Object var0) {
+      return ((Compat.Protection)var0).reservations;
+   }
+
+   // $VF: synthetic method
+   public static boolean maki$containsReservation(Object var0, long var1) {
+      return ((LongOpenHashSet)var0).contains(var1);
+   }
+
+   // $VF: synthetic method
+   public static void maki$removeReservation(Object var0, long var1) {
+      ((LongOpenHashSet)var0).remove(var1);
+   }
+
+   // $VF: synthetic method
+   public static void maki$invalidateVillageCache(Object var0) {
+      ((Compat.Protection)var0).tick = Long.MIN_VALUE;
+   }
+
+   // $VF: synthetic method
+   public static long maki$gameTime(Object var0) {
+      return ((ServerLevel)var0).getGameTime();
+   }
+
+   // $VF: synthetic method
+   public static int maki$blockX(Object var0) {
+      return ((BlockPos)var0).getX();
+   }
+
+   // $VF: synthetic method
+   public static int maki$blockZ(Object var0) {
+      return ((BlockPos)var0).getZ();
    }
 
    private static final class Protection {
