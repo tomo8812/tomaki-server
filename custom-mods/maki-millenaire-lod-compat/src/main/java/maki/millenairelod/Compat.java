@@ -16,6 +16,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.biome.Biome;
 import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
 import org.millenaire.culture.ModCultures;
@@ -43,7 +44,7 @@ public final class Compat {
         long key = pos.toLong();
         if ((natural || data.pending.contains(key)) && !data.queued.contains(key)) {
             BlockPos sample = pos.getMiddleBlockPosition(level.getMaxBuildHeight() - 1);
-            Holder<?> biome = level.getBiome(sample);
+            Holder<Biome> biome = level.getBiome(sample);
             if (!VillageSpawnQueue.couldHostAnyVillage(ModCultures.getAllVillageTypes().values(), biome::is)) {
                 data.consume(key);
             } else if (HorizonGuard.drop(level, pos)) {
