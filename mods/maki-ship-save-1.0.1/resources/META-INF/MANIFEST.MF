@@ -1,0 +1,5 @@
+Manifest-Version: 1.0
+Implementation-Title: Maki Ship Save Protection
+Implementation-Version: 1.0.1
+Created-By: 21.0.12.1 (Debian)
+

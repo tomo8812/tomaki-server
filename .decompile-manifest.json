@@ -150,10 +150,10 @@
       "output": "mods/maki-ship-footsteps-1.0.1",
       "sha256": "6a6b5151989d7ebf2dc3815aea319852b44f796a63e76f4fc395d05b89dcafbe"
     },
-    "mods/maki-ship-save-1.0.0.jar": {
-      "blob_oid": "6edcf5cad27cd315dbe2e0e07f4f288d7d4d26b1",
-      "output": "mods/maki-ship-save-1.0.0",
-      "sha256": "386ad6e5b2d5a5479671f99b0de82f84e5ac98f6162fb410ff71bff318bdd980"
+    "mods/maki-ship-save-1.0.1.jar": {
+      "blob_oid": "7a165b416fdf909cc1c1a5b84d073e306c7b361e",
+      "output": "mods/maki-ship-save-1.0.1",
+      "sha256": "e9bc7bbc90c1a71ea9682eaa08f44327add232a8bf4276786f8b5ff9d2886e7f"
     },
     "mods/millenaire-9.0.3.jar": {
       "blob_oid": "f6d20e23e076014077670a344218478e9911014d",
