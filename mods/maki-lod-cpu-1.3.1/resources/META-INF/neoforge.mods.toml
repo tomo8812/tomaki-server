@@ -3,7 +3,7 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_lod_cpu"
-version="1.2.1"
+version="1.3.1"
 displayName="Maki LOD CPU Governor"
 description="Server-only Chunksmith persisted-LOD throughput controller and named-player center tracking. Bounded A/B/A concurrency experiments, native backpressure, memory/GC and tick protection. Online background generation is disabled by default."
 [[dependencies.maki_lod_cpu]]

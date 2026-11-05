@@ -10,43 +10,43 @@ public final class WorkTelemetry {
    public volatile WorkTelemetry.NativeState state = new WorkTelemetry.NativeState(0L, 0, 0, -1L, false, false, false, -1L);
 
    public boolean due() {
-      long var1 = System.nanoTime();
-      long var3 = this.observed.get();
-      return (var3 == 0L || var1 - var3 >= 250000000L) && this.observed.compareAndSet(var3, var1);
+      long now = System.nanoTime();
+      long prev = this.observed.get();
+      return (prev == 0L || now - prev >= 250000000L) && this.observed.compareAndSet(prev, now);
    }
 
-   public void observe(int var1, int var2, long var3, boolean var5, boolean var6, boolean var7, long var8) {
-      this.state = new WorkTelemetry.NativeState(System.nanoTime(), var1, var2, var3, var5, var6, var7, var8);
+   public void observe(int width, int inFlight, long writes, boolean writeHeld, boolean residencyHeld, boolean heapHeld, long added) {
+      this.state = new WorkTelemetry.NativeState(System.nanoTime(), width, inFlight, writes, writeHeld, residencyHeld, heapHeld, added);
    }
 
-   public synchronized void completed(long var1) {
+   public synchronized void completed(long millis) {
       this.completions++;
-      int var3 = 0;
+      int i = 0;
 
-      while (var3 < BOUNDS.length - 1 && var1 > BOUNDS[var3]) {
-         var3++;
+      while (i < BOUNDS.length - 1 && millis > BOUNDS[i]) {
+         i++;
       }
 
-      this.histogram[var3]++;
+      this.histogram[i]++;
    }
 
    public synchronized WorkTelemetry.Batch drain() {
-      long var1 = this.completions;
+      long count = this.completions;
       this.completions = 0L;
-      long var3 = (long)Math.ceil(var1 * 0.95);
-      long var5 = 0L;
-      long var7 = 0L;
+      long need = (long)Math.ceil(count * 0.95);
+      long sum = 0L;
+      long p95 = 0L;
 
-      for (int var9 = 0; var9 < this.histogram.length; var9++) {
-         var5 += this.histogram[var9];
-         if (var7 == 0L && var3 > 0L && var5 >= var3) {
-            var7 = BOUNDS[var9];
+      for (int i = 0; i < this.histogram.length; i++) {
+         sum += this.histogram[i];
+         if (p95 == 0L && need > 0L && sum >= need) {
+            p95 = BOUNDS[i];
          }
 
-         this.histogram[var9] = 0L;
+         this.histogram[i] = 0L;
       }
 
-      return new WorkTelemetry.Batch(var1, var7);
+      return new WorkTelemetry.Batch(count, p95);
    }
 
    public record Batch(long completions, double latencyP95Ms) {

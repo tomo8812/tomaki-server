@@ -130,10 +130,10 @@
       "output": "mods/maki-diorama-share-1.0.0",
       "sha256": "43a3d604ff3b65c1f198d877575cafa539bdf6972281cb4afbe9980675aa2939"
     },
-    "mods/maki-lod-cpu-1.2.1.jar": {
-      "blob_oid": "4e2612a7a4819c1e4cb1e2aa7ddcd69494f44a30",
-      "output": "mods/maki-lod-cpu-1.2.1",
-      "sha256": "d317d94db125ebb73337d7011746917277182efbca93445d5789dd93460c03cf"
+    "mods/maki-lod-cpu-1.3.1.jar": {
+      "blob_oid": "e2d770c226760470d7ff449452fb9810dbd8e1cb",
+      "output": "mods/maki-lod-cpu-1.3.1",
+      "sha256": "ccd3c8637f51d27012c65fdcef115b294ff3df70413224f88e6dec581afedcf4"
     },
     "mods/maki-millenaire-lod-compat-1.0.2.jar": {
       "blob_oid": "f70837a38ddaec01604cf52488975c9b4c584f0d",
