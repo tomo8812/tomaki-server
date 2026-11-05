@@ -31,6 +31,7 @@ Decompiler: Vineflower 1.12.0
 | `maki-airship-foundation-compat-1.0.0.jar` | [`mods/maki-airship-foundation-compat-1.0.0/`](mods/maki-airship-foundation-compat-1.0.0) | `8683c25f7819` |
 | `maki-assembly-tracking-1.0.0.jar` | [`mods/maki-assembly-tracking-1.0.0/`](mods/maki-assembly-tracking-1.0.0) | `99ae05c723ce` |
 | `maki-diorama-share-1.0.0.jar` | [`mods/maki-diorama-share-1.0.0/`](mods/maki-diorama-share-1.0.0) | `43f22449492d` |
+| `maki-idle-pregen-1.0.0.jar` | [`mods/maki-idle-pregen-1.0.0/`](mods/maki-idle-pregen-1.0.0) | `a0311a14f4a4` |
 | `maki-lod-cpu-1.3.1.jar` | [`mods/maki-lod-cpu-1.3.1/`](mods/maki-lod-cpu-1.3.1) | `e2d770c22676` |
 | `maki-lod-cpu-online-fix-1.0.1.jar` | [`mods/maki-lod-cpu-online-fix-1.0.1/`](mods/maki-lod-cpu-online-fix-1.0.1) | `6ae07adadb38` |
 | `maki-millenaire-lod-compat-1.0.4.jar` | [`mods/maki-millenaire-lod-compat-1.0.4/`](mods/maki-millenaire-lod-compat-1.0.4) | `a75c9d0a9122` |
