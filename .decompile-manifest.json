@@ -130,10 +130,10 @@
       "output": "mods/maki-lod-cpu-1.2.1",
       "sha256": "d317d94db125ebb73337d7011746917277182efbca93445d5789dd93460c03cf"
     },
-    "mods/maki-millenaire-lod-compat-1.0.3.jar": {
-      "blob_oid": "163d8d4bb7207bf3a01e55bc1a8de6fa367e5ced",
-      "output": "mods/maki-millenaire-lod-compat-1.0.3",
-      "sha256": "c5f79489ca5974bdf7369b593dbdb76531a541fb37866fb8d528b45ec60ef3c8"
+    "mods/maki-millenaire-lod-compat-1.0.2.jar": {
+      "blob_oid": "f70837a38ddaec01604cf52488975c9b4c584f0d",
+      "output": "mods/maki-millenaire-lod-compat-1.0.2",
+      "sha256": "8985f77dbda554e1c57119408504308b42d93692907c6ff18511cc13662eafff"
     },
     "mods/maki-ship-anchor-fix-1.0.0.jar": {
       "blob_oid": "cc8cfe9ca5f667293eb67c28599b154e04465efe",
@@ -150,10 +150,10 @@
       "output": "mods/maki-ship-footsteps-1.0.1",
       "sha256": "6a6b5151989d7ebf2dc3815aea319852b44f796a63e76f4fc395d05b89dcafbe"
     },
-    "mods/maki-ship-save-1.0.0.jar": {
-      "blob_oid": "6edcf5cad27cd315dbe2e0e07f4f288d7d4d26b1",
-      "output": "mods/maki-ship-save-1.0.0",
-      "sha256": "386ad6e5b2d5a5479671f99b0de82f84e5ac98f6162fb410ff71bff318bdd980"
+    "mods/maki-ship-save-1.0.2.jar": {
+      "blob_oid": "ef0a5695a8e5c3ae5674a9935bc5801f9db540c4",
+      "output": "mods/maki-ship-save-1.0.2",
+      "sha256": "4c218f4d8ebcbb320854f6100bd1b26e8d2746021ba3ff5b56f9041f68bcf50d"
     },
     "mods/millenaire-9.0.3.jar": {
       "blob_oid": "f6d20e23e076014077670a344218478e9911014d",
