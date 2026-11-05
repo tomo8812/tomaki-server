@@ -218,20 +218,20 @@ public final class BackfillController {
                      .execute(
                         () -> {
                            if (active(var2, var4, var0, var3)) {
+                              LevelChunk[] var9 = new LevelChunk[1];
                               try {
                                  if (var8 != null || var7 == null) {
-                                    fail(var0, var3, var2, var6, var4);
+                                    failBeforeFull(var0, var3, var2, var6, var4);
                                     return;
                                  }
 
-                                 LevelChunk[] var9 = new LevelChunk[1];
                                  ChunkResultBridge.ifSuccess(var7, var1xxx -> {
                                     if (var1xxx instanceof LevelChunk var2xx) {
                                        var9[0] = var2xx;
                                     }
                                  });
                                  if (var9[0] == null) {
-                                    fail(var0, var3, var2, var6, var4);
+                                    failBeforeFull(var0, var3, var2, var6, var4);
                                     return;
                                  }
 
@@ -289,13 +289,28 @@ public final class BackfillController {
                                     }));
                               } catch (Throwable var12) {
                                  LOG.warn("Backfill failed for {}", new Object[]{var3, var12});
-                                 fail(var0, var3, var2, var6, var4);
+                                 if(var9[0]==null)failBeforeFull(var0,var3,var2,var6,var4);
+                                 else fail(var0, var3, var2, var6, var4);
                               }
                            }
                         }
                      )
                );
          }
+      }
+   }
+
+   private static void failBeforeFull(ServerLevel var0, ChunkPos var1, BackfillController.State var2, Boolean var3, long var4) {
+      if (active(var2, var4, var0, var1)) {
+         MillenaireBridge.restore(var3);
+         var2.previousSuppression = null;
+         var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var1, 0, Unit.INSTANCE);
+         BackfillGuard.clear(var0,var1);
+         var2.backfillsFailed++;
+         var2.phase="failed-before-full";
+         report(var0.getServer(),var2,true);
+         LOG.warn("Chunk-cache backfill for {} failed before reaching FULL; releasing guard and idle-work claim immediately",new Object[]{var1});
+         clearActive(var2);
       }
    }
 
