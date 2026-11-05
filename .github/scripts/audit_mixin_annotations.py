@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import html
+import os
 import zipfile
 import tomllib
 from pathlib import Path
@@ -175,10 +177,43 @@ def audit_jar(jar: Path, api=None) -> tuple[list[dict], list[str]]:
     return rows, failures
 
 
+def write_reports(rows, failures, jars, json_output=None, github_actions=False):
+    report = {'jars': [jar.name for jar in jars], 'classes': rows, 'failures': failures}
+    if json_output:
+        output = Path(json_output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, indent=2) + '\n', encoding='utf-8')
+    if github_actions:
+        for failure in failures:
+            escaped = failure.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+            print(f'::error title=Mixin static audit::{escaped}')
+        summary_path = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary_path:
+            def code(value):
+                return '<code>' + html.escape(str(value)).replace('|', '&#124;').replace('\n', '&#10;').replace('\r', '&#13;') + '</code>'
+            lines = ['## Mixin static audit', '',
+                     f"**{'FAIL' if failures else 'PASS'}** — {len(jars)} JARs, "
+                     f'{len(rows)} registered classes, {len(failures)} failures.', '',
+                     'Checks: annotation retention/ABI, config registration, class presence, '
+                     'reserved packages and bundled API stubs. No server or client is started; '
+                     'runtime injection-point compatibility is not established by this check.', '']
+            if failures:
+                lines += ['### Failures', ''] + ['- ' + code(f) for f in failures] + ['']
+            lines += ['### Inventory', '', '| JAR | Registered classes |', '| --- | ---: |']
+            for jar in jars:
+                count = sum(row['jar'] == jar.name for row in rows)
+                lines.append(f'| {code(jar.name)} | {count} |')
+            lines += ['', 'Detailed class results are available in the JSON workflow artifact.', '']
+            with Path(summary_path).open('a', encoding='utf-8') as stream:
+                stream.write('\n'.join(lines))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--mods-dir", default="mods")
     parser.add_argument("--json-output")
+    parser.add_argument("--github-actions", action='store_true',
+                        help='Emit error annotations and append a GitHub job summary')
     parser.add_argument("--annotation-api", action='append', default=[],
                         help='Actual Sponge Mixin / MixinExtras JAR; repeat for multiple APIs')
     args = parser.parse_args()
@@ -194,12 +229,8 @@ def main() -> int:
                             api['L' + cls['name'] + ';'] = cls
 
     jars = sorted(Path(args.mods_dir).glob("maki-*.jar"))
-    if not jars:
-        print("No maki-* JARs found.")
-        return 2
-
     all_rows: list[dict] = []
-    failures: list[str] = []
+    failures: list[str] = [] if jars else [f'No maki-* JARs found in {args.mods_dir}.']
     for jar in jars:
         try:
             rows, jar_failures = audit_jar(jar, api)
@@ -214,17 +245,13 @@ def main() -> int:
         visible = ", ".join(a.rsplit(".", 1)[-1] for a in row["runtime_annotations"]) or "-"
         print(f"OK? {row['jar']} :: {row['class']} :: @Mixin={row['mixin']} :: runtime={visible}")
 
-    if args.json_output:
-        Path(args.json_output).write_text(
-            json.dumps({"classes": all_rows, "failures": failures}, indent=2) + "\n",
-            encoding="utf-8",
-        )
+    write_reports(all_rows, failures, jars, args.json_output, args.github_actions)
 
     if failures:
         print("\nMixin annotation ABI failures:")
         for failure in failures:
             print(f"FAIL: {failure}")
-        return 1
+        return 1 if jars else 2
 
     print("\nAll registered Mixin classes passed annotation ABI checks.")
     return 0
