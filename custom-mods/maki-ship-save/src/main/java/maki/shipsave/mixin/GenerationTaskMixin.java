@@ -33,7 +33,7 @@ public abstract class GenerationTaskMixin {
         boolean discard,
         Existing existing
     ) {
-        GenerationTask task = (GenerationTask)this;
+        GenerationTask task = (GenerationTask)(Object)this;
         SaveProtection.arm(
             task,
             world,
@@ -47,6 +47,6 @@ public abstract class GenerationTaskMixin {
 
     @Inject(method = "run()V", at = @At("RETURN"))
     private void maki$taskFinished(CallbackInfo ci) {
-        SaveProtection.taskFinished(this.selection.world().getName(), (GenerationTask)this);
+        SaveProtection.taskFinished(this.selection.world().getName(), (GenerationTask)(Object)this);
     }
 }
