@@ -39,7 +39,7 @@ public final class CpuGovernor {
         reload();long cpu=cpuTime(),gc=gcMillis();
         if(lastTime==0){
             lastTime=now;lastCpu=cpu;lastGc=gc;
-            LOG.info("Throughput governor 1.3.0 ready: allocated {} cores, ceiling {}..{}; CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);return;
+            LOG.info("Throughput governor 1.3.2 ready: allocated {} cores, ceiling {}..{}; CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);return;
         }
         double seconds=(now-lastTime)/1e9;
         double used=cpu>=lastCpu&&lastCpu>=0?100.0*(cpu-lastCpu)/(now-lastTime)/capacity:Double.NaN;
@@ -75,7 +75,7 @@ public final class CpuGovernor {
             reportedExperiment=POLICY.experimentNumber;
         }
         if(previous!=cap||experimentFinished||now-lastReport>=30_000_000_000L){
-            LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {}; LOD saved {}/s, requests {}/s, GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}",previous,cap,fmt(used),fmt(capacity),fmt(mspt),fmt(heap),players,POLICY.reason,fmt(writes/seconds),fmt(batch.completions()/seconds),fmt(gcPercent),sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase);
+            LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}",previous,cap,fmt(used),fmt(capacity),fmt(mspt),fmt(heap),players,POLICY.reason,fmt(writes/seconds),writes,fmt(batch.completions()/seconds),batch.completions(),fmt(gcPercent),sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase);
             report(sample,state,budget,bytes,throttled,players,active);lastReport=now;
         }
     }
@@ -117,13 +117,15 @@ public final class CpuGovernor {
     private static void report(AdaptiveSample x,WorkTelemetry.NativeState state,MemoryBudget memory,long bytes,long throttled,int players,boolean active){
         try{
             Map<String,Object> m=new LinkedHashMap<>();
-            m.put("time",java.time.Instant.now().toString());m.put("controllerVersion","1.3.0");
+            m.put("time",java.time.Instant.now().toString());m.put("statusSchemaVersion",2);m.put("controllerVersion","1.3.2");
             m.put("cpuBudgetCores",capacity);m.put("cpuBudgetUsedPercent",finite(x.cpu()));
             m.put("mspt",finite(x.mspt()));m.put("heapUsedPercent",finite(x.heap()));m.put("players",players);
-            m.put("cpuConcurrencyCeiling",cap);m.put("reason",POLICY.reason);m.put("active",active);
-            m.put("nativeDispatchWidth",x.nativeWidth());m.put("inFlight",x.inFlight());
-            m.put("lodSavedPerSecond",finite(x.lodWrites()/x.seconds()));m.put("lodSavedBytesPerSecond",finite(bytes/x.seconds()));
-            m.put("requestCompletionsPerSecond",finite(x.completions()/x.seconds()));
+            m.put("cpuConcurrencyCeiling",cap);m.put("reason",POLICY.reason);m.put("reasonScope","follow-owned-generation-task");m.put("active",active);
+            m.put("nativeDispatchWidth",x.nativeWidth());m.put("inFlight",x.inFlight());m.put("sampleSeconds",x.seconds());
+            m.put("lodSavedPerSecond",finite(x.lodWrites()/x.seconds()));m.put("lodSavedBytesPerSecond",finite(bytes/x.seconds()));m.put("lodSavedInSample",x.lodWrites());
+            m.put("lodSavedScope","all-chunksmith-cslod-store-writes");
+            m.put("requestCompletionsPerSecond",finite(x.completions()/x.seconds()));m.put("requestCompletionsInSample",x.completions());
+            m.put("requestCompletionScope","follow-owned-generation-task");
             m.put("throughputBasis",x.storeAvailable()?"successful-native-LOD-store-writes":"completed-requests-fallback");
             m.put("lodWriteQueue",x.lodQueue());m.put("worldWriteQueue",x.worldWriteQueue());m.put("synchronousLodWrites",x.synchronousWrites());
             m.put("nativeBackpressure",x.nativeHeld());m.put("gcTimePercent",finite(x.gc()));
