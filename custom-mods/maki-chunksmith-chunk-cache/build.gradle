@@ -1,0 +1,84 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'maki.chunksmithcache'
+version = '1.0.1'
+
+base {
+    archivesName = 'maki-chunksmith-chunk-cache'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = '21.1.262'
+}
+
+dependencies {
+    compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('jar') {
+    manifest {
+        attributes(
+            'Implementation-Title': 'Maki Chunksmith Chunk Cache',
+            'Implementation-Version': project.version
+        )
+    }
+    from(sourceSets.main.allJava) {
+        into 'META-INF/sources'
+    }
+}
+
+def registeredMixins = [
+    'maki.chunksmithcache.mixin.LodSupportMixin',
+    'maki.chunksmithcache.mixin.ChunkMapReadMixin',
+    'maki.chunksmithcache.mixin.ChunkMapSaveMixin',
+    'maki.chunksmithcache.mixin.SectionStorageMixin',
+    'maki.chunksmithcache.mixin.EntityStorageMixin',
+    'maki.chunksmithcache.mixin.ServerLevelUnloadMixin',
+    'maki.chunksmithcache.mixin.MinecraftServerMixin'
+]
+
+def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
+def javapExecutable = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
+
+tasks.register('verifyMixinAnnotationRetention') {
+    dependsOn tasks.named('classes')
+    doLast {
+        registeredMixins.each { className ->
+            def process = new ProcessBuilder(
+                javapExecutable,
+                '-classpath', mixinClassesPath,
+                '-p', '-v', className
+            ).redirectErrorStream(true).start()
+            def text = process.inputStream.getText('UTF-8')
+            def exitCode = process.waitFor()
+            if (exitCode != 0) {
+                throw new GradleException("${className}: javap failed (exit ${exitCode})\n${text}")
+            }
+
+            def mixinIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
+            def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', mixinIndex)
+            def visibleIndex = text.lastIndexOf('RuntimeVisibleAnnotations:', mixinIndex)
+            if (mixinIndex < 0 || invisibleIndex < 0 || visibleIndex > invisibleIndex) {
+                throw new GradleException("${className}: @Mixin is not class-retained/invisible")
+            }
+            if (text.contains('org.spongepowered.asm.mixin.injection.Inject(') &&
+                !text.contains('RuntimeVisibleAnnotations:')) {
+                throw new GradleException("${className}: injector annotations are not runtime-visible")
+            }
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyMixinAnnotationRetention')
+}

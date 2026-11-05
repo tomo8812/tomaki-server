@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "maki.shipanchor.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "EntityPassengerAnchorMixin",
+    "LivingSleepAnchorMixin",
+    "SleepDragMixin",
+    "AirshipSleepCompatMixin",
+    "ServerGamePacketListenerBaselineMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
