@@ -1,7 +1,7 @@
-package maki.airship.mixin;
+package maki.fndseat.mixin;
 
-import maki.airship.SeatCompat;
-import maki.airship.ShipFurnitureSeats;
+import maki.fndseat.SeatCompat;
+import maki.fndseat.ShipFurnitureSeats;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.ItemInteractionResult;

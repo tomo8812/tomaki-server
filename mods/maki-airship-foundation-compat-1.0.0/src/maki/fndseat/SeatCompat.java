@@ -1,4 +1,4 @@
-package maki.airship;
+package maki.fndseat;
 
 import java.util.Map;
 import java.util.WeakHashMap;

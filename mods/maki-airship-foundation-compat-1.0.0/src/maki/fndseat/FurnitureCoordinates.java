@@ -1,4 +1,4 @@
-package maki.airship;
+package maki.fndseat;
 
 import org.joml.Matrix4dc;
 import org.joml.Vector3d;

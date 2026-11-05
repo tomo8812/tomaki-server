@@ -1,4 +1,4 @@
-package maki.airship;
+package maki.fndseat;
 
 import java.lang.ref.WeakReference;
 import java.util.HashMap;

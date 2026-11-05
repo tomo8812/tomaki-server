@@ -110,10 +110,15 @@
       "output": "mods/lithium-neoforge-0.15.4+mc1.21.1",
       "sha256": "488f33216030c1cb0baa33e59de3d657d08d5795a6c2080c8c8bbbc133fc8757"
     },
-    "mods/maki-airship-compat-1.0.12.jar": {
-      "blob_oid": "e13a591f119b59de4f887e367210754cf3eb0bfb",
-      "output": "mods/maki-airship-compat-1.0.12",
-      "sha256": "189648344ea5526c15952c1827a68eae48d79932ebba42eae73c6480c6aaa2b0"
+    "mods/maki-airship-compat-1.0.13.jar": {
+      "blob_oid": "561934a6f040b7a36af7e7c0da3e9f60223dda05",
+      "output": "mods/maki-airship-compat-1.0.13",
+      "sha256": "862628a6634b42776fe1a8b926be6175846e383b1b1a2bcdfc90c6a0a97d8baf"
+    },
+    "mods/maki-airship-foundation-compat-1.0.0.jar": {
+      "blob_oid": "8683c25f781962386387e36d0894aaa3d121e895",
+      "output": "mods/maki-airship-foundation-compat-1.0.0",
+      "sha256": "20c9db310f2461f4d134bbf65b0aa5b44a8340ad153f2e594d9064478c0ff305"
     },
     "mods/maki-assembly-tracking-1.0.0.jar": {
       "blob_oid": "99ae05c723cee90b1f8e9c7aa05ac3becf4df91f",

@@ -1,6 +1,6 @@
-package maki.airship.mixin;
+package maki.fndseat.mixin;
 
-import maki.airship.SeatCompat;
+import maki.fndseat.SeatCompat;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Entity.RemovalReason;
