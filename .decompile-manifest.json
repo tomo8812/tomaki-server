@@ -125,10 +125,10 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "134af4d11ee35c3884307ef110f349b2e78d95bf39b5cebd88a5e625ec5555ee"
     },
-    "mods/maki-chunksmith-chunk-cache-1.0.1.jar": {
-      "blob_oid": "cb8e04e991924c82d8fd2be4a70ac66768340ecf",
-      "output": "mods/maki-chunksmith-chunk-cache-1.0.1",
-      "sha256": "fc5532d06aa483008a4726842708bc5583b6515f529c7302af8bbd711665fe02"
+    "mods/maki-chunksmith-chunk-cache-1.0.2.jar": {
+      "blob_oid": "3f3d298bac52bb0d36a3efd350683942d83895ef",
+      "output": "mods/maki-chunksmith-chunk-cache-1.0.2",
+      "sha256": "376065b2fb0643a58a8f1965d75f24e9fd641c00b5651372fefd74b0e54af850"
     },
     "mods/maki-diorama-share-1.0.0.jar": {
       "blob_oid": "43f22449492d7d1cd3a4f09c7034a7e2801aa5b7",
@@ -145,10 +145,10 @@
       "output": "mods/maki-lag-observer-1.0.0",
       "sha256": "9761b74434864fac4964048787a7ba6ee18e5854b1811bce52aac38ceded7dd9"
     },
-    "mods/maki-lod-cpu-1.3.1.jar": {
-      "blob_oid": "e2d770c226760470d7ff449452fb9810dbd8e1cb",
-      "output": "mods/maki-lod-cpu-1.3.1",
-      "sha256": "ccd3c8637f51d27012c65fdcef115b294ff3df70413224f88e6dec581afedcf4"
+    "mods/maki-lod-cpu-1.3.2.jar": {
+      "blob_oid": "05dc8d59eb009bbcb25443f152ce08cccd980e15",
+      "output": "mods/maki-lod-cpu-1.3.2",
+      "sha256": "9c9af6179198de2014324f04ea10f6aa70f1e7882db82ecb2a7388dc39e1795f"
     },
     "mods/maki-lod-cpu-online-fix-1.0.2.jar": {
       "blob_oid": "e38c90e8e5f384be44596b6deb9ff7460d730ced",

@@ -1,5 +1,6 @@
 package maki.chunksmithcache;
 
+import com.google.gson.Gson;
 import com.kishku7.chunksmith.ChunksmithProvider;
 import com.kishku7.chunksmith.lod.LodSupport;
 import java.io.IOException;
@@ -11,9 +12,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
@@ -36,6 +39,7 @@ import org.slf4j.LoggerFactory;
 public final class BackfillController {
    private static final TicketType<Unit> BACKFILL_TICKET = TicketType.create("maki_chunk_cache_backfill", (var0, var1) -> 0);
    private static final Logger LOG = LoggerFactory.getLogger("MakiChunkCache");
+   private static final Gson JSON = new Gson();
    private static final Map<MinecraftServer, BackfillController.State> STATES = new WeakHashMap<>();
    private static volatile List<ServerLevel> LEVELS = List.of();
    private static final long RESCAN_MILLIS = 600000L;
@@ -52,66 +56,103 @@ public final class BackfillController {
       return LEVELS;
    }
 
-   public static void tick(MinecraftServer var0) {
-      Fingerprint.kick(var0);
-      LEVELS = copyLevels(var0);
-      BackfillController.State var1;
+   public static void tick(MinecraftServer server) {
+      Fingerprint.kick(server);
+      LEVELS = copyLevels(server);
+      BackfillController.State state;
       synchronized (STATES) {
-         var1 = STATES.computeIfAbsent(var0, var0x -> new BackfillController.State());
+         state = STATES.computeIfAbsent(server, ignored -> new BackfillController.State());
       }
 
-      var1.ticks++;
-      if (var1.busy) {
-         if (var1.activeLevel != null && var1.activePos != null && playerNear(var1.activeLevel, var1.activePos)) {
-            handoffToPlayer(var1);
+      state.ticks++;
+      if (state.busy) {
+         if (state.activeLevel != null && state.activePos != null && playerNear(state.activeLevel, state.activePos)) {
+            handoffToPlayer(state);
          }
-      } else if (var1.ticks % 20L == 0L
-         && !var1.scanning
-         && var0.getPlayerCount() == 0
-         && !(var0.getAverageTickTimeNanos() / 1000000.0 > 40.0)
-         && MillenaireBridge.canBackfillSafely()) {
-         try {
-            if (ChunksmithProvider.isLoaded() && !ChunksmithProvider.get().getGenerationTasks().isEmpty()) {
-               return;
+
+         report(server, state, false);
+      } else if (state.scanning) {
+         report(server, state, false);
+      } else if (state.ticks % 20L != 0L) {
+         report(server, state, false);
+      } else if (server.getPlayerCount() != 0) {
+         state.phase = "waiting-players";
+         report(server, state, false);
+      } else if (server.getAverageTickTimeNanos() / 1000000.0 > 40.0) {
+         state.phase = "waiting-mspt";
+         report(server, state, false);
+      } else if (!MillenaireBridge.canBackfillSafely()) {
+         state.phase = "waiting-millenaire-safety";
+         report(server, state, false);
+      } else if (chunksmithTaskActive()) {
+         state.phase = "waiting-chunksmith-task";
+         report(server, state, false);
+      } else {
+         ArrayList<BackfillController.ScanLevel> levels = new ArrayList<>();
+
+         for (ServerLevel level : LEVELS) {
+            String fingerprint = Fingerprint.forLevel(level);
+            if (fingerprint != null) {
+               levels.add(new BackfillController.ScanLevel(level, fingerprint));
             }
-         } catch (Throwable var7) {
-            return;
          }
 
-         ArrayList var8 = new ArrayList();
-
-         for (ServerLevel var4 : LEVELS) {
-            String var5 = Fingerprint.forLevel(var4);
-            if (var5 != null) {
-               var8.add(new BackfillController.ScanLevel(var4, var5));
-            }
-         }
-
-         if (!var8.isEmpty()) {
-            var1.scanning = true;
-            CompletableFuture.<BackfillController.Candidate>supplyAsync(() -> findCandidate(var8, var1), SCAN)
-               .whenComplete((var2, var3) -> var0.execute(() -> {
-                  var1.scanning = false;
-                  if (var3 == null && var2 != null && !var1.busy && var0.getPlayerCount() == 0 && !(var0.getAverageTickTimeNanos() / 1000000.0 > 40.0)) {
-                     try {
-                        if (ChunksmithProvider.isLoaded() && !ChunksmithProvider.get().getGenerationTasks().isEmpty()) {
-                           return;
-                        }
-                     } catch (Throwable var7x) {
-                        return;
-                     }
-
-                     ServerLevel var4x = var2.level();
-                     BackfillController.Target var5x = var2.target();
-                     ChunkPos var6 = var5x.pos();
-                     if (var4x.getChunkSource().hasChunk(var6.x, var6.z)) {
-                        advanceCursor(var4x, var1.cursor.get(CacheManager.dimensionKey(var4x)));
+         if (levels.isEmpty()) {
+            state.phase = "waiting-fingerprint";
+            report(server, state, false);
+         } else {
+            state.scanning = true;
+            state.phase = "scanning";
+            state.scansStarted++;
+            report(server, state, true);
+            CompletableFuture.<BackfillController.Candidate>supplyAsync(() -> findCandidate(levels, state), SCAN)
+               .whenComplete((candidate, error) -> server.execute(() -> {
+                  state.scanning = false;
+                  if (error != null) {
+                     state.scanFailures++;
+                     state.phase = "scan-failed";
+                     LOG.warn("Chunk-cache backfill candidate scan failed", error);
+                     report(server, state, true);
+                  } else if (candidate == null) {
+                     state.phase = "waiting-no-candidate";
+                     report(server, state, true);
+                  } else {
+                     state.candidatesFound++;
+                     if (state.busy) {
+                        state.phase = "busy";
+                        report(server, state, true);
+                     } else if (server.getPlayerCount() != 0) {
+                        state.phase = "waiting-players";
+                        report(server, state, true);
+                     } else if (server.getAverageTickTimeNanos() / 1000000.0 > 40.0) {
+                        state.phase = "waiting-mspt";
+                        report(server, state, true);
+                     } else if (chunksmithTaskActive()) {
+                        state.phase = "waiting-chunksmith-task";
+                        report(server, state, true);
                      } else {
-                        start(var4x, var5x, var1);
+                        ServerLevel levelx = candidate.level();
+                        BackfillController.Target target = candidate.target();
+                        ChunkPos pos = target.pos();
+                        if (levelx.getChunkSource().hasChunk(pos.x, pos.z)) {
+                           state.phase = "candidate-already-loaded";
+                           advanceCursor(levelx, state.cursor.get(CacheManager.dimensionKey(levelx)));
+                           report(server, state, true);
+                        } else {
+                           start(levelx, target, state);
+                        }
                      }
                   }
                }));
          }
+      }
+   }
+
+   private static boolean chunksmithTaskActive() {
+      try {
+         return ChunksmithProvider.isLoaded() && ChunksmithProvider.get() != null && !ChunksmithProvider.get().getGenerationTasks().isEmpty();
+      } catch (Throwable ignored) {
+         return true;
       }
    }
 
@@ -121,7 +162,7 @@ public final class BackfillController {
          MinecraftServer var2 = var0.getServer();
          synchronized (STATES) {
             BackfillController.State var4 = STATES.get(var2);
-            if (var4 != null && var0 == var4.activeLevel && var1.getPos().toLong() == var4.activePos.toLong()) {
+            if (var4 != null && var0 == var4.activeLevel && var4.activePos != null && var1.getPos().toLong() == var4.activePos.toLong()) {
                clearActive(var4);
             }
          }
@@ -134,6 +175,9 @@ public final class BackfillController {
          var2.busy = true;
          var2.activeLevel = var0;
          var2.activePos = var3;
+         var2.phase = "loading-chunk";
+         var2.activeSince = System.currentTimeMillis();
+         var2.backfillsStarted++;
          long var4 = ++var2.token;
          BackfillGuard.arm(var0, var3);
          Boolean var6 = MillenaireBridge.suppressNaturalSpawns(true);
@@ -143,6 +187,9 @@ public final class BackfillController {
             BackfillGuard.clear(var0, var3);
             clearActive(var2);
          } else {
+            IdlePregenBridge.setBackfillActive(true);
+            var2.idlePregenClaimed = IdlePregenBridge.isClaimed();
+            report(var0.getServer(), var2, true);
             LOG.debug("Backfilling cached chunk {} in {}", new Object[]{var3, var0.dimension().location()});
             var0.getChunkSource().addRegionTicket(BACKFILL_TICKET, var3, 0, Unit.INSTANCE);
             var0.getChunkSource()
@@ -152,25 +199,30 @@ public final class BackfillController {
                      .execute(
                         () -> {
                            if (active(var2, var4, var0, var3)) {
+                              LevelChunk[] var9 = new LevelChunk[1];
+
                               try {
                                  if (var8 != null || var7 == null) {
-                                    fail(var0, var3, var2, var6, var4);
+                                    failBeforeFull(var0, var3, var2, var6, var4);
                                     return;
                                  }
 
-                                 LevelChunk[] var9 = new LevelChunk[1];
                                  ChunkResultBridge.ifSuccess(var7, var1xxx -> {
                                     if (var1xxx instanceof LevelChunk var2xxx) {
                                        var9[0] = var2xxx;
                                     }
                                  });
                                  if (var9[0] == null) {
-                                    fail(var0, var3, var2, var6, var4);
+                                    failBeforeFull(var0, var3, var2, var6, var4);
                                     return;
                                  }
 
                                  try {
+                                    var2.phase = "submitting-lod";
                                     LodSupport.offer(var0, var9[0]);
+                                    var2.lodOffersSubmitted++;
+                                    var2.phase = "waiting-lod-durable";
+                                    report(var0.getServer(), var2, true);
                                  } catch (Throwable var11) {
                                     LOG.warn("Could not refresh LOD for backfill {}; leaving it pending for retry", new Object[]{var3, var11});
                                     fail(var0, var3, var2, var6, var4);
@@ -193,17 +245,25 @@ public final class BackfillController {
                                              LOG.warn("Backfill LOD refresh was not durably observed for {}; leaving it pending for retry", new Object[]{var3});
                                              fail(var0, var3, var2, var6, var4);
                                           } else {
+                                             var2.lodRefreshCompleted++;
+                                             var2.phase = "writing-cache";
+                                             report(var0.getServer(), var2, true);
                                              CacheManager.capture(var0, var10, true).whenComplete((var5xxxx, var6xxxxx) -> var0.getServer().execute(() -> {
                                                 if (active(var2, var4, var0, var3)) {
                                                    if (!Boolean.TRUE.equals(var5xxxx)) {
+                                                      var2.backfillsFailed++;
+                                                      var2.phase = "cache-write-failed-awaiting-unload";
                                                       LOG.warn(
                                                          "Backfill cache write failed for {}; releasing without treating it as complete", new Object[]{var3}
                                                       );
                                                    } else {
+                                                      var2.backfillsCompleted++;
+                                                      var2.phase = "completed-awaiting-unload";
                                                       advanceCursor(var0, var2.cursor.get(CacheManager.dimensionKey(var0)));
                                                    }
 
                                                    var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var3, 0, Unit.INSTANCE);
+                                                   report(var0.getServer(), var2, true);
                                                 }
                                              }));
                                           }
@@ -211,7 +271,11 @@ public final class BackfillController {
                                     }));
                               } catch (Throwable var12) {
                                  LOG.warn("Backfill failed for {}", new Object[]{var3, var12});
-                                 fail(var0, var3, var2, var6, var4);
+                                 if (var9[0] == null) {
+                                    failBeforeFull(var0, var3, var2, var6, var4);
+                                 } else {
+                                    fail(var0, var3, var2, var6, var4);
+                                 }
                               }
                            }
                         }
@@ -221,12 +285,29 @@ public final class BackfillController {
       }
    }
 
+   private static void failBeforeFull(ServerLevel var0, ChunkPos var1, BackfillController.State var2, Boolean var3, long var4) {
+      if (active(var2, var4, var0, var1)) {
+         MillenaireBridge.restore(var3);
+         var2.previousSuppression = null;
+         var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var1, 0, Unit.INSTANCE);
+         BackfillGuard.clear(var0, var1);
+         var2.backfillsFailed++;
+         var2.phase = "failed-before-full";
+         report(var0.getServer(), var2, true);
+         LOG.warn("Chunk-cache backfill for {} failed before reaching FULL; releasing guard and idle-work claim immediately", new Object[]{var1});
+         clearActive(var2);
+      }
+   }
+
    private static void fail(ServerLevel var0, ChunkPos var1, BackfillController.State var2, Boolean var3, long var4) {
       if (active(var2, var4, var0, var1)) {
          MillenaireBridge.restore(var3);
          var2.previousSuppression = null;
          var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var1, 0, Unit.INSTANCE);
          var2.token++;
+         var2.backfillsFailed++;
+         var2.phase = "failed-awaiting-unload";
+         report(var0.getServer(), var2, true);
          LOG.warn("Chunk-cache backfill for {} is paused until the guarded chunk unloads or a player takes ownership", new Object[]{var1});
       }
    }
@@ -260,17 +341,69 @@ public final class BackfillController {
 
          var1.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var2, 0, Unit.INSTANCE);
          BackfillGuard.clear(var1, var2);
+         var0.backfillsHandedOff++;
+         var0.phase = "handed-to-player";
          LOG.info("Handed chunk-cache backfill {} to normal player loading", new Object[]{var2});
          clearActive(var0);
       }
    }
 
    private static void clearActive(BackfillController.State var0) {
+      MinecraftServer server = var0.activeLevel == null ? null : var0.activeLevel.getServer();
+      IdlePregenBridge.setBackfillActive(false);
+      var0.idlePregenClaimed = false;
       var0.busy = false;
       var0.activeLevel = null;
       var0.activePos = null;
       var0.previousSuppression = null;
+      var0.activeSince = 0L;
+      var0.phase = "idle";
       var0.token++;
+      if (server != null) {
+         report(server, var0, true);
+      }
+   }
+
+   private static void report(MinecraftServer server, BackfillController.State state, boolean force) {
+      long now = System.currentTimeMillis();
+      if (force || now - state.lastReport >= 10000L) {
+         state.lastReport = now;
+
+         try {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("statusSchemaVersion", 1);
+            data.put("time", Instant.now().toString());
+            data.put("phase", state.phase);
+            data.put("players", server.getPlayerCount());
+            data.put("busy", state.busy);
+            data.put("scanning", state.scanning);
+            data.put("idlePregenClaimed", state.idlePregenClaimed);
+            data.put("activeSince", state.activeSince == 0L ? null : Instant.ofEpochMilli(state.activeSince).toString());
+            data.put("activeDimension", state.activeLevel == null ? null : state.activeLevel.dimension().location().toString());
+            data.put("activeChunkX", state.activePos == null ? null : state.activePos.x);
+            data.put("activeChunkZ", state.activePos == null ? null : state.activePos.z);
+            data.put("scansStarted", state.scansStarted);
+            data.put("scanFailures", state.scanFailures);
+            data.put("candidatesFound", state.candidatesFound);
+            data.put("backfillsStarted", state.backfillsStarted);
+            data.put("backfillsCompleted", state.backfillsCompleted);
+            data.put("backfillsFailed", state.backfillsFailed);
+            data.put("backfillsHandedOff", state.backfillsHandedOff);
+            data.put("lodOffersSubmitted", state.lodOffersSubmitted);
+            data.put("lodRefreshCompleted", state.lodRefreshCompleted);
+            Path tmp = Path.of("logs/maki-chunk-cache-backfill-status.json.tmp");
+            Path dest = Path.of("logs/maki-chunk-cache-backfill-status.json");
+            Files.writeString(tmp, JSON.toJson(data) + "\n");
+
+            try {
+               Files.move(tmp, dest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+               Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
+            }
+         } catch (Exception e) {
+            LOG.debug("Could not report chunk-cache backfill status", e);
+         }
+      }
    }
 
    private static BackfillController.Target nextCandidate(ServerLevel var0, BackfillController.Cursor var1, String var2) {
@@ -522,6 +655,19 @@ public final class BackfillController {
       boolean busy;
       boolean scanning;
       long token;
+      long lastReport;
+      long activeSince;
+      long scansStarted;
+      long scanFailures;
+      long candidatesFound;
+      long backfillsStarted;
+      long backfillsCompleted;
+      long backfillsFailed;
+      long backfillsHandedOff;
+      long lodOffersSubmitted;
+      long lodRefreshCompleted;
+      boolean idlePregenClaimed;
+      String phase = "idle";
       ServerLevel activeLevel;
       ChunkPos activePos;
       Boolean previousSuppression;

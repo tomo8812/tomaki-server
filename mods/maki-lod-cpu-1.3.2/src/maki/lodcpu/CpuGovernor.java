@@ -82,7 +82,7 @@ public final class CpuGovernor {
             lastCpu = cpu;
             lastGc = gc;
             LOG.info(
-               "Throughput governor 1.3.0 ready: allocated {} cores, ceiling {}..{}; CPU saturation alone does not reduce idle generation",
+               "Throughput governor 1.3.2 ready: allocated {} cores, ceiling {}..{}; CPU saturation alone does not reduce idle generation",
                new Object[]{capacity, settings.min, settings.max}
             );
          } else {
@@ -158,7 +158,7 @@ public final class CpuGovernor {
 
             if (previous != cap || experimentFinished || now - lastReport >= 30000000000L) {
                LOG.info(
-                  "LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {}; LOD saved {}/s, requests {}/s, GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}",
+                  "LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}",
                   new Object[]{
                      previous,
                      cap,
@@ -169,7 +169,9 @@ public final class CpuGovernor {
                      players,
                      POLICY.reason,
                      fmt(writes / seconds),
+                     writes,
                      fmt(batch.completions() / seconds),
+                     batch.completions(),
                      fmt(gcPercent),
                      sample.nativeWidth(),
                      sample.inFlight(),
@@ -284,7 +286,8 @@ public final class CpuGovernor {
       try {
          Map<String, Object> m = new LinkedHashMap<>();
          m.put("time", Instant.now().toString());
-         m.put("controllerVersion", "1.3.0");
+         m.put("statusSchemaVersion", 2);
+         m.put("controllerVersion", "1.3.2");
          m.put("cpuBudgetCores", capacity);
          m.put("cpuBudgetUsedPercent", finite(x.cpu()));
          m.put("mspt", finite(x.mspt()));
@@ -292,12 +295,18 @@ public final class CpuGovernor {
          m.put("players", players);
          m.put("cpuConcurrencyCeiling", cap);
          m.put("reason", POLICY.reason);
+         m.put("reasonScope", "follow-owned-generation-task");
          m.put("active", active);
          m.put("nativeDispatchWidth", x.nativeWidth());
          m.put("inFlight", x.inFlight());
+         m.put("sampleSeconds", x.seconds());
          m.put("lodSavedPerSecond", finite(x.lodWrites() / x.seconds()));
          m.put("lodSavedBytesPerSecond", finite(bytes / x.seconds()));
+         m.put("lodSavedInSample", x.lodWrites());
+         m.put("lodSavedScope", "all-chunksmith-cslod-store-writes");
          m.put("requestCompletionsPerSecond", finite(x.completions() / x.seconds()));
+         m.put("requestCompletionsInSample", x.completions());
+         m.put("requestCompletionScope", "follow-owned-generation-task");
          m.put("throughputBasis", x.storeAvailable() ? "successful-native-LOD-store-writes" : "completed-requests-fallback");
          m.put("lodWriteQueue", x.lodQueue());
          m.put("worldWriteQueue", x.worldWriteQueue());

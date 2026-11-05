@@ -3,9 +3,9 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_chunksmith_chunk_cache"
-version="1.0.1"
+version="1.0.2"
 displayName="Maki Chunksmith Chunk Cache"
-description="Caches disposable Chunksmith FULL chunks outside normal region storage, promotes them on real loads, and backfills legacy CSLOD-only areas while idle."
+description="Caches disposable Chunksmith FULL chunks outside normal region storage, promotes them on real loads, and reports/coordinates legacy CSLOD backfill while idle."
 [[dependencies.maki_chunksmith_chunk_cache]]
 modId="neoforge"
 type="required"
@@ -28,5 +28,12 @@ type="optional"
 versionRange="[1.0.2,)"
 ordering="AFTER"
 side="SERVER"
+[[dependencies.maki_chunksmith_chunk_cache]]
+modId="maki_idle_pregen"
+type="optional"
+versionRange="[1.0.1,)"
+ordering="AFTER"
+side="SERVER"
+
 [[mixins]]
 config="maki-chunksmith-chunk-cache.mixins.json"

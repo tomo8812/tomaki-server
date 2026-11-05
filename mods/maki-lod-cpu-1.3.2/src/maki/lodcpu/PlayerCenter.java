@@ -554,22 +554,52 @@ public final class PlayerCenter {
 
          try {
             GenerationTask current = (GenerationTask)chunky.getGenerationTasks().get("minecraft:overworld");
+            TaskOwnership.PersistedOwner persistedOwner = TaskOwnership.persistedOwner(chunky, "minecraft:overworld");
+            TaskOwnership.PersistedTaskSnapshot persisted = TaskOwnership.snapshot(chunky, "minecraft:overworld");
+            int players = server.getPlayerCount();
+            boolean onlineBlocked = players > 0 && !settings().generateWhileOnline;
+            boolean graceBlocked = now - boot < 10000L || players == 0 && now - emptySince < settings().emptyGraceSeconds * 1000L;
+            boolean policyReady = enabled() && !manualPause && !loadPause && !onlineBlocked && !graceBlocked && saved.x != null && saved.z != null;
+            boolean canRun = policyReady
+               && (
+                  current != null && TaskOwnership.isOwned(current) && !current.isStopping()
+                     || current == null && requested && persistedOwner != TaskOwnership.PersistedOwner.EXTERNAL && !LodHorizon.isArmed("minecraft:overworld")
+               );
             LinkedHashMap<String, Object> data = new LinkedHashMap<>();
+            data.put("statusSchemaVersion", 2);
             data.put("time", Instant.now().toString());
             data.put("player", settings().followPlayer);
             data.put("targetOnline", server.getPlayerList().getPlayer(UUID.fromString(settings().followUuid)) != null);
             data.put("centerX", saved.x);
             data.put("centerZ", saved.z);
             data.put("radius", settings().followRadius);
-            data.put("players", server.getPlayerCount());
+            data.put("players", players);
             data.put("onlineSlots", settings().generateWhileOnline ? settings().onlineMax : 0);
             data.put("generateWhileOnline", settings().generateWhileOnline);
             data.put("reason", reason);
+            data.put("followEnabled", enabled());
+            data.put("followRequested", requested);
+            data.put("manualPause", manualPause);
+            data.put("loadPause", loadPause);
+            data.put("lodSaveProtectionArmed", LodHorizon.isArmed("minecraft:overworld"));
+            data.put("canStartOrContinueFollow", canRun);
             data.put("activeTaskOwner", current == null ? "none" : (TaskOwnership.isOwned(current) ? "follow" : "external"));
-            data.put("persistedTaskOwner", TaskOwnership.status(TaskOwnership.persistedOwner(chunky, "minecraft:overworld")));
+            data.put("activeTaskChunks", current == null ? null : current.getCount());
+            data.put("activeTaskTotalChunks", current == null ? null : current.getChunkIterator().total());
+            data.put("activeTaskStopping", current == null ? null : current.isStopping());
+            data.put("persistedTaskOwner", TaskOwnership.status(persistedOwner));
+            data.put("persistedTask", persisted);
             data.put("activeCenterX", current == null ? null : current.getSelection().centerX());
             data.put("activeCenterZ", current == null ? null : current.getSelection().centerZ());
-            Files.writeString(Path.of("logs/maki-lod-follow-status.json"), JSON.toJson(data));
+            Path tmp = Path.of("logs/maki-lod-follow-status.json.tmp");
+            Path dest = Path.of("logs/maki-lod-follow-status.json");
+            Files.writeString(tmp, JSON.toJson(data) + "\n");
+
+            try {
+               Files.move(tmp, dest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+               Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
+            }
          } catch (Exception e) {
             LOG.debug("Could not report LOD follow status", e);
          }
