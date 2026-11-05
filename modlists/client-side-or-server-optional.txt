@@ -1,0 +1,15 @@
+# Mods currently present in the server mods directory that are client-side
+# or have only optional server support.
+#
+# These are NOT part of the client/server matching requirement.
+#
+# Jade: server installation is optional support; the client needs Jade to use
+#       the overlay and server-provided Jade data.
+# The remaining entries are client-side utilities/effects and do not need to
+# be installed on the dedicated server.
+
+Jade-1.21.1-NeoForge-15.10.6.jar
+QuadHotbar-1.21.1-neoforge-1.1.0-beta1.jar
+clientsort-neoforge-3.89.2+1.21.1.jar
+emi-1.1.24+1.21.1+neoforge.jar
+sound-physics-remastered-neoforge-1.21.1-1.5.2.jar
