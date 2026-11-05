@@ -135,10 +135,10 @@
       "output": "mods/maki-diorama-share-1.0.0",
       "sha256": "43a3d604ff3b65c1f198d877575cafa539bdf6972281cb4afbe9980675aa2939"
     },
-    "mods/maki-idle-pregen-1.0.0.jar": {
-      "blob_oid": "a0311a14f4a4f19ad6d860588418bc5f1f731e40",
-      "output": "mods/maki-idle-pregen-1.0.0",
-      "sha256": "20e5ec54e5227f4d3f8e9725e133e83bb7423ee6950297b62894cfe459c4fbc3"
+    "mods/maki-idle-pregen-1.0.1.jar": {
+      "blob_oid": "8068b134f8071b16edd33e27c44db9fb6664c3cc",
+      "output": "mods/maki-idle-pregen-1.0.1",
+      "sha256": "29c9b8699aba8278b3c334a1b6166c353fdeafff316956588286de25341bc5d9"
     },
     "mods/maki-lod-cpu-1.3.1.jar": {
       "blob_oid": "e2d770c226760470d7ff449452fb9810dbd8e1cb",

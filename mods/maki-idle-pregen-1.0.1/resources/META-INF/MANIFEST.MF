@@ -1,5 +1,5 @@
 Manifest-Version: 1.0
 Implementation-Title: Maki Idle Pregen
-Implementation-Version: 1.0.0
+Implementation-Version: 1.0.1
 Created-By: 21.0.12.1 (Debian)
 

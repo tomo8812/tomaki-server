@@ -4,7 +4,7 @@ license="MIT"
 
 [[mods]]
 modId="maki_idle_pregen"
-version="1.0.0"
+version="1.0.1"
 displayName="Maki Idle Pregen"
 description="Server-only idle pre-generation coordinator. Freezes normal simulation and Millenaire progression while the dedicated server is empty and background generation is active, without owning Chunksmith tasks or persistent settings."
 
