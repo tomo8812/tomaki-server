@@ -3,9 +3,9 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_millenaire_lod"
-version="1.0.2"
+version="1.0.4"
 displayName="Maki Millenaire Chunksmith Compatibility"
-description="Defers Millenaire natural generation in disposable Chunksmith chunks, preserves village chunks, refreshes village LOD records, and uses queue-aware headroom control plus DEFERRED coverage backoff."
+description="Defers Millenaire natural generation in disposable Chunksmith chunks, preserves village chunks with lifecycle-safe reservations and mutation-aware caching, and refreshes only existing village LOD records."
 [[dependencies.maki_millenaire_lod]]
 modId="neoforge"
 type="required"
