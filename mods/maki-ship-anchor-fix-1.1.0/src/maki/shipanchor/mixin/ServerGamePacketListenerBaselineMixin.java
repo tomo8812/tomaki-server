@@ -38,12 +38,10 @@ public abstract class ServerGamePacketListenerBaselineMixin {
       remap = false
    )
    private void maki$realignAfterShipAnchor(ServerboundMovePlayerPacket var1, CallbackInfo var2) {
-      if (this.player != null && !this.player.isPassenger() && !this.player.isSleeping()) {
-         if (((ShipAnchorState)this.player).maki$consumeShipAnchorHandoff()) {
-            this.firstGoodX = this.lastGoodX = this.player.getX();
-            this.firstGoodY = this.lastGoodY = this.player.getY();
-            this.firstGoodZ = this.lastGoodZ = this.player.getZ();
-         }
+      if (this.player != null && !this.player.isPassenger() && !this.player.isSleeping() && ((ShipAnchorState)this.player).maki$consumeShipAnchorHandoff()) {
+         this.firstGoodX = this.lastGoodX = this.player.getX();
+         this.firstGoodY = this.lastGoodY = this.player.getY();
+         this.firstGoodZ = this.lastGoodZ = this.player.getZ();
       }
    }
 }

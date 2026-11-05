@@ -6,6 +6,8 @@
   "mixins": [
     "EntityPassengerAnchorMixin",
     "LivingSleepAnchorMixin",
+    "SleepDragMixin",
+    "AirshipSleepCompatMixin",
     "ServerGamePacketListenerBaselineMixin"
   ],
   "injectors": {

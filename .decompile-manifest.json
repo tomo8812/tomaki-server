@@ -140,10 +140,10 @@
       "output": "mods/maki-millenaire-lod-compat-1.0.2",
       "sha256": "8985f77dbda554e1c57119408504308b42d93692907c6ff18511cc13662eafff"
     },
-    "mods/maki-ship-anchor-fix-1.0.0.jar": {
-      "blob_oid": "cc8cfe9ca5f667293eb67c28599b154e04465efe",
-      "output": "mods/maki-ship-anchor-fix-1.0.0",
-      "sha256": "cc6022bbde7eb7ce116a9411b2a2e5ab07cdabddd128aaa33041251bba1a399f"
+    "mods/maki-ship-anchor-fix-1.1.0.jar": {
+      "blob_oid": "8c88545ce1c9377c38e3c3441aef3897c0e47a3c",
+      "output": "mods/maki-ship-anchor-fix-1.1.0",
+      "sha256": "7e6727f0225c4e70ddb5d2a7972b676f20c2c0ceef413497e374f3dab259ce92"
     },
     "mods/maki-ship-edge-1.0.0.jar": {
       "blob_oid": "1395cf8114ad888e822009e5055cb1fa42436007",
