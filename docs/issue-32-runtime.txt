@@ -1,0 +1,77 @@
+Baseline (unmodified main JARs):
+org.spongepowered.asm.mixin.transformer.throwables.IllegalClassLoadError: maki.lodcpu.onlinefix.MakiLodCpuOnlineFix is in a defined mixin package maki.lodcpu.onlinefix.* owned by maki-lod-cpu-online-fix.mixins.json and cannot be referenced directly
+
+Fixed deployment + test-only target-load probe:
+[15:03:27] [main/INFO] [mixin/]: Mixing EntityPassengerAnchorMixin from maki-ship-anchor-fix.mixins.json into net.minecraft.world.entity.Entity
+[15:03:27] [main/INFO] [mixin/]: Mixing ShipStepMixin from maki-ship-steps.mixins.json into net.minecraft.world.entity.Entity
+[15:03:28] [main/INFO] [mixin/]: Mixing ShipEdgeMixin from maki-ship-edge.mixins.json into net.minecraft.world.entity.player.Player
+[15:03:28] [main/INFO] [mixin/]: Mixing LivingSleepMixin from maki-airship-compat.mixins.json into net.minecraft.world.entity.LivingEntity
+[15:03:28] [main/INFO] [mixin/]: Mixing LivingSleepAnchorMixin from maki-ship-anchor-fix.mixins.json into net.minecraft.world.entity.LivingEntity
+[15:03:28] [main/INFO] [mixin/]: Mixing ServerLevelUnloadMixin from maki-chunksmith-chunk-cache.mixins.json into net.minecraft.server.level.ServerLevel
+[15:03:32] [main/INFO] [mixin/]: Mixing FurnitureVehicleMixin from maki-airship-foundation-compat.mixins.json into org.valkyrienskies.mod.common.entity.ShipMountingEntity
+[15:03:32] [main/INFO] [mixin/]: Mixing MinecraftServerMixin from maki-idle-pregen.mixins.json into net.minecraft.server.MinecraftServer
+[15:03:32] [main/INFO] [mixin/]: Mixing MinecraftServerMixin from maki-chunksmith-chunk-cache.mixins.json into net.minecraft.server.MinecraftServer
+[15:03:32] [main/INFO] [mixin/]: Mixing MillenaireMixin from maki-millenaire-lod.mixins.json into org.millenaire.Millenaire
+[15:03:33] [modloading-worker-0/INFO] [mixin/]: Mixing BuildingInstanceMixin from maki-millenaire-lod.mixins.json into org.millenaire.building.BuildingInstance
+[15:03:33] [modloading-worker-0/INFO] [mixin/]: Mixing VillageSpawnQueueMixin from maki-idle-pregen.mixins.json into org.millenaire.world.VillageSpawnQueue
+[15:03:33] [modloading-worker-0/INFO] [mixin/]: Mixing SpawnQueueMixin from maki-millenaire-lod.mixins.json into org.millenaire.world.VillageSpawnQueue
+[15:03:33] [modloading-sync-worker/INFO] [mixin/]: Mixing FoundationChairMixin from maki-airship-foundation-compat.mixins.json into net.satisfy.foundation.seat.ChairEntity
+[15:03:36] [Server thread/INFO] [mixin/]: Mixing EntityStorageMixin from maki-chunksmith-chunk-cache.mixins.json into net.minecraft.world.level.chunk.storage.EntityStorage
+[15:03:36] [Server thread/INFO] [mixin/]: Mixing ChunkMapReadMixin from maki-chunksmith-chunk-cache.mixins.json into net.minecraft.server.level.ChunkMap
+[15:03:36] [Server thread/INFO] [mixin/]: Mixing ChunkMapSaveMixin from maki-chunksmith-chunk-cache.mixins.json into net.minecraft.server.level.ChunkMap
+[15:03:36] [Server thread/INFO] [mixin/]: Mixing ChunkMapAccess from maki-assembly-tracking.mixins.json into net.minecraft.server.level.ChunkMap
+[15:03:36] [Server thread/INFO] [mixin/]: Mixing SectionStorageMixin from maki-chunksmith-chunk-cache.mixins.json into net.minecraft.world.level.chunk.storage.SectionStorage
+[15:03:44] [Server thread/INFO] [minecraft/DedicatedServer]: Done (8.290s)! For help, type "help"
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing TaskLoaderMixin from maki-lod-cpu.mixins.json into com.kishku7.chunksmith.util.TaskLoader
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing GenerationTaskMixin from maki-lod-cpu.mixins.json into com.kishku7.chunksmith.GenerationTask
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing GenerationTaskMixin from maki-ship-save.mixins.json into com.kishku7.chunksmith.GenerationTask
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK com.kishku7.chunksmith.GenerationTask
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing ExploredLodMixin from maki-millenaire-lod.mixins.json into com.kishku7.chunksmith.lod.ExploredLodGuard
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK com.kishku7.chunksmith.lod.ExploredLodGuard
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing HorizonGuardMixin from maki-millenaire-lod.mixins.json into com.kishku7.chunksmith.lod.HorizonGuard
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK com.kishku7.chunksmith.lod.HorizonGuard
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing LodHorizonMixin from maki-ship-save.mixins.json into com.kishku7.chunksmith.lod.LodHorizon
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK com.kishku7.chunksmith.lod.LodHorizon
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing LodSupportMixin from maki-chunksmith-chunk-cache.mixins.json into com.kishku7.chunksmith.lod.LodSupport
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK com.kishku7.chunksmith.lod.LodSupport
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK com.kishku7.chunksmith.util.TaskLoader
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing AirshipSleepCompatMixin from maki-ship-anchor-fix.mixins.json into maki.airship.SleepCompat
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK maki.airship.SleepCompat
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing AdaptivePolicyMixin from maki-lod-cpu-online-fix.mixins.json into maki.lodcpu.AdaptivePolicy
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK maki.lodcpu.AdaptivePolicy
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.server.level.ChunkMap
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing TrackedEntityAccess from maki-assembly-tracking.mixins.json into net.minecraft.server.level.ChunkMap$TrackedEntity
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.server.level.ChunkMap$TrackedEntity
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.server.level.ServerLevel
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.server.MinecraftServer
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing ServerGamePacketListenerBaselineMixin from maki-ship-anchor-fix.mixins.json into net.minecraft.server.network.ServerGamePacketListenerImpl
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.server.network.ServerGamePacketListenerImpl
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.world.entity.Entity
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.world.entity.LivingEntity
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.world.entity.player.Player
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.world.level.chunk.storage.EntityStorage
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.minecraft.world.level.chunk.storage.SectionStorage
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.satisfy.foundation.seat.ChairEntity
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing FoundationSeatUtilMixin from maki-airship-foundation-compat.mixins.json into net.satisfy.foundation.seat.SeatUtil
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK net.satisfy.foundation.seat.SeatUtil
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.millenaire.building.BuildingInstance
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.millenaire.Millenaire
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing VillageMixin from maki-millenaire-lod.mixins.json into org.millenaire.village.Village
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.millenaire.village.Village
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing VillageManagerMixin from maki-idle-pregen.mixins.json into org.millenaire.village.VillageManager
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing VillageManagerMixin from maki-millenaire-lod.mixins.json into org.millenaire.village.VillageManager
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.millenaire.village.VillageManager
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing VillageSpawnerMixin from maki-millenaire-lod.mixins.json into org.millenaire.world.VillageSpawner
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.millenaire.world.VillageSpawner
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.millenaire.world.VillageSpawnQueue
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing LoneCandidateAccessor from maki-millenaire-lod.mixins.json into org.millenaire.world.VillageSpawnQueue$LBCandidate
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.millenaire.world.VillageSpawnQueue$LBCandidate
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing EurekaAssemblyMixin from maki-assembly-tracking.mixins.json into org.valkyrienskies.eureka.util.ShipAssembler
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.valkyrienskies.eureka.util.ShipAssembler
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.valkyrienskies.mod.common.entity.ShipMountingEntity
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing SleepDragMixin from maki-airship-compat.mixins.json into org.valkyrienskies.mod.common.util.EntityDragger
+[15:03:44] [Server thread/INFO] [mixin/]: Mixing SleepDragMixin from maki-ship-anchor-fix.mixins.json into org.valkyrienskies.mod.common.util.EntityDragger
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:19]: ISSUE32_TARGET_OK org.valkyrienskies.mod.common.util.EntityDragger
+[15:03:44] [Server thread/INFO] [STDOUT/]: [audit.Probe:started:22]: ISSUE32_ALL_TARGETS_OK 30
+[15:03:47] [Server thread/INFO] [minecraft/MinecraftServer]: Stopping server
+[15:03:47] [Server thread/INFO] [minecraft/MinecraftServer]: ThreadedAnvilChunkStorage: All dimensions are saved

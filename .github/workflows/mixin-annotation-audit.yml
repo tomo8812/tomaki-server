@@ -4,16 +4,16 @@ on:
   push:
     paths:
       - 'mods/maki-*.jar'
-      - 'custom-mods/maki-chunksmith-chunk-cache/**'
-      - 'custom-mods/maki-ship-anchor-fix/**'
-      - '.github/scripts/audit_mixin_annotations.py'
+      - 'custom-mods/**'
+      - '.github/scripts/*mixin*.py'
+      - '.github/scripts/classfile_annotations.py'
       - '.github/workflows/mixin-annotation-audit.yml'
   pull_request:
     paths:
       - 'mods/maki-*.jar'
-      - 'custom-mods/maki-chunksmith-chunk-cache/**'
-      - 'custom-mods/maki-ship-anchor-fix/**'
-      - '.github/scripts/audit_mixin_annotations.py'
+      - 'custom-mods/**'
+      - '.github/scripts/*mixin*.py'
+      - '.github/scripts/classfile_annotations.py'
       - '.github/workflows/mixin-annotation-audit.yml'
   workflow_dispatch:
 
@@ -44,6 +44,15 @@ jobs:
       - name: Build and check maki-ship-anchor-fix
         run: gradle -p custom-mods/maki-ship-anchor-fix clean check jar
 
+      - name: Build and check maki-lod-cpu-online-fix
+        run: gradle -p custom-mods/maki-lod-cpu-online-fix clean check jar
+
+      - name: Audit rebuilt JARs
+        run: |
+          mkdir -p /tmp/maki-rebuilt
+          cp custom-mods/*/build/libs/maki-*.jar /tmp/maki-rebuilt/
+          python3 .github/scripts/audit_mixin_annotations.py --mods-dir /tmp/maki-rebuilt
+
   jar-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -57,4 +66,9 @@ jobs:
           java-version: '21'
 
       - name: Audit registered Mixin annotation ABI
-        run: python3 .github/scripts/audit_mixin_annotations.py
+        run: |
+          curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
+          python3 .github/scripts/audit_mixin_annotations.py --annotation-api /tmp/sponge-mixin.jar
+
+      - name: Test audit regressions
+        run: python3 -m unittest discover -s .github/scripts -p 'test_mixin*.py'

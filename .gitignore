@@ -13,6 +13,9 @@
 /local/
 /debug/
 /run/
+**/__pycache__/
+custom-mods/**/.gradle/
+custom-mods/**/build/
 /session.lock
 *.log
 *.log.gz

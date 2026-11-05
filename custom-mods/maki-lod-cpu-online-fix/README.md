@@ -21,4 +21,18 @@ Validation performed for 1.0.1:
 - Boundary checks include `min-concurrent=4`, `max-concurrent=8`, `online-max-concurrent=2`, which yields effective online min/max of `2/2`.
 - Cross-check against `maki-lod-cpu 1.2.1` decompiled code and the current `fix/issue-5` 1.3.0 source, which retain the same target method and fields.
 
-Runtime Minecraft/NeoForge integration is not executed in this environment.
+Issue #32 / version 1.0.2:
+
+- Moved `AdaptivePolicyMixin` into `maki.lodcpu.onlinefix.mixin`. The ordinary
+  `@Mod` entrypoint stays in `maki.lodcpu.onlinefix`, outside the reserved package.
+- Added a Gradle build using NeoForge 21.1.262's real Sponge Mixin API instead of
+  annotation stubs. This also corrects the two `@Unique` field annotations from
+  class retention to runtime retention. The policy handlers are unchanged.
+- Build: `gradle -p custom-mods/maki-lod-cpu-online-fix clean check jar` (Java 21,
+  Gradle 8.10.2). Output: `build/libs/maki-lod-cpu-online-fix-1.0.2.jar`.
+- Verified the shipped JAR's annotation descriptors, element encoding, retention,
+  config registration and package boundary. Verified `AdaptivePolicy` transforms
+  in the full dedicated server, and the server reaches `Done`.
+
+See [the complete audit](../../docs/issue-32-mixin-audit.md) for all 13 mods,
+runtime evidence, interactions and client-side validation limits.
