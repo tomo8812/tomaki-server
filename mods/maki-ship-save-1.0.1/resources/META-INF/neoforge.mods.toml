@@ -5,7 +5,7 @@ license="MIT"
 modId="maki_ship_save"
 version="1.0.1"
 displayName="Maki Ship Save Protection"
-description="Preserves Valkyrien Skies shipyard writes during Chunksmith LOD generation, fails fast when shipyard lookup is unavailable, and scopes discard decisions to the scanned task bounds."
+description="Preserves Valkyrien Skies shipyard writes during Chunksmith LOD generation and scopes discard decisions to the exact task shape."
 [[dependencies.maki_ship_save]]
 modId="minecraft"
 type="required"

@@ -1,9 +1,9 @@
 # maki-ship-save-1.0.1.jar
 
 - Source: `mods/maki-ship-save-1.0.1.jar`
-- Git blob OID: `7a165b416fdf909cc1c1a5b84d073e306c7b361e`
-- SHA-256: `e9bc7bbc90c1a71ea9682eaa08f44327add232a8bf4276786f8b5ff9d2886e7f`
+- Git blob OID: `ba079490da38e93c2cfc370476973119d1efbf90`
+- SHA-256: `0cf35bcb22fe17b44dd6ac8b2af25fe142fecb37126d1e4cfd8a988eb772e085`
 - Decompiler: Vineflower `1.12.0`
-- Extracted text resources: `3`
+- Extracted text resources: `2`
 
 `src/` is decompiled code. `resources/` contains only text-like non-class files from the original JAR.
