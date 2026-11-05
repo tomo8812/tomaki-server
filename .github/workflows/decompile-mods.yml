@@ -2,7 +2,7 @@ name: Decompile changed mod JARs
 
 on:
   push:
-    branches: [main]
+    branches: [tmp/decompile-issue23]
     paths:
       - 'mods/*.jar'
       - 'mods/**/*.jar'
