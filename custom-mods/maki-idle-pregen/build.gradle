@@ -1,0 +1,73 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'maki.idlepregen'
+version = '1.0.1'
+
+base {
+    archivesName = 'maki-idle-pregen'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = '21.1.262'
+}
+
+dependencies {
+    compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+    compileOnly files('../../mods/millenaire-9.0.3.jar')
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('jar') {
+    manifest {
+        attributes(
+            'Implementation-Title': 'Maki Idle Pregen',
+            'Implementation-Version': project.version
+        )
+    }
+    from(sourceSets.main.allJava) {
+        into 'META-INF/sources'
+    }
+}
+
+tasks.register('verifyMixinAnnotationRetention') {
+    dependsOn tasks.named('classes')
+    doLast {
+        def javap = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }.get().metadata.installationPath.file('bin/javap').asFile
+        [
+            'maki.idlepregen.mixin.MinecraftServerMixin',
+            'maki.idlepregen.mixin.VillageManagerMixin',
+            'maki.idlepregen.mixin.VillageSpawnQueueMixin'
+        ].each { className ->
+            def output = new ByteArrayOutputStream()
+            exec {
+                commandLine javap, '-classpath', sourceSets.main.output.classesDirs.asPath, '-p', '-v', className
+                standardOutput = output
+            }
+            def text = output.toString('UTF-8')
+            def classAnnotationIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
+            def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', classAnnotationIndex)
+            if (classAnnotationIndex < 0 || invisibleIndex < 0 || invisibleIndex > classAnnotationIndex) {
+                throw new GradleException("${className}: @Mixin is not RuntimeInvisibleAnnotations")
+            }
+            if (!text.contains('RuntimeVisibleAnnotations:') ||
+                !text.contains('org.spongepowered.asm.mixin.injection.Inject(')) {
+                throw new GradleException("${className}: injector annotations are not runtime-visible")
+            }
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyMixinAnnotationRetention')
+}
