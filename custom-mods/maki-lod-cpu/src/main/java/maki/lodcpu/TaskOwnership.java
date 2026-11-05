@@ -25,6 +25,10 @@ public final class TaskOwnership {
     private static boolean loggedExternalActive,loggedExternalPersisted,loggedFreshRestart;
 
     public enum PersistedOwner {NONE,EXTERNAL,CURRENT_SESSION,PREVIOUS_SESSION}
+    public record PersistedTaskSnapshot(
+        boolean present,String owner,long modifiedAt,Long chunks,Long time,Boolean cancelled,
+        Double centerX,Double centerZ,Double radius,Double radiusZ,Double lodHorizon,String shape,String pattern
+    ){}
     private TaskOwnership(){}
 
     public static void claim(GenerationTask task,String source){
@@ -72,6 +76,34 @@ public final class TaskOwnership {
     }
     public static String status(PersistedOwner owner){
         return switch(owner){case NONE->"none";case EXTERNAL->"external";case CURRENT_SESSION,PREVIOUS_SESSION->"follow";};
+    }
+
+    public static PersistedTaskSnapshot snapshot(Chunksmith chunky,String world){
+        Path path=taskFile(chunky,world);
+        if(!Files.isRegularFile(path))
+            return new PersistedTaskSnapshot(false,"none",-1,null,null,null,null,null,null,null,null,null,null);
+        Properties props=new Properties();
+        try(InputStream in=Files.newInputStream(path)){props.load(in);}
+        catch(IOException|RuntimeException e){
+            return new PersistedTaskSnapshot(true,"unreadable",modified(path),null,null,null,null,null,null,null,null,null,null);
+        }
+        String raw=props.getProperty(OWNER_KEY);
+        String owner=raw==null||!raw.startsWith(OWNER_PREFIX)||raw.length()<=OWNER_PREFIX.length()
+            ?"external":SESSION_OWNER.equals(raw)?"follow-current-session":"follow-previous-session";
+        return new PersistedTaskSnapshot(
+            true,owner,modified(path),longValue(props,"chunks"),longValue(props,"time"),booleanValue(props,"cancelled"),
+            doubleValue(props,"center-x"),doubleValue(props,"center-z"),doubleValue(props,"radius"),doubleValue(props,"radius-z"),
+            doubleValue(props,"lod-horizon"),props.getProperty("shape"),props.getProperty("pattern"));
+    }
+    private static long modified(Path path){try{return Files.getLastModifiedTime(path).toMillis();}catch(IOException e){return -1;}}
+    private static Long longValue(Properties props,String key){
+        try{String value=props.getProperty(key);return value==null?null:Long.valueOf(value);}catch(NumberFormatException e){return null;}
+    }
+    private static Double doubleValue(Properties props,String key){
+        try{String value=props.getProperty(key);return value==null?null:Double.valueOf(value);}catch(NumberFormatException e){return null;}
+    }
+    private static Boolean booleanValue(Properties props,String key){
+        String value=props.getProperty(key);return value==null?null:Boolean.valueOf(value);
     }
 
     private static Path taskFile(Chunksmith chunky,String world){
