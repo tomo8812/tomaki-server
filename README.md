@@ -33,6 +33,7 @@ Decompiler: Vineflower 1.12.0
 | `maki-chunksmith-chunk-cache-1.0.1.jar` | [`mods/maki-chunksmith-chunk-cache-1.0.1/`](mods/maki-chunksmith-chunk-cache-1.0.1) | `cb8e04e99192` |
 | `maki-diorama-share-1.0.0.jar` | [`mods/maki-diorama-share-1.0.0/`](mods/maki-diorama-share-1.0.0) | `43f22449492d` |
 | `maki-idle-pregen-1.0.1.jar` | [`mods/maki-idle-pregen-1.0.1/`](mods/maki-idle-pregen-1.0.1) | `8068b134f807` |
+| `maki-lag-observer-1.0.0.jar` | [`mods/maki-lag-observer-1.0.0/`](mods/maki-lag-observer-1.0.0) | `544efa486b15` |
 | `maki-lod-cpu-1.3.1.jar` | [`mods/maki-lod-cpu-1.3.1/`](mods/maki-lod-cpu-1.3.1) | `e2d770c22676` |
 | `maki-lod-cpu-online-fix-1.0.2.jar` | [`mods/maki-lod-cpu-online-fix-1.0.2/`](mods/maki-lod-cpu-online-fix-1.0.2) | `e38c90e8e5f3` |
 | `maki-millenaire-lod-compat-1.0.4.jar` | [`mods/maki-millenaire-lod-compat-1.0.4/`](mods/maki-millenaire-lod-compat-1.0.4) | `a75c9d0a9122` |

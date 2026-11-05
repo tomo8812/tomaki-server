@@ -140,6 +140,11 @@
       "output": "mods/maki-idle-pregen-1.0.1",
       "sha256": "29c9b8699aba8278b3c334a1b6166c353fdeafff316956588286de25341bc5d9"
     },
+    "mods/maki-lag-observer-1.0.0.jar": {
+      "blob_oid": "544efa486b15311230b3b0132b21cd600b79c22c",
+      "output": "mods/maki-lag-observer-1.0.0",
+      "sha256": "9761b74434864fac4964048787a7ba6ee18e5854b1811bce52aac38ceded7dd9"
+    },
     "mods/maki-lod-cpu-1.3.1.jar": {
       "blob_oid": "e2d770c226760470d7ff449452fb9810dbd8e1cb",
       "output": "mods/maki-lod-cpu-1.3.1",
