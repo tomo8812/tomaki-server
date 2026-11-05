@@ -145,10 +145,10 @@
       "output": "mods/maki-lod-cpu-1.3.1",
       "sha256": "ccd3c8637f51d27012c65fdcef115b294ff3df70413224f88e6dec581afedcf4"
     },
-    "mods/maki-lod-cpu-online-fix-1.0.1.jar": {
-      "blob_oid": "6ae07adadb389d33c13f908b3aa0776edd7d6bdd",
-      "output": "mods/maki-lod-cpu-online-fix-1.0.1",
-      "sha256": "3e03e66dc95dfed3a49a46da438ab52b511c6e0fc8c7b222ba43157951cd8e79"
+    "mods/maki-lod-cpu-online-fix-1.0.2.jar": {
+      "blob_oid": "e38c90e8e5f384be44596b6deb9ff7460d730ced",
+      "output": "mods/maki-lod-cpu-online-fix-1.0.2",
+      "sha256": "7ff011e71149398c98a633b8a6e2c3ba94ccd1793b80ab7e9508d41c7746b911"
     },
     "mods/maki-millenaire-lod-compat-1.0.4.jar": {
       "blob_oid": "a75c9d0a9122f2618a6338d866b79c5a7cb26771",

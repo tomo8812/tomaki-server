@@ -1,4 +1,4 @@
-package maki.lodcpu.onlinefix;
+package maki.lodcpu.onlinefix.mixin;
 
 import maki.lodcpu.AdaptivePolicy;
 import maki.lodcpu.AdaptiveSample;
@@ -17,15 +17,15 @@ public abstract class AdaptivePolicyMixin {
    private boolean maki$wasOnlineAdaptive;
 
    @ModifyVariable(method = "update(Lmaki/lodcpu/AdaptiveSample;ILmaki/lodcpu/Settings;)I", at = @At("HEAD"), argsOnly = true, ordinal = 0, require = 1)
-   private int maki$keepAdaptivePolicyOnline(int var1, AdaptiveSample var2, int var3, Settings var4) {
-      boolean var5 = var1 > 0 && var4.generateWhileOnline;
-      if (var5 != this.maki$wasOnlineAdaptive) {
-         ((AdaptivePolicy)this).reset(var4, var5 ? "online-mode" : "offline-mode");
-         this.maki$wasOnlineAdaptive = var5;
+   private int maki$keepAdaptivePolicyOnline(int players, AdaptiveSample sample, int originalPlayers, Settings settings) {
+      boolean onlineAdaptive = players > 0 && settings.generateWhileOnline;
+      if (onlineAdaptive != this.maki$wasOnlineAdaptive) {
+         ((AdaptivePolicy)this).reset(settings, onlineAdaptive ? "online-mode" : "offline-mode");
+         this.maki$wasOnlineAdaptive = onlineAdaptive;
       }
 
-      this.maki$onlineAdaptive = var5;
-      return var5 ? 0 : var1;
+      this.maki$onlineAdaptive = onlineAdaptive;
+      return onlineAdaptive ? 0 : players;
    }
 
    @Redirect(
@@ -33,8 +33,8 @@ public abstract class AdaptivePolicyMixin {
       at = @At(value = "FIELD", target = "Lmaki/lodcpu/Settings;max:I"),
       require = 1
    )
-   private int maki$useOnlineMaximum(Settings var1) {
-      return this.maki$onlineAdaptive ? Math.min(var1.max, var1.onlineMax) : var1.max;
+   private int maki$useOnlineMaximum(Settings settings) {
+      return this.maki$onlineAdaptive ? Math.min(settings.max, settings.onlineMax) : settings.max;
    }
 
    @Redirect(
@@ -42,7 +42,7 @@ public abstract class AdaptivePolicyMixin {
       at = @At(value = "FIELD", target = "Lmaki/lodcpu/Settings;min:I"),
       require = 1
    )
-   private int maki$useOnlineMinimum(Settings var1) {
-      return this.maki$onlineAdaptive ? Math.min(var1.min, var1.onlineMax) : var1.min;
+   private int maki$useOnlineMinimum(Settings settings) {
+      return this.maki$onlineAdaptive ? Math.min(settings.min, settings.onlineMax) : settings.min;
    }
 }
