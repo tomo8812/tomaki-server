@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="All Rights Reserved"
+
+[[mods]]
+modId="maki_ship_anchor_fix"
+version="1.1.1"
+displayName="Maki Ship Anchor Fix"
+description="Generic VS2 ship-local physical player anchoring for riding and sleeping; owns the authoritative sleeping physical anchor and native-drag suppression lifecycle."
+
+[[mixins]]
+config="maki-ship-anchor-fix.mixins.json"
+
+[[dependencies.maki_ship_anchor_fix]]
+modId="neoforge"
+type="required"
+versionRange="[21.1,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.maki_ship_anchor_fix]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.21.2)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.maki_ship_anchor_fix]]
+modId="valkyrienskies"
+type="required"
+versionRange="[2.4.12-td.9_66a13242ed]"
+ordering="AFTER"
+side="BOTH"
