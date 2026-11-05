@@ -1,4 +1,4 @@
-package maki.lodcpu.onlinefix;
+package maki.lodcpu.onlinefix.mixin;
 
 import maki.lodcpu.AdaptivePolicy;
 import maki.lodcpu.AdaptiveSample;
