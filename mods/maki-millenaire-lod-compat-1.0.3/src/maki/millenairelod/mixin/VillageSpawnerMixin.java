@@ -1,7 +1,6 @@
 package maki.millenairelod.mixin;
 
 import maki.millenairelod.Compat;
-import maki.millenairelod.ReservationLifecycle;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -28,25 +27,5 @@ public abstract class VillageSpawnerMixin {
       ServerLevel var0, BlockPos var1, VillageType var2, int var3, String var4, VillageId var5, ServerPlayer var6, CallbackInfoReturnable<Component> var7
    ) {
       Compat.reserve(var0, var1, var2.radius());
-   }
-
-   @Inject(
-      method = "spawnVillage(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lorg/millenaire/culture/VillageType;ILjava/lang/String;Lorg/millenaire/village/VillageId;Lnet/minecraft/server/level/ServerPlayer;)Lnet/minecraft/network/chat/Component;",
-      at = @At("RETURN")
-   )
-   private static void compat$release(
-      ServerLevel var0, BlockPos var1, VillageType var2, int var3, String var4, VillageId var5, ServerPlayer var6, CallbackInfoReturnable var7
-   ) {
-      ReservationLifecycle.end(var0, var1, var2.radius());
-   }
-
-   @Inject(
-      method = "spawnVillage(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lorg/millenaire/culture/VillageType;ILjava/lang/String;Lorg/millenaire/village/VillageId;Lnet/minecraft/server/level/ServerPlayer;)Lnet/minecraft/network/chat/Component;",
-      at = @At("HEAD")
-   )
-   private static void compat$enter(
-      ServerLevel var0, BlockPos var1, VillageType var2, int var3, String var4, VillageId var5, ServerPlayer var6, CallbackInfoReturnable var7
-   ) {
-      ReservationLifecycle.enter(var0, var1, var2.radius());
    }
 }
