@@ -17,5 +17,6 @@ Version 1.0.2 keeps backfill ownership in this MOD and adds explicit runtime sta
 - claims `maki-idle-pregen` external idle work only while a guarded backfill chunk is active, and releases that claim when ownership ends;
 - does not start, stop, resume, replace, recenter or adopt any Chunksmith generation task;
 - remains blocked while a Chunksmith generation task is active, preserving the existing separation between follow generation and cache backfill.
+- releases the backfill guard and idle-work claim immediately when loading fails before a FULL chunk exists; loaded-chunk failures retain the guarded-unload lifecycle.
 
 This makes non-zero global CSLOD writes explainable even when the follow-owned GenerationTask completion rate is zero.
