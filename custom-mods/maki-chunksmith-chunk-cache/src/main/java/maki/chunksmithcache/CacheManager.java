@@ -49,7 +49,7 @@ public final class CacheManager {
    }
 
    public static void captureFromChunksmith(ServerLevel var0, LevelChunk var1) {
-      if (var0 != null && var1 != null && !BackfillGuard.suppress(var0, var1.getPos())) {
+      if (var0 != null && var1 != null && !BackfillGuard.active(var0, var1.getPos())) {
          if (HorizonGuard.drop(var0, var1.getPos())) {
             capture(var0, var1, false);
          }
