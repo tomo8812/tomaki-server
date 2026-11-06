@@ -39,6 +39,30 @@ public final class FingerprintPolicySelfTest {
             require(!base.equals(CompatibilityFingerprint.compute(replace(baseline, "world/datapacks/test.zip", "data-b"))), "datapack change must invalidate");
             require(!base.equals(CompatibilityFingerprint.compute(replace(baseline, "level:seed", "124"))), "seed change must invalidate");
 
+            List<FingerprintManifest.Entry> renamedObserver = new ArrayList<>();
+            renamedObserver.add(entry("policy:compatibility", "policy-renamed-observer", FingerprintManifest.Impact.RELEVANT));
+            renamedObserver.add(entry("mods/worldgen.jar", "wg-a", FingerprintManifest.Impact.RELEVANT));
+            renamedObserver.add(entry("mods/maki-mods-observer.jar", "diag-b", FingerprintManifest.Impact.IGNORED));
+            renamedObserver.add(entry("config/maki-mods-observer.properties", "cfg-b", FingerprintManifest.Impact.IGNORED));
+            renamedObserver.add(entry("world/datapacks/test.zip", "data-a", FingerprintManifest.Impact.RELEVANT));
+            renamedObserver.add(entry("level:seed", "123", FingerprintManifest.Impact.RELEVANT));
+            FingerprintManifest.Manifest oldPolicyManifest = new FingerprintManifest.Manifest(base, 1L, Set.of(base), baseline);
+            FingerprintManifest.Manifest renamedPolicyManifest = new FingerprintManifest.Manifest(
+                CompatibilityFingerprint.compute(renamedObserver), 2L, Set.of(), renamedObserver);
+            require(
+                FingerprintManifest.sameRelevantInputsExcept(oldPolicyManifest, renamedPolicyManifest, Set.of("policy:compatibility")),
+                "diagnostic observer rename must preserve relevant cache inputs"
+            );
+            List<FingerprintManifest.Entry> changedWorldgen = replace(renamedObserver, "mods/worldgen.jar", "wg-b");
+            require(
+                !FingerprintManifest.sameRelevantInputsExcept(
+                    oldPolicyManifest,
+                    new FingerprintManifest.Manifest(CompatibilityFingerprint.compute(changedWorldgen), 3L, Set.of(), changedWorldgen),
+                    Set.of("policy:compatibility")
+                ),
+                "worldgen change must not be adopted as policy-equivalent"
+            );
+
             FingerprintManifest.Manifest manifest = new FingerprintManifest.Manifest(base, 1L, Set.of(base), baseline);
             String encoded = FingerprintManifest.encode(manifest);
             FingerprintManifest.Manifest decoded = FingerprintManifest.decode(encoded);

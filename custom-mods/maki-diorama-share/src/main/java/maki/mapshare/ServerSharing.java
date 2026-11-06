@@ -79,6 +79,8 @@ public final class ServerSharing {
                 }
                 state.validate();
             }
+            LOG.info("Map sharing state ready: archive={}, marks={}, migratedPlayers={}",
+                Files.exists(file()) ? "loaded" : "new", state.marks.size(), state.migrated.size());
         } catch (IOException | RuntimeException exception) {
             failed = true;
             LOG.error("Map sharing disabled: existing archive could not be read; original file was preserved", exception);
@@ -137,7 +139,12 @@ public final class ServerSharing {
                 changed = state.migrated.add(playerId);
                 break;
             case "request":
+                boolean firstWatch = !WATCH.containsKey(playerId);
                 WATCH.put(playerId, new Watch(ShareState.count(payload.get("count").getAsInt()), revision));
+                if (firstWatch) {
+                    LOG.info("Map sharing client subscribed: player={}, requestedHistory={}",
+                        playerName, ShareState.count(payload.get("count").getAsInt()));
+                }
                 publish = true;
                 break;
             default:
@@ -283,7 +290,9 @@ public final class ServerSharing {
 
     private static void logout(PlayerLoggedOutEvent event) {
         UUID playerId = event.getEntity().getUUID();
-        WATCH.remove(playerId);
+        if (WATCH.remove(playerId) != null) {
+            LOG.info("Map sharing client unsubscribed: player={}", event.getEntity().getGameProfile().getName());
+        }
         BUDGET.remove(playerId);
     }
 
@@ -300,6 +309,8 @@ public final class ServerSharing {
             }
         }
 
+        LOG.info("Map sharing stopped: marks={}, subscribedClients={}, dirty={}",
+            state == null ? 0 : state.marks.size(), WATCH.size(), dirty);
         server = null;
         state = null;
         WATCH.clear();

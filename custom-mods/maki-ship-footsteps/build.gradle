@@ -1,0 +1,54 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+group = 'maki.shipsteps'
+version = '1.0.1'
+base { archivesName = 'maki-ship-footsteps' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+neoForge { version = '21.1.262' }
+dependencies {
+    compileOnly files('../../mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar')
+}
+sourceSets {
+    connectorApi {
+        java.srcDir 'src/connectorApi/java'
+        compileClasspath += sourceSets.main.compileClasspath
+    }
+    main { compileClasspath = sourceSets.connectorApi.output + compileClasspath }
+}
+tasks.named('compileJava') { dependsOn tasks.named('compileConnectorApiJava') }
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+tasks.named('jar') {
+    from(sourceSets.main.allJava) { into 'META-INF/sources' }
+}
+
+tasks.register('verifyVsRuntimeSignature') {
+    dependsOn tasks.named('classes')
+    doLast {
+        def javap = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }.get().metadata.installationPath.file('bin/javap').asFile
+        def process = new ProcessBuilder(
+            javap.absolutePath,
+            '-classpath', sourceSets.main.output.classesDirs.asPath,
+            '-p', '-c', 'maki.shipsteps.mixin.ShipStepMixin'
+        ).redirectErrorStream(true).start()
+        def text = process.inputStream.getText('UTF-8')
+        if (process.waitFor() != 0) {
+            throw new GradleException('javap failed for ShipStepMixin: ' + text)
+        }
+        def expected = 'VSGameUtilsKt.getShipManagingPos:(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;)'
+        def forbidden = 'VSGameUtilsKt.getShipManagingPos:(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/Vec3i;)'
+        if (!text.contains(expected) || text.contains(forbidden)) {
+            throw new GradleException('VS runtime signature regression in ShipStepMixin:\n' + text)
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyVsRuntimeSignature')
+}

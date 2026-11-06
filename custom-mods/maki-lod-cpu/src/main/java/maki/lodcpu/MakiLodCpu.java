@@ -1,19 +1,22 @@
 package maki.lodcpu;
 
-import maki.statusio.StatusIo;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Mod("maki_lod_cpu")
 public final class MakiLodCpu {
+    private static final Logger LOG = LoggerFactory.getLogger("MakiLodCpu");
     public MakiLodCpu(){
+        LOG.info("Maki LOD CPU initialized; follow ownership, CPU governor and task migration commands are enabled.");
         NeoForge.EVENT_BUS.addListener(this::tick);
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent e)->{if(e.getEntity() instanceof net.minecraft.server.level.ServerPlayer p)PlayerCenter.login(p);});
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent e)->{if(e.getEntity() instanceof net.minecraft.server.level.ServerPlayer p)PlayerCenter.logout(p);});
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e)->{
             PlayerCenter.shutdown(e.getServer());
-            StatusIo.flush(2_000L);
+            LOG.info("Maki LOD CPU stopped; authoritative Chunksmith task progress and migration backups remain in their durable stores.");
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.RegisterCommandsEvent e)->PlayerCenter.register(e.getDispatcher()));
     }

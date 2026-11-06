@@ -24,6 +24,7 @@ jobs:
         with:
           sparse-checkout: |
             .github
+            config
             custom-mods
 
       - name: Select checks from the complete change
@@ -127,6 +128,7 @@ jobs:
           curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
           python3 .github/scripts/audit_mixin_annotations.py --mods-dir /tmp/maki-rebuilt --annotation-api /tmp/sponge-mixin.jar --github-actions --json-output reports/rebuilt-mixin-audit.json
 
+
       - name: Upload rebuilt JAR audit
         if: always()
         uses: actions/upload-artifact@v4
@@ -134,3 +136,4 @@ jobs:
           name: rebuilt-mixin-audit
           path: reports/rebuilt-mixin-audit.json
           retention-days: 14
+

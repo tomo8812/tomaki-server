@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="maki_ship_edge"
+version="1.0.0"
+displayName="Maki Ship Sneaking Contact Fix"
+description="Uses the existing VS edge checks for a grounded one-tick ship contact, on both sides."
+[[dependencies.maki_ship_edge]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+side="BOTH"
+[[dependencies.maki_ship_edge]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.262,21.2)"
+side="BOTH"
+[[dependencies.maki_ship_edge]]
+modId="valkyrienskies"
+type="required"
+versionRange="[2.4.12-td.9_66a13242ed]"
+ordering="AFTER"
+side="BOTH"
+[[mixins]]
+config="maki-ship-edge.mixins.json"

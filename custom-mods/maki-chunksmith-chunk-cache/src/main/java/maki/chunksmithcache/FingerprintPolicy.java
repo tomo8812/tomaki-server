@@ -17,8 +17,8 @@ import java.util.jar.JarFile;
 final class FingerprintPolicy {
     static final String CONFIG_RELATIVE = "config/maki-chunksmith-chunk-cache.properties";
     private static final String OWN_MOD_ID = "maki_chunksmith_chunk_cache";
-    private static final String DEFAULT_OBSERVATION_MOD_IDS = "maki_lag_observer";
-    private static final String DEFAULT_IGNORED_PATHS = "config/maki-lag-observer.properties";
+    private static final String DEFAULT_OBSERVATION_MOD_IDS = "maki_mods_observer";
+    private static final String DEFAULT_IGNORED_PATHS = "config/maki-mods-observer.properties";
     private static final long DEFAULT_MAX_BYTES = 50L * 1024L * 1024L * 1024L;
 
     private final Set<String> observationOnlyModIds;

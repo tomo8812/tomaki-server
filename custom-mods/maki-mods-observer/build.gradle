@@ -1,0 +1,150 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'maki.modsobserver'
+version = '1.0.0'
+
+base {
+    archivesName = 'maki-mods-observer'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = '21.1.262'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('jar') {
+    manifest {
+        attributes(
+            'Implementation-Title': 'Maki Mods Observer',
+            'Implementation-Version': project.version
+        )
+    }
+    from(sourceSets.main.allJava) {
+        into 'META-INF/sources'
+    }
+}
+
+tasks.register('verifyMixinAnnotationRetention') {
+    dependsOn tasks.named('classes')
+    doLast {
+        def javap = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }.get().metadata.installationPath.file('bin/javap').asFile
+        [
+            'maki.modsobserver.mixin.CompoundTagMixin',
+            'maki.modsobserver.mixin.ListTagMixin',
+            'maki.modsobserver.mixin.MinecraftServerMixin'
+        ].each { className ->
+            def process = new ProcessBuilder(
+                javap.absolutePath,
+                '-classpath', sourceSets.main.output.classesDirs.asPath,
+                '-p', '-v', className
+            ).redirectErrorStream(true).start()
+            def text = process.inputStream.getText('UTF-8')
+            if (process.waitFor() != 0) {
+                throw new GradleException('javap failed for ' + className + ': ' + text)
+            }
+            def classAnnotationIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
+            def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', classAnnotationIndex)
+            if (classAnnotationIndex < 0 || invisibleIndex < 0 || invisibleIndex > classAnnotationIndex) {
+                throw new GradleException('@Mixin is not RuntimeInvisibleAnnotations for ' + className)
+            }
+            if (!text.contains('RuntimeVisibleAnnotations:') ||
+                !text.contains('org.spongepowered.asm.mixin.injection.Inject(')) {
+                throw new GradleException('injector annotations are not runtime-visible for ' + className)
+            }
+        }
+    }
+}
+
+tasks.register('verifyNbtCopyTargets') {
+    dependsOn tasks.named('classes')
+    doLast {
+        def javap = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }.get().metadata.installationPath.file('bin/javap').asFile
+        def classpath = sourceSets.main.compileClasspath.asPath
+        [
+            'net.minecraft.nbt.CompoundTag': 'public net.minecraft.nbt.CompoundTag copy();',
+            'net.minecraft.nbt.ListTag': 'public net.minecraft.nbt.ListTag copy();'
+        ].each { className, expected ->
+            def process = new ProcessBuilder(
+                javap.absolutePath,
+                '-classpath', classpath,
+                '-p', className
+            ).redirectErrorStream(true).start()
+            def text = process.inputStream.getText('UTF-8')
+            if (process.waitFor() != 0) {
+                throw new GradleException('javap failed for target ' + className + ': ' + text)
+            }
+            if (!text.contains(expected)) {
+                throw new GradleException('Expected NBT copy target not found in ' + className + ': ' + expected)
+            }
+        }
+    }
+}
+
+
+tasks.register('verifyDormantDiagnostics') {
+    inputs.files(
+        file('src/main/java/maki/modsobserver/ModsObserver.java'),
+        file('src/main/java/maki/modsobserver/NbtCopyObserver.java')
+    )
+    doLast {
+        def stall = inputs.files.find { it.name == 'ModsObserver.java' }.getText('UTF-8')
+        def nbt = inputs.files.find { it.name == 'NbtCopyObserver.java' }.getText('UTF-8')
+        if (!stall.contains('CONFIG_RELOAD_INTERVAL_NANOS = 5_000_000_000L') ||
+            !stall.contains('private static void reloadSettingsIfDue()') ||
+            !stall.contains('if (now < nextConfigCheckNanos) return;') ||
+            !stall.contains('nextConfigCheckNanos = now + CONFIG_RELOAD_INTERVAL_NANOS;') ||
+            !stall.contains('diagnostic-max-file-mb') ||
+            !stall.contains('diagnostic-max-duration-minutes') ||
+            !stall.contains('diagnostic-max-events') ||
+            !stall.contains('BlockingQueue<Map<String, Object>> WRITE_QUEUE') ||
+            !stall.contains('WRITE_QUEUE.offer(sample)') ||
+            !stall.contains('new Thread(ModsObserver::writerLoop') ||
+            !stall.contains('Map<String, Object> root = WRITE_QUEUE.take()') ||
+            !stall.contains('root.put("linux", linuxMetrics())') ||
+            !stall.contains('String line = Json.encode(root) + System.lineSeparator()') ||
+            !stall.contains('diagnosticSessionActive()') ||
+            !stall.contains('reserveDiagnosticEvent()') ||
+            !stall.contains('Files.size(LOG_FILE) >= settings.maxFileBytes') ||
+            !stall.contains('reloadSettingsIfDue();\n        if (!diagnosticSessionActive())') ||
+            !stall.contains('if (!diagnosticSessionActive() || server == null || thread == null)')) {
+            throw new GradleException('Issue #62 regression: disabled stall diagnostics must avoid per-tick sampling/I/O')
+        }
+        def writeEventStart = stall.indexOf('private static void writeEvent(')
+        def sessionStart = stall.indexOf('private static boolean diagnosticSessionActive()', writeEventStart)
+        if (writeEventStart < 0 || sessionStart < 0) {
+            throw new GradleException('Issue #62 regression: could not locate stall diagnostic capture boundaries')
+        }
+        def serverThreadCapture = stall.substring(writeEventStart, sessionStart)
+        if (serverThreadCapture.contains('Files.') || serverThreadCapture.contains('Json.encode(')) {
+            throw new GradleException('Issue #62 regression: stall diagnostic file I/O/JSON encoding returned to the capture path')
+        }
+        if (!nbt.contains('reloadSettingsIfDue();\n        if (!diagnosticSessionActive())') ||
+            !nbt.contains('SESSION_LIMIT_REACHED.get() || tag == null') ||
+            !nbt.contains('diagnostic-max-duration-minutes') ||
+            !nbt.contains('diagnostic-max-events') ||
+            !nbt.contains('diagnosticSessionActive()') ||
+            !nbt.contains('reserveDiagnosticEvent()') ||
+            !nbt.contains('Files.size(LOG_FILE) >= settings.maxFileBytes')) {
+            throw new GradleException('Issue #62 regression: disabled NBT diagnostics must return before per-tick tracing state or NBT inspection')
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyDormantDiagnostics')
+    dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('verifyNbtCopyTargets')
+}

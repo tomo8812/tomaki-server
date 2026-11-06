@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "minVersion": "0.8.7",
+  "package": "maki.modsobserver.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "server": [
+    "CompoundTagMixin",
+    "ListTagMixin",
+    "MinecraftServerMixin"
+  ],
+  "injectors": {"defaultRequire": 1}
+}

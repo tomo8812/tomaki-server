@@ -8,7 +8,6 @@ import java.nio.file.*;
 import java.lang.invoke.MethodHandle;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import maki.statusio.StatusIo;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.nbt.*;
@@ -27,7 +26,8 @@ public final class PlayerCenter {
     private static MinecraftServer owner;
     private static Saved saved;
     private static Path stateFile;
-    private static long boot,emptySince,lastCheck,lastSave,lastReport,lastCenterChange,healthySince;
+    private static long boot,emptySince,lastCheck,lastSave,lastReport,lastCenterChange,healthySince,lastStateSummary;
+    private static String lastLoggedState;
     private static boolean hadPlayers,manualPause,loadPause,requested,wasEnabled;
     private static String reason="starting";
     private static MethodHandle toWorld,isShipyard;
@@ -42,7 +42,7 @@ public final class PlayerCenter {
     private static Settings settings(){return CpuGovernor.settings();}
     private static boolean enabled(){return CpuGovernor.healthyConfig()&&settings().followEnabled&&!saved.disabled;}
     private static void initialize(MinecraftServer server,long now){
-        owner=server;boot=now;lastCheck=lastSave=lastReport=lastCenterChange=healthySince=0;
+        owner=server;boot=now;lastCheck=lastSave=lastReport=lastCenterChange=healthySince=lastStateSummary=0;lastLoggedState=null;
         emptySince=server.getPlayerCount()==0?now:0;hadPlayers=server.getPlayerCount()>0;
         manualPause=loadPause=false;requested=true;positionError=false;reason="startup-wait";
         appliedX=appliedZ=null;lastTask=null;nativeTaskLifecycle.clear();controllerStopTask=null;
@@ -258,28 +258,30 @@ public final class PlayerCenter {
         report(server,chunky,now);
     }
     private static void report(MinecraftServer server,Chunksmith chunky,long now){
-        if(now-lastReport<10_000)return;lastReport=now;
+        if(now-lastReport<1_000L)return;lastReport=now;
         try{
             var current=chunky.getGenerationTasks().get(WORLD);
             var persistedOwner=TaskOwnership.persistedOwner(chunky,WORLD);
-            var persisted=TaskOwnership.snapshot(chunky,WORLD);
             int players=server.getPlayerCount();
             boolean onlineBlocked=players>0&&!settings().generateWhileOnline;
-            boolean graceBlocked=now-boot<10_000||players==0&&now-emptySince<settings().emptyGraceSeconds*1000L;
+            boolean graceBlocked=now-boot<10_000L||players==0&&now-emptySince<settings().emptyGraceSeconds*1000L;
             boolean policyReady=enabled()&&!manualPause&&!loadPause&&!onlineBlocked&&!graceBlocked&&saved.x!=null&&saved.z!=null;
             boolean canRun=policyReady&&(
                 current!=null&&TaskOwnership.isOwned(current)&&!current.isStopping()
                 ||current==null&&requested&&persistedOwner!=TaskOwnership.PersistedOwner.EXTERNAL&&!LodHorizon.isArmed(WORLD));
-            var data=new java.util.LinkedHashMap<String,Object>();
-            data.put("statusSchemaVersion",3);data.put("time",java.time.Instant.now().toString());data.put("player",settings().followPlayer);data.put("targetOnline",server.getPlayerList().getPlayer(UUID.fromString(settings().followUuid))!=null);
-            data.put("centerX",saved.x);data.put("centerZ",saved.z);data.put("radius",settings().followRadius);data.put("players",players);data.put("onlineSlots",settings().generateWhileOnline?settings().onlineMax:0);data.put("generateWhileOnline",settings().generateWhileOnline);data.put("reason",reason);
-            data.put("followEnabled",enabled());data.put("followRequested",requested);data.put("manualPause",manualPause);data.put("loadPause",loadPause);data.put("lodSaveProtectionArmed",LodHorizon.isArmed(WORLD));data.put("canStartOrContinueFollow",canRun);
-            data.put("activeTaskOwner",current==null?"none":TaskOwnership.isOwned(current)?"follow":"external");
-            data.put("activeTaskChunks",current==null?null:current.getCount());data.put("activeTaskTotalChunks",current==null?null:current.getChunkIterator().total());data.put("activeTaskStopping",current==null?null:current.isStopping());
-            data.put("persistedTaskOwner",TaskOwnership.status(persistedOwner));data.put("persistedTask",persisted);data.put("latestTaskBackup",ExternalTaskMigration.latestBackupId(chunky,server));
-            data.put("activeCenterX",current==null?null:current.getSelection().centerX());data.put("activeCenterZ",current==null?null:current.getSelection().centerZ());
-            StatusIo.publish(Path.of("logs/maki-lod-follow-status.json"),JSON.toJson(data)+"\n");
-        }catch(Exception e){LOG.debug("Could not report LOD follow status",e);}
+            String activeOwner=current==null?"none":TaskOwnership.isOwned(current)?"follow":"external";
+            String state=reason+"|"+activeOwner+"|"+TaskOwnership.status(persistedOwner)+"|"+requested+"|"+manualPause+"|"+loadPause+"|"+canRun+"|"+players+"|"+saved.x+"|"+saved.z;
+            if(!state.equals(lastLoggedState)){
+                LOG.info("LOD follow state changed: reason={}, activeOwner={}, persistedOwner={}, requested={}, manualPause={}, loadPause={}, canRun={}, players={}, center={},{}",
+                    reason,activeOwner,TaskOwnership.status(persistedOwner),requested,manualPause,loadPause,canRun,players,saved.x,saved.z);
+                lastLoggedState=state;
+                lastStateSummary=now;
+            }else if(now-lastStateSummary>=60_000L){
+                LOG.info("LOD follow summary: reason={}, activeOwner={}, persistedOwner={}, canRun={}, players={}, center={},{}",
+                    reason,activeOwner,TaskOwnership.status(persistedOwner),canRun,players,saved.x,saved.z);
+                lastStateSummary=now;
+            }
+        }catch(Exception e){LOG.warn("Could not summarize LOD follow state; controller continues with the last valid state",e);}
     }
     private static String actor(net.minecraft.commands.CommandSourceStack source){
         return source.getTextName();
