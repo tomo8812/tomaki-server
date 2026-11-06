@@ -532,7 +532,7 @@ public final class BackfillController {
                advanceCursor(var4, var5);
                continue;
             }
-            if (!scope.suppressed().contains(var9.pos().toLong())) {
+            if (!scope.suppressed().contains(var9.pos().toLong()) || !BackfillGuard.scopeAvailable(var4, scope.suppressed())) {
                advanceCursor(var4, var5);
                continue;
             }
@@ -575,26 +575,6 @@ public final class BackfillController {
          return new int[]{var2.readInt(), var2.readInt()};
       } catch (IOException var8) {
          return null;
-      }
-   }
-
-   private static boolean normalRegionContains(ServerLevel var0, ChunkPos var1) {
-      Path var2 = CacheManager.worldRegionRoot(var0).resolve("r." + Math.floorDiv(var1.x, 32) + "." + Math.floorDiv(var1.z, 32) + ".mca");
-      if (!Files.isRegularFile(var2)) {
-         return false;
-      }
-
-      int var3 = Math.floorMod(var1.x, 32) + Math.floorMod(var1.z, 32) * 32;
-
-      try (RandomAccessFile var4 = new RandomAccessFile(var2.toFile(), "r")) {
-         if (var4.length() < var3 * 4L + 4L) {
-            return false;
-         }
-
-         var4.seek(var3 * 4L);
-         return var4.readInt() != 0;
-      } catch (IOException var9) {
-         return true;
       }
    }
 
