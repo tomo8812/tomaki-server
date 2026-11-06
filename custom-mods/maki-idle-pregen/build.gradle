@@ -39,6 +39,7 @@ tasks.named('jar') {
 }
 
 tasks.register('verifyMixinAnnotationRetention') {
+    notCompatibleWithConfigurationCache('invokes javap against compiled annotation tables')
     dependsOn tasks.named('classes')
     doLast {
         def javap = javaToolchains.launcherFor {
@@ -70,6 +71,7 @@ tasks.register('verifyMixinAnnotationRetention') {
 }
 
 tasks.register('verifyValkyrienSkiesPauseApi') {
+    notCompatibleWithConfigurationCache('invokes javap against the bundled Valkyrien Skies JAR')
     doLast {
         def vsJar = file('../../mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar')
         if (!vsJar.isFile()) {
