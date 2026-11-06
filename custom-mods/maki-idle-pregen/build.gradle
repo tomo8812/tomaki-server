@@ -38,39 +38,46 @@ tasks.named('jar') {
     }
 }
 
+def registeredMixins = [
+    'maki.idlepregen.mixin.MinecraftServerMixin',
+    'maki.idlepregen.mixin.VillageManagerMixin',
+    'maki.idlepregen.mixin.VillageSpawnQueueMixin',
+    'maki.idlepregen.mixin.VillageMixin',
+    'maki.idlepregen.mixin.BuildingInstanceMixin',
+    'maki.idlepregen.mixin.VillageWaypointGraphMixin',
+    'maki.idlepregen.mixin.WaypointTraversalTesterMixin',
+    'maki.idlepregen.mixin.MillWalkNodeEvaluatorMixin',
+    'maki.idlepregen.mixin.PathNavigationRegionMixin',
+    'maki.idlepregen.mixin.EmptyLevelChunkMixin',
+    'maki.idlepregen.mixin.ServerChunkCacheMixin'
+]
+
+def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
+def javapExecutable = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
+
 tasks.register('verifyMixinAnnotationRetention') {
     dependsOn tasks.named('classes')
     doLast {
-        def toolchains = project.extensions.getByType(org.gradle.jvm.toolchain.JavaToolchainService)
-        def javap = toolchains.launcherFor {
-            languageVersion = JavaLanguageVersion.of(21)
-        }.get().metadata.installationPath.file('bin/javap').asFile
-        [
-            'maki.idlepregen.mixin.MinecraftServerMixin',
-            'maki.idlepregen.mixin.VillageManagerMixin',
-            'maki.idlepregen.mixin.VillageSpawnQueueMixin',
-            'maki.idlepregen.mixin.VillageMixin',
-            'maki.idlepregen.mixin.BuildingInstanceMixin',
-            'maki.idlepregen.mixin.VillageWaypointGraphMixin',
-            'maki.idlepregen.mixin.WaypointTraversalTesterMixin',
-            'maki.idlepregen.mixin.MillWalkNodeEvaluatorMixin',
-            'maki.idlepregen.mixin.PathNavigationRegionMixin',
-            'maki.idlepregen.mixin.EmptyLevelChunkMixin',
-            'maki.idlepregen.mixin.ServerChunkCacheMixin'
-        ].each { className ->
-            def output = new ByteArrayOutputStream()
-            project.exec {
-                commandLine javap, '-classpath', sourceSets.main.output.classesDirs.asPath, '-p', '-v', className
-                standardOutput = output
+        registeredMixins.each { className ->
+            def process = new ProcessBuilder(
+                javapExecutable,
+                '-classpath', mixinClassesPath,
+                '-p', '-v', className
+            ).redirectErrorStream(true).start()
+            def text = process.inputStream.getText('UTF-8')
+            def exitCode = process.waitFor()
+            if (exitCode != 0) {
+                throw new GradleException(className + ': javap failed (exit ' + exitCode + ')\n' + text)
             }
-            def text = output.toString('UTF-8')
-            def classAnnotationIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
-            def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', classAnnotationIndex)
-            if (classAnnotationIndex < 0 || invisibleIndex < 0 || invisibleIndex > classAnnotationIndex) {
-                throw new GradleException(className + ': @Mixin is not RuntimeInvisibleAnnotations')
+
+            def mixinIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
+            def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', mixinIndex)
+            def visibleIndex = text.lastIndexOf('RuntimeVisibleAnnotations:', mixinIndex)
+            if (mixinIndex < 0 || invisibleIndex < 0 || visibleIndex > invisibleIndex) {
+                throw new GradleException(className + ': @Mixin is not class-retained/invisible')
             }
-            if (!text.contains('RuntimeVisibleAnnotations:') ||
-                !text.contains('org.spongepowered.asm.mixin.injection.Inject(')) {
+            if (text.contains('org.spongepowered.asm.mixin.injection.Inject(') &&
+                !text.contains('RuntimeVisibleAnnotations:')) {
                 throw new GradleException(className + ': injector annotations are not runtime-visible')
             }
         }
