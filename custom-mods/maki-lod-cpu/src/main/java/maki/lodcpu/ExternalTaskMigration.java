@@ -5,6 +5,8 @@ import com.kishku7.chunksmith.GenerationTask;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.world.level.storage.LevelResource;
 import maki.lodcpu.mixin.TaskLoaderAccessor;
 
 /** Explicit administrator-only transitions for external Chunksmith overworld state. */
@@ -91,8 +93,8 @@ final class ExternalTaskMigration {
         return chunky.getConfig().getDirectory().resolve("tasks").resolve("minecraft/overworld.properties");
     }
 
-    private static Path backupRoot(Chunksmith chunky){
-        return chunky.getConfig().getDirectory().resolve("tasks").resolve(".maki-lod-cpu-backups").resolve("v1").resolve("minecraft").resolve("overworld");
+    private static Path backupRoot(MinecraftServer server){
+        return server.getWorldPath(LevelResource.ROOT).resolve("data").resolve("maki_lod_task_backups").resolve("v1").resolve("minecraft").resolve("overworld");
     }
 
     private static String preflightExternalPersisted(Chunksmith chunky){
