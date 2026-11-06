@@ -67,13 +67,15 @@ final class ExternalTaskMigration {
 
     static Result restoreLatest(Chunksmith chunky,MinecraftServer server,String actor){
         TaskMigrationStore.Backup displacedFollow=null;
+        TaskMigrationStore.VerifiedBackup target=null;
+        Path live=taskFile(chunky);
         try{
             if(chunky.getGenerationTasks().get(WORLD)!=null)
                 return new Result(false,"An active minecraft:overworld task exists; refusing to restore over it. Stop the follow task first.",null);
             Path root=backupRoot(server);
             String targetId=TaskMigrationStore.latestBackupId(root);
             if(targetId==null)return new Result(false,"No external task backup is available.",null);
-            Path live=taskFile(chunky);
+            target=TaskMigrationStore.verifyBackup(root,targetId);
             if(Files.exists(live)){
                 var owner=TaskOwnership.persistedOwner(chunky,WORLD);
                 if(owner==TaskOwnership.PersistedOwner.EXTERNAL)
@@ -88,13 +90,23 @@ final class ExternalTaskMigration {
             String preserved=displacedFollow==null?"":" The displaced follow-owned state was also preserved as "+displacedFollow.id()+".";
             return new Result(true,"Restored external backup "+backup.id()+" to the live task slot."+preserved+" Follow is not started automatically.",backup);
         }catch(IOException|RuntimeException e){
-            if(displacedFollow!=null&&!Files.exists(taskFile(chunky))){
+            if(displacedFollow!=null&&target!=null){
                 try{
-                    TaskMigrationStore.restore(taskFile(chunky),followBackupRoot(server),displacedFollow.id(),actor+"-rollback");
+                    if(Files.exists(live)&&!TaskMigrationStore.deleteIfMatches(live,target.sha256()))
+                        return new Result(false,"External restore failed after the live task changed again; refusing to overwrite it. Displaced follow backup "+displacedFollow.id()+" remains preserved. Cause: "+e.getMessage(),null);
+                    forgetCachedTask(chunky);
+                    TaskMigrationStore.restore(live,followBackupRoot(server),displacedFollow.id(),actor+"-rollback");
                     refreshCachedTask(chunky);
                     return new Result(false,"External restore failed and the displaced follow state was rolled back: "+e.getMessage(),null);
                 }catch(IOException|RuntimeException rollback){
                     return new Result(false,"External restore failed; displaced follow backup "+displacedFollow.id()+" is preserved but automatic rollback also failed: "+rollback.getMessage(),null);
+                }
+            }
+            if(target!=null&&Files.exists(live)){
+                try{
+                    if(TaskMigrationStore.deleteIfMatches(live,target.sha256()))forgetCachedTask(chunky);
+                }catch(IOException|RuntimeException rollback){
+                    return new Result(false,"External restore failed and cleanup of the newly restored live file also failed: "+rollback.getMessage(),null);
                 }
             }
             return new Result(false,"Could not restore latest task backup: "+e.getMessage(),null);
