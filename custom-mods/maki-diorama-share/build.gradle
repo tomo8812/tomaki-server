@@ -45,6 +45,7 @@ tasks.named('jar') {
         exclude 'maki/mapshare/ClientSharing.class'
         exclude 'META-INF/neoforge.mods.toml'
         exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/sources/maki/mapshare/ClientSharing.java'
     }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     manifest {
