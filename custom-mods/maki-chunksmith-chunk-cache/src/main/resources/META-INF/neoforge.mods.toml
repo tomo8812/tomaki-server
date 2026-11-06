@@ -3,7 +3,7 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_chunksmith_chunk_cache"
-version="1.0.2"
+version="1.0.3"
 displayName="Maki Chunksmith Chunk Cache"
 description="Caches disposable Chunksmith FULL chunks outside normal region storage, promotes them on real loads, and reports/coordinates legacy CSLOD backfill while idle."
 [[dependencies.maki_chunksmith_chunk_cache]]
