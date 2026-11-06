@@ -356,30 +356,8 @@ final class GenerationStore {
         return new Stats(entries, bytes);
     }
 
-    static void mergeDirectory(Path source, Path target) throws IOException {
-        Files.createDirectories(target);
-        List<Path> paths;
-        try (Stream<Path> stream = Files.walk(source)) {
-            paths = stream.sorted(Comparator.comparingInt(Path::getNameCount)).toList();
-        }
-        for (Path path : paths) {
-            if (path.equals(source)) continue;
-            Path relative = source.relativize(path);
-            Path destination = target.resolve(relative);
-            if (Files.isDirectory(path)) {
-                Files.createDirectories(destination);
-            } else if (Files.isRegularFile(path)) {
-                Files.createDirectories(destination.getParent());
-                if (Files.exists(destination)) {
-                    Files.delete(path);
-                } else {
-                    move(path, destination);
-                }
-            }
-        }
-        try (Stream<Path> stream = Files.walk(source)) {
-            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
-        }
+    private static void mergeDirectory(Path source, Path target) throws IOException {
+        CacheDirectoryMerge.merge(source, target);
     }
 
     private static Path unique(Path target) {
