@@ -299,6 +299,7 @@ public final class BackfillController {
                                                    }
 
                                                    var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var3, 0, Unit.INSTANCE);
+                                                   releaseIdlePregenClaim(var2);
                                                    report(var0.getServer(),var2,true);
                                                 }
                                              }));
@@ -323,8 +324,7 @@ public final class BackfillController {
          MillenaireBridge.restore(var3);
          var2.previousSuppression = null;
          var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var1, 0, Unit.INSTANCE);
-         IdlePregenBridge.setBackfillActive(false);
-         var2.idlePregenClaimed=false;
+         releaseIdlePregenClaim(var2);
          var2.backfillsFailed++;
          var2.awaitingScopeDrain=true;
          var2.phase="failed-before-full-awaiting-dependency-unload";
@@ -342,11 +342,19 @@ public final class BackfillController {
          MillenaireBridge.restore(var3);
          var2.previousSuppression = null;
          var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var1, 0, Unit.INSTANCE);
+         releaseIdlePregenClaim(var2);
          var2.token++;
          var2.backfillsFailed++;
          var2.phase="failed-awaiting-unload";
          report(var0.getServer(),var2,true);
          LOG.warn("Chunk-cache backfill for {} is paused until the guarded chunk unloads or a player takes ownership", new Object[]{var1});
+      }
+   }
+
+   private static void releaseIdlePregenClaim(BackfillController.State state) {
+      if (state.idlePregenClaimed) {
+         IdlePregenBridge.setBackfillActive(false);
+         state.idlePregenClaimed=false;
       }
    }
 
