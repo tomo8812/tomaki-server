@@ -206,6 +206,7 @@ tasks.register('issue68CompatibilityTest', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'maki.chunksmithcache.CompatibilityInputSelfTest'
+    systemProperty 'issue68.modsDir', file('../../mods').absolutePath
 }
 
 tasks.named('check') {
