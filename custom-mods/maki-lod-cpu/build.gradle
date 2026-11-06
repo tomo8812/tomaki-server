@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.lodcpu'
-version = '1.3.4'
+version = '1.4.0'
 
 base {
     archivesName = 'maki-lod-cpu'
@@ -36,4 +36,53 @@ tasks.named('jar') {
     from(sourceSets.main.allJava) {
         into 'META-INF/sources'
     }
+}
+
+def issue66BudgetSource = file('src/main/java/maki/lodcpu/SharedWorkBudget.java')
+def issue66ApiSource = file('src/main/java/maki/lodcpu/ResourceBudgetApi.java')
+def issue66MixinSource = file('src/main/java/maki/lodcpu/mixin/GenerationTaskMixin.java')
+
+tasks.register('verifyIssue66SharedScheduling') {
+    inputs.files(issue66BudgetSource, issue66ApiSource, issue66MixinSource)
+    doLast {
+        def budget = issue66BudgetSource.getText('UTF-8')
+        def api = issue66ApiSource.getText('UTF-8')
+        def mixin = issue66MixinSource.getText('UTF-8')
+        ['draining-follow-dispatch', 'dynamic-cooldown', 'waiting-clean-follow-sample', 'noteCleanFollowSample', 'blockFollowDispatch', 'backfillStarted'].each { token ->
+            if (!budget.contains(token)) throw new GradleException('Issue #66 regression: shared scheduler missing ' + token)
+        }
+        ['activeTaskMode', 'TaskOwnership.isOwned', 'noteFollowInFlight'].each { token ->
+            if (!api.contains(token)) throw new GradleException('Issue #66 regression: resource API ownership/drain handshake missing ' + token)
+        }
+        ['maki$sharedBackfillBarrier', 'ResourceBudgetApi.blockFollowDispatch', 'LockSupport.parkNanos'].each { token ->
+            if (!mixin.contains(token)) throw new GradleException('Issue #66 regression: non-stopping follow dispatch barrier missing ' + token)
+        }
+        if (api.contains('requestBackfillExclusivePause') || api.contains('PlayerCenter.')) {
+            throw new GradleException('Issue #66 regression: Backfill must not stop/restart the follow task lifecycle')
+        }
+    }
+}
+
+def chunksmithIssue66Jar = file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+
+tasks.register('verifyIssue66ChunksmithBytecode') {
+    inputs.file(chunksmithIssue66Jar)
+    doLast {
+        def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
+        def process = new ProcessBuilder(
+            javap, '-classpath', chunksmithIssue66Jar.absolutePath,
+            '-p', '-c', 'com.kishku7.chunksmith.GenerationTask'
+        ).redirectErrorStream(true).start()
+        def text = process.inputStream.getText('UTF-8')
+        def exit = process.waitFor()
+        if (exit != 0) throw new GradleException('Issue #66: javap GenerationTask failed\n' + text)
+        if (!text.contains('ChunkIterator.next:()Ljava/lang/Object;')) {
+            throw new GradleException('Issue #66: Chunksmith iterator bytecode no longer matches the dispatch-barrier Mixin target')
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyIssue66SharedScheduling')
+    dependsOn tasks.named('verifyIssue66ChunksmithBytecode')
 }

@@ -40,6 +40,7 @@ public final class CacheManager {
    private static final int SCHEMA = 1;
    private static final AtomicLong LAST_QUEUE_WARNING = new AtomicLong();
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
+   private static final Set<String> CAPTURE_PENDING = ConcurrentHashMap.newKeySet();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
    private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
    private static final long MAINTENANCE_RETRY_MS = TimeUnit.MINUTES.toMillis(1L);
@@ -53,12 +54,33 @@ public final class CacheManager {
    private CacheManager() {
    }
 
-   public static void captureFromChunksmith(ServerLevel var0, LevelChunk var1) {
-      if (var0 != null && var1 != null && !BackfillGuard.active(var0, var1.getPos())) {
-         if (HorizonGuard.drop(var0, var1.getPos())) {
-            capture(var0, var1, false);
+   public static void captureFromChunksmith(ServerLevel level, LevelChunk chunk) {
+      if (level == null || chunk == null || BackfillGuard.suppress(level, chunk.getPos())) {
+         return;
+      }
+      if (HorizonGuard.drop(level, chunk.getPos())) {
+         String pending=captureKey(level,chunk.getPos());
+         if (CAPTURE_PENDING.add(pending)) {
+            capture(level,chunk,false).whenComplete((ok,error) -> CAPTURE_PENDING.remove(pending));
          }
       }
+   }
+
+   /**
+    * Fast, non-blocking indication used after the follow dispatch barrier and
+    * by the Chunksmith world adapter. Cache files are atomically published, so
+    * a visible path represents a completed write; CAPTURE_PENDING closes the
+    * small race before that atomic move.
+    */
+   public static boolean chunksmithGeneratedHint(ServerLevel level, ChunkPos pos) {
+      if(level==null||pos==null)return false;
+      if(BackfillGuard.active(level,pos)||CAPTURE_PENDING.contains(captureKey(level,pos)))return true;
+      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+      return snapshot!=null&&Files.isRegularFile(path(level,pos,snapshot.fingerprint()));
+   }
+
+   private static String captureKey(ServerLevel level,ChunkPos pos) {
+      return dimensionKey(level)+"@"+pos.toLong();
    }
 
    static CompletableFuture<Boolean> capture(ServerLevel var0, LevelChunk var1, boolean var2) {

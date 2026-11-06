@@ -10,7 +10,7 @@ The existing `maki-lod-cpu` remains the owner of Chunksmith concurrency. This mo
 - entering or leaving online adaptive mode resets the experiment once, rather than once per sample;
 - with `generate-while-online=false`, the original `players-online-paused` path is unchanged.
 
-It is intentionally separate from the `maki-lod-cpu` JAR because Issues #5 and #10 already have concurrent branches replacing that binary. The dependency range is constrained to `maki_lod_cpu [1.2.1,1.4.0)`; revalidate the Mixin target before widening it.
+It remains a separate compatibility layer. Version 1.0.3 revalidates the same `AdaptivePolicy.update(AdaptiveSample,int,Settings)` Mixin target against `maki-lod-cpu 1.4.0` and constrains the runtime dependency to `maki_lod_cpu [1.4.0,1.5.0)`. Issue #66's shared Backfill safety-only path is implemented in `updateSafetyOnly(...)`, outside this Mixin target.
 
 Validation performed for 1.0.1:
 
@@ -36,3 +36,10 @@ Issue #32 / version 1.0.2:
 
 See [the complete audit](../../docs/issue-32-mixin-audit.md) for all 13 mods,
 runtime evidence, interactions and client-side validation limits.
+
+
+Issue #66 / version 1.0.3:
+
+- Compile input follows the source-built `maki-lod-cpu 1.4.0` JAR, with the deployed 1.4.0 JAR as fallback.
+- The existing online-only transformation remains scoped to `AdaptivePolicy.update(...)`; intentional Backfill pauses use `updateSafetyOnly(...)` and therefore do not pass through this compatibility Mixin.
+- The version bump is required because 1.0.2 explicitly excluded `maki-lod-cpu 1.4.0` at runtime.
