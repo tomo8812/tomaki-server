@@ -27,7 +27,7 @@ final class TaskMigrationStoreTest {
     @Test
     void backupPreservesExactRuntimeStateAndAuditMetadata() throws Exception {
         Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
-        Path root=temp.resolve("config/chunksmith/task-backups/maki-lod-cpu/v1/minecraft/overworld");
+        Path root=temp.resolve("config/chunksmith/tasks/.maki-lod-cpu-backups/v1/minecraft/overworld");
         Files.createDirectories(source.getParent());
         Files.writeString(source,TASK,StandardCharsets.UTF_8);
 
@@ -36,7 +36,7 @@ final class TaskMigrationStoreTest {
         assertTrue(Files.exists(source));
         assertEquals(TASK,Files.readString(backup.payload(),StandardCharsets.UTF_8));
         assertEquals(TaskMigrationStore.sha256(source),backup.sha256());
-        String metadata=Files.readString(backup.directory().resolve("migration.properties"),StandardCharsets.UTF_8);
+        String metadata=Files.readString(backup.directory().resolve("migration.meta"),StandardCharsets.UTF_8);
         assertTrue(metadata.contains("schemaVersion=1"));
         assertTrue(metadata.contains("action=backup"));
         assertTrue(metadata.contains("actor=test-admin"));
@@ -48,7 +48,7 @@ final class TaskMigrationStoreTest {
     @Test
     void stashAndRestoreLatestAreLossless() throws Exception {
         Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
-        Path root=temp.resolve("config/chunksmith/task-backups/maki-lod-cpu/v1/minecraft/overworld");
+        Path root=temp.resolve("config/chunksmith/tasks/.maki-lod-cpu-backups/v1/minecraft/overworld");
         Files.createDirectories(source.getParent());
         Files.writeString(source,TASK,StandardCharsets.UTF_8);
 
@@ -68,7 +68,7 @@ final class TaskMigrationStoreTest {
     @Test
     void restoreNeverOverwritesLiveTask() throws Exception {
         Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
-        Path root=temp.resolve("config/chunksmith/task-backups/maki-lod-cpu/v1/minecraft/overworld");
+        Path root=temp.resolve("config/chunksmith/tasks/.maki-lod-cpu-backups/v1/minecraft/overworld");
         Files.createDirectories(source.getParent());
         Files.writeString(source,TASK,StandardCharsets.UTF_8);
         TaskMigrationStore.backup(source,root,"backup","test-admin");
