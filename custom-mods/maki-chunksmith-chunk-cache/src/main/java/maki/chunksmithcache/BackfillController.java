@@ -108,6 +108,7 @@ public final class BackfillController {
       }
       if (server.getPlayerCount() != 0) {
          releaseResourceBudget(state,"players-online");
+         state.pendingCandidate=null;
          state.phase="waiting-players";
          report(server,state,false);
          return;
@@ -125,7 +126,8 @@ public final class BackfillController {
          report(server,state,false);
          return;
       }
-      if (!reserveResourceBudget(state)) {
+      if(state.pendingCandidate!=null) {
+         tryStartPending(server,state);
          report(server,state,false);
          return;
       }
@@ -168,48 +170,53 @@ public final class BackfillController {
                return;
             }
             state.candidatesFound++;
-            if (state.busy) {
-               releaseResourceBudget(state,"became-busy");
-               state.phase="busy";
-               report(server,state,true);
-               return;
-            }
-            if (server.getPlayerCount() != 0) {
-               releaseResourceBudget(state,"players-online");
-               state.phase="waiting-players";
-               report(server,state,true);
-               return;
-            }
-            if (!MillenaireBridge.canBackfillSafely()) {
-               releaseResourceBudget(state,"millenaire-safety");
-               state.phase="waiting-millenaire-safety";
-               report(server,state,true);
-               return;
-            }
-            if (!reserveResourceBudget(state)) {
-               report(server,state,true);
-               return;
-            }
-
-            ServerLevel level=candidate.level();
-            BackfillController.Target target=candidate.target();
-            ChunkPos pos=target.pos();
-            if (level.getChunkSource().hasChunk(pos.x,pos.z)) {
-               releaseResourceBudget(state,"candidate-already-loaded");
-               state.phase="candidate-already-loaded";
-               state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
-               advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
-               report(server,state,true);
-            } else if (!BackfillGuard.scopeAvailable(level,candidate.suppressed())) {
-               releaseResourceBudget(state,"dependency-scope-loaded");
-               state.phase="candidate-dependency-scope-loaded";
-               state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
-               advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
-               report(server,state,true);
-            } else {
-               start(level,target,state,candidate.suppressed());
-            }
+            state.pendingCandidate=candidate;
+            tryStartPending(server,state);
+            report(server,state,true);
          }));
+   }
+
+   private static void tryStartPending(MinecraftServer server,BackfillController.State state) {
+      BackfillController.Candidate candidate=state.pendingCandidate;
+      if(candidate==null||state.busy)return;
+      if(server.getPlayerCount()!=0) {
+         releaseResourceBudget(state,"players-online");
+         state.pendingCandidate=null;
+         state.phase="waiting-players";
+         return;
+      }
+      if(state.retiredGuards.size()>=MAX_RETIRED_GUARDS) {
+         releaseResourceBudget(state,"retired-guard-cap");
+         state.waitReason="retired-guard-cap";
+         enterPhase(state,"waiting-retired-guard-cap");
+         return;
+      }
+      if(!MillenaireBridge.canBackfillSafely()) {
+         releaseResourceBudget(state,"millenaire-safety");
+         state.phase="waiting-millenaire-safety";
+         return;
+      }
+      if(!reserveResourceBudget(state))return;
+
+      ServerLevel level=candidate.level();
+      BackfillController.Target target=candidate.target();
+      ChunkPos pos=target.pos();
+      if(level.getChunkSource().hasChunk(pos.x,pos.z)) {
+         state.pendingCandidate=null;
+         releaseResourceBudget(state,"candidate-already-loaded");
+         state.phase="candidate-already-loaded";
+         state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
+         advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
+      } else if(!BackfillGuard.scopeAvailable(level,candidate.suppressed())) {
+         state.pendingCandidate=null;
+         releaseResourceBudget(state,"dependency-scope-loaded");
+         state.phase="candidate-dependency-scope-loaded";
+         state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
+         advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
+      } else {
+         state.pendingCandidate=null;
+         start(level,target,state,candidate.suppressed());
+      }
    }
 
    private static boolean reserveResourceBudget(BackfillController.State state) {
@@ -226,11 +233,16 @@ public final class BackfillController {
    }
 
    private static void releaseResourceBudget(BackfillController.State state,String outcome) {
-      if(state.resourceBudgetReserved||LodResourceBudgetBridge.reservationHeld()) {
-         LodResourceBudgetBridge.release(outcome);
-      }
+      if(state.resourceBudgetReserved||LodResourceBudgetBridge.reservationHeld())LodResourceBudgetBridge.release(outcome);
       state.resourceBudgetReserved=false;
       state.budgetReason="released:"+outcome;
+   }
+
+   private static boolean completeResourceBudget(BackfillController.State state,String outcome) {
+      boolean keep=LodResourceBudgetBridge.complete(outcome);
+      state.resourceBudgetReserved=keep&&LodResourceBudgetBridge.reservationHeld();
+      state.budgetReason=keep?"exclusive-continues":"yielded:"+outcome;
+      return keep;
    }
 
    public static void onUnload(ServerLevel level, LevelChunk chunk) {
@@ -281,7 +293,6 @@ public final class BackfillController {
             clearActive(var2);
          } else {
             var2.resourceBudgetReserved=LodResourceBudgetBridge.reservationHeld();
-            LodResourceBudgetBridge.started();
             IdlePregenBridge.setBackfillActive(true);
             var2.idlePregenClaimed=IdlePregenBridge.isClaimed();
             LOG.debug("Backfilling cached chunk {} in {}", new Object[]{var3, var0.dimension().location()});
@@ -541,7 +552,8 @@ public final class BackfillController {
                markProgress(state);
                enterPhase(state,state.completionOutcome+"-ticket-releasing");
                releaseOwnedTicket(level,pos,state);
-               releaseResourceBudget(state,state.completionOutcome);
+               if("completed".equals(state.completionOutcome))completeResourceBudget(state,state.completionOutcome);
+               else releaseResourceBudget(state,state.completionOutcome);
                if(active(state,token,level,pos)) {
                   if("completed".equals(state.completionOutcome)) {
                      retireSuccessfulGuard(level,pos,state);
@@ -746,7 +758,8 @@ public final class BackfillController {
 
    private static void clearActive(BackfillController.State var0) {
       MinecraftServer server=var0.activeLevel==null?null:var0.activeLevel.getServer();
-      if(var0.resourceBudgetReserved)releaseResourceBudget(var0,var0.completionOutcome==null?"cleared":var0.completionOutcome);
+      if(var0.resourceBudgetReserved&&!"completed".equals(var0.completionOutcome))
+         releaseResourceBudget(var0,var0.completionOutcome==null?"cleared":var0.completionOutcome);
       IdlePregenBridge.setBackfillActive(false);
       var0.idlePregenClaimed=false;
       var0.busy=false;
@@ -1069,6 +1082,7 @@ public final class BackfillController {
       boolean idlePregenClaimed;
       boolean resourceBudgetReserved;
       boolean awaitingScopeDrain;
+      BackfillController.Candidate pendingCandidate;
       long lastRequestQueuedAt;
       double lastTicketSafePointDelayMs = -1.0;
       double lastDistanceManagerUpdateWallMs = -1.0;
