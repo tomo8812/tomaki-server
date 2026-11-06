@@ -99,7 +99,10 @@ public final class CpuGovernor {
         else if(players>0)cap=POLICY.update(sample,players,settings);
         else if(sharedBackfillPause)cap=POLICY.updateSafetyOnly(sample,players,settings);
         else if(!active)cap=POLICY.reset(settings,"generation-idle");
-        else cap=POLICY.update(sample,players,settings);
+        else {
+            cap=POLICY.update(sample,players,settings);
+            SHARED_BUDGET.noteCleanFollowSample();
+        }
         lastBudgetTransition=budgetTransition;
 
         boolean experimentFinished=reportedExperiment!=POLICY.experimentNumber;
