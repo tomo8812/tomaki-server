@@ -15,7 +15,9 @@ public final class BackfillGuard {
    }
 
    public static void arm(ServerLevel level, ChunkPos target, Set<Long> suppressed) {
-      ACTIVE.put(key(level), new Session(target.toLong(), Set.copyOf(suppressed)));
+      Set<Long> owned = ConcurrentHashMap.newKeySet();
+      owned.addAll(suppressed);
+      ACTIVE.put(key(level), new Session(target.toLong(), owned));
    }
 
    public static boolean active(ServerLevel level, ChunkPos pos) {
@@ -33,11 +35,19 @@ public final class BackfillGuard {
       }
 
       Session session = ACTIVE.get(key(level));
-      if (session == null || !session.suppressed().contains(pos.toLong())) {
+      long packed = pos.toLong();
+      if (session == null || !session.suppressed().contains(packed)) {
          return false;
       }
 
-      return !playerNear(level, pos);
+      if (playerNear(level, pos)) {
+         if (session.target() != packed) {
+            session.suppressed().remove(packed);
+         }
+         return false;
+      }
+
+      return true;
    }
 
    public static boolean activePoi(Object poiManager, ChunkPos pos) {
@@ -50,6 +60,30 @@ public final class BackfillGuard {
       }
 
       return false;
+   }
+
+   public static int releasePlayerOwnedDependencies(ServerLevel level, ChunkPos target) {
+      if (level == null || target == null) {
+         return 0;
+      }
+
+      Session session = ACTIVE.get(key(level));
+      if (session == null || session.target() != target.toLong()) {
+         return 0;
+      }
+
+      int released = 0;
+      for (long packed : session.suppressed()) {
+         if (packed == session.target()) {
+            continue;
+         }
+
+         ChunkPos pos = new ChunkPos(packed);
+         if (playerNear(level, pos) && level.getChunkSource().hasChunk(pos.x, pos.z) && session.suppressed().remove(packed)) {
+            released++;
+         }
+      }
+      return released;
    }
 
    public static boolean scopeAvailable(ServerLevel level, Set<Long> scope) {
