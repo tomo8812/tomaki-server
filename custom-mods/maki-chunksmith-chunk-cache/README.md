@@ -29,8 +29,9 @@ Version 1.0.3 removes the circular dependency between the backfill idle-work cla
 - the existing `BACKFILL_TICKET` is the sole ticket owned by backfill;
 - FULL acquisition polls `getChunkFuture(..., FULL, false)`, so the lookup does not create an auxiliary vanilla `UNKNOWN` ticket;
 - the custom ticket and idle-work claim are released as soon as durable LOD/cache work is finished, while `BackfillGuard` remains active until the chunk actually unloads or a player takes ownership;
+- a successful completed guard is detached from the single active backfill pipeline, so a delayed unload does not block the next candidate; guards support multiple coordinates per dimension and are bounded to 8 detached entries;
+- detached guards are released on the real unload callback or player handoff, warn after 30 seconds, and never force-unload or delete another owner's ticket;
 - pre-FULL loading warns after 30 seconds and aborts safely after five minutes;
-- post-ticket unload delays warn after 30 seconds without force-unloading or deleting another owner's ticket;
-- status schema 2 records phase/progress/ticket timestamps, guard state, server freeze state, unload wait time, and a typed wait reason.
+- status schema 2 records phase/progress/ticket timestamps, active and detached guard state, server freeze state, unload wait time, and typed wait reasons.
 
 This deliberately does not change Chunksmith 4.6.0, `maki-idle-pregen`, fingerprint rotation (#40), synchronous load scheduling (#44), status-file I/O (#45), or neighboring ProtoChunk persistence (#47).
