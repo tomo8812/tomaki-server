@@ -47,7 +47,8 @@ def registeredMixins = [
     'maki.chunksmithcache.mixin.SectionStorageMixin',
     'maki.chunksmithcache.mixin.EntityStorageMixin',
     'maki.chunksmithcache.mixin.ServerLevelUnloadMixin',
-    'maki.chunksmithcache.mixin.MinecraftServerMixin'
+    'maki.chunksmithcache.mixin.MinecraftServerMixin',
+    'maki.chunksmithcache.mixin.NeoForgeWorldMixin'
 ]
 
 def issue47ControllerSource = file('src/main/java/maki/chunksmithcache/BackfillController.java')
@@ -145,12 +146,12 @@ tasks.register('verifyIssue66SharedBudget') {
             throw new GradleException('Issue #66 regression: unconditional Chunksmith-task backfill blocking returned')
         }
         ['pendingCandidate', 'tryStartPending', 'reserveResourceBudget', 'waiting-shared-budget-',
-         'completeResourceBudget', 'releaseResourceBudget', 'budgetReason'].each { token ->
+         'candidate-generated-during-drain', 'LodResourceBudgetBridge.started()', 'releaseResourceBudget', 'budgetReason'].each { token ->
             if (!controller.contains(token)) {
                 throw new GradleException('Issue #66 regression: shared backfill budget lifecycle is missing ' + token)
             }
         }
-        ['reserveBackfill', 'backfillReservationHeld', 'completeBackfill', 'releaseBackfill'].each { token ->
+        ['reserveBackfill', 'backfillReservationHeld', 'backfillStarted', 'releaseBackfill'].each { token ->
             if (!bridge.contains(token)) {
                 throw new GradleException('Issue #66 regression: maki-lod-cpu budget bridge is missing ' + token)
             }
