@@ -1,6 +1,6 @@
 # maki-chunksmith-chunk-cache
 
-Version 1.2.0 combines compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and exclusive shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
+Version 1.2.0 combines compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
 
 
 Maintained source for the server-only Chunksmith cold-cache/backfill compatibility mod.
@@ -82,17 +82,18 @@ Version 1.0.4 makes legacy CSLOD backfill distinguish the state of normal chunk 
 
 This change does not patch Chunksmith itself. It keeps ownership in the existing cache/backfill compatibility MOD and uses Vanilla/NeoForge chunk lifecycle boundaries plus the installed Chunksmith 4.6.0 API.
 
-## Issue #66 exclusive shared resource scheduling
+## Issue #66 shared follow/backfill resource scheduling
 
 Version 1.2.0 no longer treats every active Chunksmith task as an unconditional backfill blocker.
 
-- candidate discovery runs without pausing follow, so an empty backfill queue never interrupts LOD generation;
-- once a real candidate is found, the required maki-lod-cpu 1.4.0 resource owner pauses only a follow-owned task with Chunksmith's normal non-cancelling stop, waits for in-flight work to drain and persisted progress to be saved, then grants the backfill epoch exclusive generation capacity;
-- external/unowned Chunksmith tasks are never stopped, adopted, recentered, or capped by this path;
-- CPU, MSPT, heap/GC, system-memory headroom, I/O PSI, LOD queue, chunk-write queue and native backpressure are observed by the shared governor; high CPU alone remains diagnostic rather than a hard stop;
-- successful backfills continue within one exclusive epoch until a dynamic resource-pressure yield or the configured time/chunk bound; then follow receives a guaranteed minimum slice before another epoch can begin;
-- player arrival, failures, external task ownership, safety loss, or inability to drain pressure release the exclusive reservation and restore follow ownership;
-- the existing BACKFILL_TICKET, dependency-scope persistence guards, Millénaire suppression, player handoff, durable LOD refresh, cache capture, and unload handling remain unchanged.
+- candidate discovery runs while follow continues, so an empty Backfill queue never disturbs LOD generation;
+- once a safe real-chunk candidate exists, maki-lod-cpu 1.4.0 reserves a short shared-budget slice and holds only **new dispatch** from a follow-owned Chunksmith task; it never calls stop/resume/recenter or replaces the task;
+- the already-dispatched follow requests drain to zero before Backfill starts, closing the race where follow and Backfill could generate the same target/dependency scope concurrently;
+- external/unowned Chunksmith tasks are never stopped, adopted, recentered, capped, or dispatch-blocked by this path;
+- CPU, actual MSPT, heap/GC, system-memory headroom, I/O PSI, LOD/write queues and native backpressure control admission. High CPU by itself is intentionally not a blocker;
+- one guarded Backfill runs per slice. Its measured duration plus durable LOD/storage progress determines the next dynamic spacing, bounded so follow keeps priority while continuously safe Backfill cannot starve indefinitely;
+- cache writes that are already in flight are tracked, and cache-backed FULL chunks are reported as generated to Chunksmith so follow does not immediately regenerate and rewrite the same cached chunk;
+- the existing BACKFILL_TICKET, dependency-scope persistence guards, Millénaire suppression, player handoff, durable LOD refresh, cache capture, quarantine generations and unload handling remain authoritative.
 
-This is time-sharing rather than fixed concurrent percentages: follow owns all generation capacity outside a backfill epoch, while backfill owns all available generation capacity inside its epoch. Both sides therefore have a bounded opportunity to progress without requiring spare capacity to appear accidentally.
+This design deliberately uses a brief dispatch barrier instead of lifecycle pause/resume. Chunksmith 4.6.0 has no public per-coordinate reservation API, so fully concurrent follow/Backfill would leave dependency-overlap races unless the distributed MOD were patched. Keeping that exclusion in the custom compatibility MOD preserves upstream upgradeability.
 
