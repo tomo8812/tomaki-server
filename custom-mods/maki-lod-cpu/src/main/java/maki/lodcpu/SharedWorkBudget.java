@@ -133,7 +133,12 @@ final class SharedWorkBudget {
         }
         if(outcome!=null&&!outcome.startsWith("completed")&&!outcome.equals("no-candidate"))factor*=2.0;
 
-        long min=settings.backfillMinSpacingSeconds*1000L;
+        // The first governor sample after release is intentionally excluded because
+        // it contains the barrier transition. Keep enough follow-only time for
+        // at least one subsequent complete sample before another Backfill may reserve.
+        long configuredMin=settings.backfillMinSpacingSeconds*1000L;
+        long cleanMeasurementMin=(long)Math.ceil(settings.interval*2000.0);
+        long min=Math.max(configuredMin,cleanMeasurementMin);
         long max=settings.backfillMaxSafeWaitSeconds*1000L;
         long cooldown=Math.max(min,Math.min(max,Math.round(measured*factor)));
         nextEligibleAtNanos=nowNanos+cooldown*1_000_000L;
