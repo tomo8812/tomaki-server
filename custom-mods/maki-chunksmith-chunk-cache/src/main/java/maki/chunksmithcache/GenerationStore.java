@@ -42,13 +42,12 @@ final class GenerationStore {
             migrateExactLegacy(root, snapshot, trigger);
             quarantineIncompatible(root, snapshot, trigger);
             Path active = root.resolve(snapshot.fingerprint());
-            if (Files.isDirectory(active)) {
-                FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
-                Set<String> accepted = new LinkedHashSet<>();
-                accepted.add(snapshot.fingerprint());
-                if (existing != null && existing.fingerprint().equals(snapshot.fingerprint())) accepted.addAll(existing.storedFingerprints());
-                FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
-            }
+            Files.createDirectories(active);
+            FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
+            Set<String> accepted = new LinkedHashSet<>();
+            accepted.add(snapshot.fingerprint());
+            if (existing != null && existing.fingerprint().equals(snapshot.fingerprint())) accepted.addAll(existing.storedFingerprints());
+            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
             FingerprintManifest.writeAtomic(root.resolve(FingerprintManifest.CURRENT_FILE_NAME), currentState);
             pruneQuarantine(root, snapshot.policy());
         } catch (Throwable error) {
