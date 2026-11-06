@@ -26,6 +26,8 @@ final class SharedWorkBudget {
     private Sample sample;
     private boolean reserved;
     private boolean followDrained;
+    private boolean followWasPresent;
+    private boolean cleanFollowSampleRequired;
     private long reservationAtNanos;
     private long workStartedAtNanos;
     private long demandSinceNanos;
@@ -52,8 +54,13 @@ final class SharedWorkBudget {
             return decision(nowNanos,false,false,lastReason);
         }
 
+        if("none".equals(taskMode))cleanFollowSampleRequired=false;
         if(demandSinceNanos==0L)demandSinceNanos=nowNanos;
         if(!reserved) {
+            if(cleanFollowSampleRequired) {
+                lastReason="waiting-clean-follow-sample";
+                return decision(nowNanos,false,false,lastReason);
+            }
             if(nowNanos<nextEligibleAtNanos) {
                 lastReason="dynamic-cooldown";
                 return decision(nowNanos,false,false,lastReason);
@@ -62,6 +69,7 @@ final class SharedWorkBudget {
             transitionSerial++;
             reservationAtNanos=nowNanos;
             workStartedAtNanos=0L;
+            followWasPresent="follow".equals(taskMode);
             followDrained="none".equals(taskMode);
         }
 
@@ -84,6 +92,13 @@ final class SharedWorkBudget {
         if(reserved&&workStartedAtNanos==0L&&count==0) {
             followDrained=true;
             lastReason="follow-drained";
+        }
+    }
+
+    synchronized void noteCleanFollowSample() {
+        if(!reserved&&cleanFollowSampleRequired) {
+            cleanFollowSampleRequired=false;
+            lastReason="clean-follow-sample";
         }
     }
 
@@ -142,6 +157,8 @@ final class SharedWorkBudget {
         nextEligibleAtNanos=nowNanos+cooldown*1_000_000L;
 
         transitionSerial++;
+        cleanFollowSampleRequired=followWasPresent;
+        followWasPresent=false;
         reserved=false;
         followDrained=false;
         reservationAtNanos=0L;
@@ -161,6 +178,7 @@ final class SharedWorkBudget {
             +",drainMs="+elapsedMillis(nowNanos,reservationAtNanos)
             +",avgBackfillMs="+value(averageBackfillMillis)
             +",cooldownRemainingMs="+Math.max(0L,(nextEligibleAtNanos-nowNanos)/1_000_000L)
+            +",cleanFollowSampleRequired="+cleanFollowSampleRequired
             +",pressure="+(p==null?"none":p)
             +",cpu="+value(current==null?Double.NaN:current.cpu())
             +",mspt="+value(current==null?Double.NaN:current.mspt())
@@ -198,6 +216,8 @@ final class SharedWorkBudget {
     private void cancelPending(long nowNanos,Settings settings) {
         if(reserved&&workStartedAtNanos==0L) {
             transitionSerial++;
+            cleanFollowSampleRequired=followWasPresent;
+            followWasPresent=false;
             reserved=false;
             followDrained=false;
             reservationAtNanos=0L;
