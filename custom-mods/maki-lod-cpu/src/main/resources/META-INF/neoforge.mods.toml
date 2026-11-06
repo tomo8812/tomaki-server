@@ -5,7 +5,7 @@ license="MIT"
 modId="maki_lod_cpu"
 version="1.4.0"
 displayName="Maki LOD CPU Governor"
-description="Server-only Chunksmith persisted-LOD throughput controller and named-player center tracking. Follow LOD and real-chunk backfill use pressure-aware exclusive epochs with bounded fairness using CPU, tick, memory, GC, I/O and storage telemetry. Online background generation is disabled by default."
+description="Server-only Chunksmith persisted-LOD throughput controller and named-player center tracking. Follow dispatch and real-chunk backfill share a pressure-aware time budget using tick, memory, GC, I/O and storage telemetry without stop/resume cycling the follow task. Online background generation is disabled by default."
 [[dependencies.maki_lod_cpu]]
 modId="neoforge"
 type="required"
