@@ -7,7 +7,6 @@ import java.lang.reflect.Method;
 final class VsPhysicsPauseController {
     private static final Logger LOG = System.getLogger("MakiIdlePregen");
 
-    private static Object sessionPipeline;
     private static Object ownedPipeline;
     private static Method getRunningMethod;
     private static Method setRunningMethod;
@@ -39,7 +38,6 @@ final class VsPhysicsPauseController {
                 return;
             }
 
-            sessionPipeline = pipeline;
             getRunningMethod = pipeline.getClass().getMethod("getArePhysicsRunning");
             setRunningMethod = pipeline.getClass().getMethod("setArePhysicsRunning", boolean.class);
             decisionMade = true;
@@ -127,7 +125,6 @@ final class VsPhysicsPauseController {
     }
 
     private static void resetSession() {
-        sessionPipeline = null;
         ownedPipeline = null;
         getRunningMethod = null;
         setRunningMethod = null;
