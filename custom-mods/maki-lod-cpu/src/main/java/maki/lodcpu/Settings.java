@@ -45,7 +45,9 @@ public final class Settings {
         s.backfillLodQueueHigh=integer(p,"backfill-lod-queue-high",64,1,100000);
         s.backfillWriteQueueHigh=integer(p,"backfill-write-queue-high",32,1,100000);
         s.backfillMinSpacingSeconds=integer(p,"backfill-min-spacing-seconds",2,0,60);
-        s.backfillMaxSafeWaitSeconds=integer(p,"backfill-max-safe-wait-seconds",30,5,300);
+        int cleanFollowWindowSeconds=(int)Math.ceil(s.interval*2.0);
+        s.backfillMaxSafeWaitSeconds=integer(
+            p,"backfill-max-safe-wait-seconds",30,cleanFollowWindowSeconds,300);
         s.backfillDrainWaitSeconds=integer(p,"backfill-drain-wait-seconds",30,5,300);
         s.backfillSampleMaxAgeSeconds=integer(p,"backfill-sample-max-age-seconds",10,4,60);
         int cleanFollowSeconds=(int)Math.ceil(s.interval*2.0);
