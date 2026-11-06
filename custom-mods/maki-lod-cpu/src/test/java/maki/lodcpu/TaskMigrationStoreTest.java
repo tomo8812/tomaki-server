@@ -77,4 +77,32 @@ final class TaskMigrationStoreTest {
         assertTrue(error.getMessage().contains("refusing to overwrite"));
         assertEquals(TASK,Files.readString(source,StandardCharsets.UTF_8));
     }
+    @Test
+    void selectedExternalBackupCanBeRestoredAfterPreservingFollowStateSeparately() throws Exception {
+        Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
+        Path externalRoot=temp.resolve("world/data/maki_lod_task_backups/v1/minecraft/overworld");
+        Path followRoot=temp.resolve("world/data/maki_lod_task_backups/v1/minecraft/overworld-follow");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source,TASK,StandardCharsets.UTF_8);
+        var external=TaskMigrationStore.stash(source,externalRoot,"switch-follow","test-admin");
+
+        String follow=TASK+"maki-lod-cpu-owner=follow:test-session\n";
+        Files.writeString(source,follow,StandardCharsets.UTF_8);
+        var displaced=TaskMigrationStore.stash(source,followRoot,"restore-replaced-follow","test-admin");
+
+        var restored=TaskMigrationStore.restore(source,externalRoot,external.id(),"test-admin");
+        assertEquals(external.id(),restored.id());
+        assertEquals(TASK,Files.readString(source,StandardCharsets.UTF_8));
+        assertEquals(follow,Files.readString(displaced.payload(),StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void restoreRejectsBackupIdTraversal() throws Exception {
+        Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
+        Path root=temp.resolve("world/data/maki_lod_task_backups/v1/minecraft/overworld");
+        var error=assertThrows(Exception.class,()->TaskMigrationStore.restore(source,root,"../escape","test-admin"));
+        assertTrue(error.getMessage().contains("Invalid backup id"));
+        assertFalse(Files.exists(source));
+    }
+
 }
