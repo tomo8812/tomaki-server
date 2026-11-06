@@ -43,7 +43,8 @@ jobs:
           unzip -p "$JAR" META-INF/neoforge.mods.toml | grep -q 'version="1.0.4"'
           javap -classpath "$JAR" -c maki.chunksmithcache.BackfillGuard | grep -q 'scopeAvailable'
           javap -classpath "$JAR" -c maki.chunksmithcache.BackfillGuard | grep -q 'scopeDrained'
-          javap -classpath "$JAR" -c maki.chunksmithcache.BackfillController | grep -q 'waiting-dependency-scope-loaded'
+          javap -classpath "$JAR" -c maki.chunksmithcache.BackfillController > /tmp/backfill-controller.javap
+          grep -q 'waiting-dependency-scope-loaded' /tmp/backfill-controller.javap
           if jar tf "$JAR" | grep -Eq '^(net/minecraft|org/spongepowered|com/kishku7|it/unimi)/'; then
             echo "Unexpected dependency classes bundled in jar" >&2
             exit 1
