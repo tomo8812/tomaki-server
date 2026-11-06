@@ -48,7 +48,7 @@ tasks.register('verifyIssue66SharedScheduling') {
         def budget = issue66BudgetSource.getText('UTF-8')
         def api = issue66ApiSource.getText('UTF-8')
         def mixin = issue66MixinSource.getText('UTF-8')
-        ['draining-follow-dispatch', 'dynamic-cooldown', 'blockFollowDispatch', 'backfillStarted'].each { token ->
+        ['draining-follow-dispatch', 'dynamic-cooldown', 'waiting-clean-follow-sample', 'noteCleanFollowSample', 'blockFollowDispatch', 'backfillStarted'].each { token ->
             if (!budget.contains(token)) throw new GradleException('Issue #66 regression: shared scheduler missing ' + token)
         }
         ['activeTaskMode', 'TaskOwnership.isOwned', 'noteFollowInFlight'].each { token ->
