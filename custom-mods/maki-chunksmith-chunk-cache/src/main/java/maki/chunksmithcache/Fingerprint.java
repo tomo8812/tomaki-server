@@ -1,15 +1,15 @@
 package maki.chunksmithcache;
 
-import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
@@ -22,126 +22,144 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.storage.LevelResource;
 
 final class Fingerprint {
-   private static final String SCHEMA = "maki-chunk-cache-v1";
-   private static final Map<MinecraftServer, CompletableFuture<String>> SHARED = new WeakHashMap<>();
+    private static final String LEGACY_SCHEMA = "maki-chunk-cache-v1";
+    private static final Map<MinecraftServer, CompletableFuture<SharedState>> SHARED = new WeakHashMap<>();
+    private static final Map<ServerLevel, Snapshot> LEVEL_SNAPSHOTS = new WeakHashMap<>();
 
-   private Fingerprint() {
-   }
+    private Fingerprint() {}
 
-   static synchronized void kick(MinecraftServer var0) {
-      SHARED.computeIfAbsent(var0, var0x -> CompletableFuture.supplyAsync(() -> sharedFingerprint(var0x)));
-   }
+    static synchronized void kick(MinecraftServer server) {
+        SHARED.computeIfAbsent(server, value -> CompletableFuture.supplyAsync(() -> sharedState(value)));
+    }
 
-   static String forLevel(ServerLevel var0) {
-      MinecraftServer var1 = var0.getServer();
-      kick(var1);
-      CompletableFuture var2;
-      synchronized (Fingerprint.class) {
-         var2 = SHARED.get(var1);
-      }
+    static String forLevel(ServerLevel level) {
+        Snapshot snapshot = snapshotForLevel(level);
+        return snapshot == null ? null : snapshot.fingerprint();
+    }
 
-      if (var2 != null && var2.isDone() && !var2.isCompletedExceptionally()) {
-         try {
-            String var7 = (String)var2.join();
-            if (var7 == null) {
-               return null;
+    static Snapshot snapshotForLevel(ServerLevel level) {
+        MinecraftServer server = level.getServer();
+        kick(server);
+        CompletableFuture<SharedState> future;
+        synchronized (Fingerprint.class) {
+            Snapshot cached = LEVEL_SNAPSHOTS.get(level);
+            if (cached != null) return cached;
+            future = SHARED.get(server);
+        }
+        if (future == null || !future.isDone() || future.isCompletedExceptionally()) return null;
+        try {
+            SharedState shared = future.join();
+            if (shared == null) return null;
+            List<FingerprintManifest.Entry> entries = new ArrayList<>(shared.entries());
+            addValue(entries, "level:seed", Long.toString(level.getSeed()), "world seed");
+            addValue(entries, "level:dimension", level.dimension().location().toString(), "dimension identity");
+            addValue(entries, "level:generator-class", level.getChunkSource().getGenerator().getClass().getName(), "chunk generator implementation");
+            int dataVersion = WorldVersionBridge.getDataVersion(SharedConstants.getCurrentVersion()).getVersion();
+            addValue(entries, "minecraft:data-version", Integer.toString(dataVersion), "serialized chunk data version");
+            String fingerprint = CompatibilityFingerprint.compute(entries);
+
+            MessageDigest legacy = CompatibilityFingerprint.digest();
+            CompatibilityFingerprint.update(legacy, LEGACY_SCHEMA);
+            CompatibilityFingerprint.update(legacy, shared.legacySharedFingerprint());
+            CompatibilityFingerprint.update(legacy, Long.toString(level.getSeed()));
+            CompatibilityFingerprint.update(legacy, level.dimension().location().toString());
+            CompatibilityFingerprint.update(legacy, level.getChunkSource().getGenerator().getClass().getName());
+            CompatibilityFingerprint.update(legacy, Integer.toString(dataVersion));
+            String legacyFingerprint = CompatibilityFingerprint.hex(legacy.digest()).substring(0, 24);
+            Snapshot computed = new Snapshot(fingerprint, legacyFingerprint, shared.policy(), List.copyOf(entries));
+            synchronized (Fingerprint.class) {
+                Snapshot cached = LEVEL_SNAPSHOTS.get(level);
+                if (cached != null) return cached;
+                LEVEL_SNAPSHOTS.put(level, computed);
             }
-
-            MessageDigest var4 = digest();
-            update(var4, "maki-chunk-cache-v1");
-            update(var4, var7);
-            update(var4, Long.toString(var0.getSeed()));
-            update(var4, var0.dimension().location().toString());
-            update(var4, var0.getChunkSource().getGenerator().getClass().getName());
-            update(var4, Integer.toString(WorldVersionBridge.getDataVersion(SharedConstants.getCurrentVersion()).getVersion()));
-            return hex(var4.digest()).substring(0, 24);
-         } catch (Throwable var5) {
+            return computed;
+        } catch (Throwable ignored) {
             return null;
-         }
-      } else {
-         return null;
-      }
-   }
+        }
+    }
 
-   private static String sharedFingerprint(MinecraftServer var0) {
-      try {
-         MessageDigest var1 = digest();
-         update(var1, "maki-chunk-cache-v1");
-         Path var2 = var0.getServerDirectory();
-         hashTree(var1, var2.resolve("mods"), true);
-         hashTree(var1, var2.resolve("config"), true);
-         hashTree(var1, var2.resolve("serverconfig"), true);
-         hashTree(var1, var0.getWorldPath(LevelResource.ROOT).resolve("serverconfig"), true);
-         hashTree(var1, var0.getWorldPath(LevelResource.ROOT).resolve("datapacks"), true);
-         hashLevelDatSettings(var1, var0.getWorldPath(LevelResource.ROOT).resolve("level.dat"));
-         return hex(var1.digest());
-      } catch (Throwable var3) {
-         return null;
-      }
-   }
+    private static SharedState sharedState(MinecraftServer server) {
+        try {
+            Path serverDirectory = server.getServerDirectory();
+            FingerprintPolicy policy = FingerprintPolicy.load(serverDirectory);
+            List<FingerprintManifest.Entry> entries = new ArrayList<>();
+            addValue(entries, "policy:compatibility", policy.compatibilitySignature(), "compatibility classification policy");
 
-   private static void hashLevelDatSettings(MessageDigest var0, Path var1) {
-      if (Files.isRegularFile(var1)) {
-         try {
-            CompoundTag var2 = NbtIo.readCompressed(var1, NbtAccounter.unlimitedHeap());
-            CompoundTag var3 = var2.getCompound("Data");
-            update(var0, var3.getCompound("DataPacks").toString());
-            update(var0, var3.getCompound("WorldGenSettings").toString());
-         } catch (Throwable var4) {
-            update(var0, "level-dat-settings-unreadable");
-         }
-      }
-   }
+            MessageDigest legacy = CompatibilityFingerprint.digest();
+            CompatibilityFingerprint.update(legacy, LEGACY_SCHEMA);
+            collectTree(legacy, entries, serverDirectory.resolve("mods"), "mods", policy);
+            collectTree(legacy, entries, serverDirectory.resolve("config"), "config", policy);
+            collectTree(legacy, entries, serverDirectory.resolve("serverconfig"), "serverconfig", policy);
+            Path worldRoot = server.getWorldPath(LevelResource.ROOT);
+            collectTree(legacy, entries, worldRoot.resolve("serverconfig"), "world/serverconfig", policy);
+            collectTree(legacy, entries, worldRoot.resolve("datapacks"), "world/datapacks", policy);
+            collectLevelDat(legacy, entries, worldRoot.resolve("level.dat"));
+            return new SharedState(policy, List.copyOf(entries), CompatibilityFingerprint.hex(legacy.digest()));
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
 
-   private static void hashTree(MessageDigest var0, Path var1, boolean var2) throws IOException {
-      if (Files.isDirectory(var1)) {
-         ArrayList<Path> var3 = new ArrayList<>();
-
-         try (Stream<Path> var4 = FingerprintWalkBridge.walk(var1)) {
-            var4.filter(var0x -> Files.isRegularFile(var0x)).forEach(var3::add);
-         }
-
-         var3.sort(Comparator.comparing(var1x -> var1.relativize(var1x).toString()));
-         byte[] var15 = new byte[65536];
-
-         for (Path var6 : var3) {
-            String var7 = var1.relativize(var6).toString().replace('\\', '/');
-            if (!var7.equals("maki-chunksmith-chunk-cache.properties")) {
-               update(var0, var7);
-               update(var0, Long.toString(Files.size(var6)));
-               if (var2) {
-                  int var9;
-                  try (InputStream var8 = Files.newInputStream(var6)) {
-                     while ((var9 = var8.read(var15)) >= 0) {
-                        var0.update(var15, 0, var9);
-                     }
-                  }
-               }
+    private static void collectTree(MessageDigest legacy, List<FingerprintManifest.Entry> entries, Path root, String logicalRoot, FingerprintPolicy policy) throws Exception {
+        if (!Files.isDirectory(root)) return;
+        List<Path> files = new ArrayList<>();
+        try (Stream<Path> stream = FingerprintWalkBridge.walk(root)) {
+            stream.filter(Files::isRegularFile).forEach(files::add);
+        }
+        files.sort(Comparator.comparing(path -> root.relativize(path).toString()));
+        byte[] buffer = new byte[65536];
+        for (Path file : files) {
+            String relative = root.relativize(file).toString().replace('\\', '/');
+            if (relative.equals("maki-chunksmith-chunk-cache.properties")) continue;
+            long size = Files.size(file);
+            CompatibilityFingerprint.update(legacy, relative);
+            CompatibilityFingerprint.update(legacy, Long.toString(size));
+            MessageDigest content = CompatibilityFingerprint.digest();
+            try (InputStream input = Files.newInputStream(file)) {
+                int read;
+                while ((read = input.read(buffer)) >= 0) {
+                    if (read == 0) continue;
+                    legacy.update(buffer, 0, read);
+                    content.update(buffer, 0, read);
+                }
             }
-         }
-      }
-   }
+            String key = logicalRoot + "/" + relative;
+            FingerprintManifest.Impact impact = policy.classify(key, file);
+            entries.add(new FingerprintManifest.Entry(key, size, CompatibilityFingerprint.hex(content.digest()), impact, policy.reason(key, file, impact)));
+        }
+    }
 
-   private static MessageDigest digest() {
-      try {
-         return MessageDigest.getInstance("SHA-256");
-      } catch (NoSuchAlgorithmException var1) {
-         throw new IllegalStateException(var1);
-      }
-   }
+    private static void collectLevelDat(MessageDigest legacy, List<FingerprintManifest.Entry> entries, Path levelDat) {
+        if (!Files.isRegularFile(levelDat)) return;
+        try {
+            CompoundTag root = NbtIo.readCompressed(levelDat, NbtAccounter.unlimitedHeap());
+            CompoundTag data = root.getCompound("Data");
+            String dataPacks = data.getCompound("DataPacks").toString();
+            String worldGen = data.getCompound("WorldGenSettings").toString();
+            CompatibilityFingerprint.update(legacy, dataPacks);
+            CompatibilityFingerprint.update(legacy, worldGen);
+            addValue(entries, "level.dat:DataPacks", dataPacks, "enabled datapack state");
+            addValue(entries, "level.dat:WorldGenSettings", worldGen, "world generation settings");
+        } catch (Throwable ignored) {
+            CompatibilityFingerprint.update(legacy, "level-dat-settings-unreadable");
+            addValue(entries, "level.dat:unreadable", "level-dat-settings-unreadable", "fail-closed level.dat read failure");
+        }
+    }
 
-   private static void update(MessageDigest var0, String var1) {
-      var0.update(var1.getBytes(StandardCharsets.UTF_8));
-      var0.update((byte)0);
-   }
+    private static void addValue(List<FingerprintManifest.Entry> entries, String key, String value, String reason) {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        entries.add(new FingerprintManifest.Entry(key, bytes.length, CompatibilityFingerprint.sha256(value), FingerprintManifest.Impact.RELEVANT, reason));
+    }
 
-   private static String hex(byte[] var0) {
-      StringBuilder var1 = new StringBuilder(var0.length * 2);
+    record Snapshot(String fingerprint, String legacyFingerprint, FingerprintPolicy policy, List<FingerprintManifest.Entry> entries) {
+        Snapshot {
+            entries = List.copyOf(entries);
+        }
 
-      for (byte var5 : var0) {
-         var1.append(String.format("%02x", var5));
-      }
+        FingerprintManifest.Manifest manifest(Set<String> storedFingerprints) {
+            return new FingerprintManifest.Manifest(fingerprint, System.currentTimeMillis(), storedFingerprints, entries);
+        }
+    }
 
-      return var1.toString();
-   }
+    private record SharedState(FingerprintPolicy policy, List<FingerprintManifest.Entry> entries, String legacySharedFingerprint) {}
 }

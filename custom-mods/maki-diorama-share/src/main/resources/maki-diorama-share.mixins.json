@@ -1,0 +1,16 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "maki.mapshare.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "StoreAccess",
+    "StoreMixin",
+    "WaypointMixin",
+    "DeathMixin",
+    "SettingsTabMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

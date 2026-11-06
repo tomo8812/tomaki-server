@@ -31,8 +31,23 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Build and check maki-diorama-share
+        run: gradle -p custom-mods/maki-diorama-share clean check jar
+
+      - name: Build and check maki-idle-pregen
+        run: gradle -p custom-mods/maki-idle-pregen clean check jar
+
+      - name: Build and check maki-millenaire-lod-compat
+        run: gradle -p custom-mods/maki-millenaire-lod-compat clean check jar
+
+      - name: Build and check maki-status-io
+        run: gradle -p custom-mods/maki-status-io clean check jar
+
       - name: Build and check maki-chunksmith-chunk-cache
         run: gradle -p custom-mods/maki-chunksmith-chunk-cache clean check jar
+
+      - name: Build and check maki-lod-cpu
+        run: gradle -p custom-mods/maki-lod-cpu clean check jar
 
       - name: Build and check maki-ship-anchor-fix
         run: gradle -p custom-mods/maki-ship-anchor-fix clean check jar
@@ -78,6 +93,9 @@ jobs:
         run: |
           curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
           python3 .github/scripts/audit_mixin_annotations.py --annotation-api /tmp/sponge-mixin.jar --github-actions --json-output reports/shipped-mixin-audit.json
+
+      - name: Verify deployment sources and unique custom MOD IDs
+        run: python3 .github/scripts/check_deployment_sources.py
 
       - name: Test audit regressions
         if: always()

@@ -4,9 +4,9 @@ license="MIT"
 
 [[mods]]
 modId="maki_lag_observer"
-version="1.0.0"
+version="1.1.0"
 displayName="Maki Lag Observer"
-description="Low-overhead dedicated-server stall observer. Captures server-thread CPU versus wall time, sampled stacks, hot JVM threads, cgroup throttling and Linux PSI only when long stalls occur."
+description="Low-overhead dedicated-server stall observer with targeted slow-NBT-copy caller and structure tracing."
 
 [[dependencies.maki_lag_observer]]
 modId="neoforge"

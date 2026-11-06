@@ -4,9 +4,9 @@ license="MIT"
 
 [[mods]]
 modId="maki_idle_pregen"
-version="1.0.1"
+version="1.1.1"
 displayName="Maki Idle Pregen"
-description="Server-only idle pre-generation coordinator. Freezes normal simulation and Millenaire progression while the dedicated server is empty and background generation is active, without owning Chunksmith tasks or persistent settings."
+description="Server-only idle generation coordinator with bounded, loaded-chunk-only Millenaire startup initialization. It freezes normal simulation and owned Valkyrien Skies physics time while preserving state synchronization, while empty background generation is active without owning Chunksmith tasks."
 
 [[dependencies.maki_idle_pregen]]
 modId="neoforge"

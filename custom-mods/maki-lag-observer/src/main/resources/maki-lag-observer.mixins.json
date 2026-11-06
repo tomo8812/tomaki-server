@@ -3,6 +3,10 @@
   "minVersion": "0.8.7",
   "package": "maki.lagobserver.mixin",
   "compatibilityLevel": "JAVA_21",
-  "server": ["MinecraftServerMixin"],
+  "server": [
+    "CompoundTagMixin",
+    "ListTagMixin",
+    "MinecraftServerMixin"
+  ],
   "injectors": {"defaultRequire": 1}
 }

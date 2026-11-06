@@ -6,6 +6,7 @@
   "mixins": [
     "LodSupportMixin",
     "ChunkMapReadMixin",
+    "ChunkMapLifecycleAccessor",
     "ChunkMapSaveMixin",
     "SectionStorageMixin",
     "EntityStorageMixin",

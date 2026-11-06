@@ -24,3 +24,6 @@ custom-mods/**/build/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Chunksmith runtime task progress (server-owned, not distributed)
+/config/chunksmith/tasks/

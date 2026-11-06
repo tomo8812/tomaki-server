@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.idlepregen'
-version = '1.0.1'
+version = '1.1.1'
 
 base {
     archivesName = 'maki-idle-pregen'
@@ -39,6 +39,7 @@ tasks.named('jar') {
 }
 
 tasks.register('verifyMixinAnnotationRetention') {
+    notCompatibleWithConfigurationCache('invokes javap against compiled annotation tables')
     dependsOn tasks.named('classes')
     doLast {
         def javap = javaToolchains.launcherFor {
@@ -47,7 +48,20 @@ tasks.register('verifyMixinAnnotationRetention') {
         [
             'maki.idlepregen.mixin.MinecraftServerMixin',
             'maki.idlepregen.mixin.VillageManagerMixin',
-            'maki.idlepregen.mixin.VillageSpawnQueueMixin'
+            'maki.idlepregen.mixin.VillageSpawnQueueMixin',
+            'maki.idlepregen.mixin.VsPipelineMixin',
+            'maki.idlepregen.mixin.VsPhysShipMixin',
+            'maki.idlepregen.mixin.VsPhysLevelMixin',
+            'maki.idlepregen.mixin.VillageMixin',
+            'maki.idlepregen.mixin.VillageRehydratorMixin',
+            'maki.idlepregen.mixin.WaypointRebuildThrottleMixin',
+            'maki.idlepregen.mixin.BuildingInstanceMixin',
+            'maki.idlepregen.mixin.VillageWaypointGraphMixin',
+            'maki.idlepregen.mixin.WaypointTraversalTesterMixin',
+            'maki.idlepregen.mixin.MillWalkNodeEvaluatorMixin',
+            'maki.idlepregen.mixin.PathNavigationRegionMixin',
+            'maki.idlepregen.mixin.EmptyLevelChunkMixin',
+            'maki.idlepregen.mixin.ServerChunkCacheMixin'
         ].each { className ->
             def output = new ByteArrayOutputStream()
             exec {
@@ -60,14 +74,97 @@ tasks.register('verifyMixinAnnotationRetention') {
             if (classAnnotationIndex < 0 || invisibleIndex < 0 || invisibleIndex > classAnnotationIndex) {
                 throw new GradleException("${className}: @Mixin is not RuntimeInvisibleAnnotations")
             }
-            if (!text.contains('RuntimeVisibleAnnotations:') ||
-                !text.contains('org.spongepowered.asm.mixin.injection.Inject(')) {
+            def hasRuntimeInjector =
+                text.contains('org.spongepowered.asm.mixin.injection.Inject(') ||
+                text.contains('org.spongepowered.asm.mixin.injection.Redirect(') ||
+                text.contains('org.spongepowered.asm.mixin.injection.ModifyVariable(')
+            if (!text.contains('RuntimeVisibleAnnotations:') || !hasRuntimeInjector) {
                 throw new GradleException("${className}: injector annotations are not runtime-visible")
             }
         }
     }
 }
 
+tasks.register('verifyValkyrienSkiesPauseApi') {
+    notCompatibleWithConfigurationCache('invokes javap against the bundled Valkyrien Skies JAR')
+    doLast {
+        def vsJar = file('../../mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar')
+        if (!vsJar.isFile()) {
+            throw new GradleException("Missing bundled Valkyrien Skies JAR: ${vsJar}")
+        }
+
+        def javap = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }.get().metadata.installationPath.file('bin/javap').asFile
+
+        def inspect = { String className ->
+            def process = new ProcessBuilder(
+                    javap.absolutePath, '-classpath', vsJar.absolutePath, '-p', '-c', className)
+                    .redirectErrorStream(true)
+                    .start()
+            def output = process.inputStream.getText('UTF-8')
+            def exitCode = process.waitFor()
+            if (exitCode != 0) {
+                throw new GradleException("javap failed for ${className}: ${output}")
+            }
+            return output
+        }
+
+        def provider = inspect('org.valkyrienskies.mod.common.IShipObjectWorldServerProvider')
+        if (!provider.contains('getVsPipeline();')) {
+            throw new GradleException('Bundled Valkyrien Skies no longer exposes getVsPipeline()')
+        }
+
+        def pipeline = inspect('org.valkyrienskies.core.internal.world.VsiPipeline')
+        if (!pipeline.contains('getArePhysicsRunning();') ||
+            !pipeline.contains('setArePhysicsRunning(boolean);')) {
+            throw new GradleException('Bundled Valkyrien Skies physics pause ABI changed')
+        }
+
+        def implementation = inspect('org.valkyrienskies.core.impl.shadow.FQ')
+        if (!implementation.contains('volatile boolean c;') ||
+            !implementation.contains('public final void a(double);') ||
+            !implementation.contains('postTickGame();')) {
+            throw new GradleException('Bundled Valkyrien Skies physics-step ABI changed')
+        }
+
+        def physicsStage = inspect('org.valkyrienskies.core.impl.shadow.FN')
+        if (!physicsStage.contains('a(double, boolean)') ||
+            !physicsStage.contains('java/util/concurrent/ConcurrentLinkedQueue.remove:()Ljava/lang/Object;')) {
+            throw new GradleException('Bundled Valkyrien Skies game-frame drain path changed')
+        }
+
+        def physShip = inspect('org.valkyrienskies.core.impl.game.ships.PhysShipImpl')
+        [
+            'invForces;',
+            'invTorques;',
+            'rotForces;',
+            'rotTorques;',
+            'invPosForces;',
+            'invPosPositions;',
+            'getPhysicsListeners$impl();',
+            'applyQueuedForces();'
+        ].each { needle ->
+            if (!physShip.contains(needle)) {
+                throw new GradleException("Bundled Valkyrien Skies PhysShipImpl ABI changed: missing ${needle}")
+            }
+        }
+
+        def physLevel = inspect('org.valkyrienskies.core.impl.shadow.FU')
+        if (!physLevel.contains('physTick(double);')) {
+            throw new GradleException('Bundled Valkyrien Skies physTick ABI changed')
+        }
+    }
+}
+
+tasks.register('verifyVsPhysicsPauseOwnership', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.idlepregen.VsPhysicsPauseControllerHarness'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('verifyValkyrienSkiesPauseApi')
+    dependsOn tasks.named('verifyVsPhysicsPauseOwnership')
 }

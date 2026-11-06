@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.0.2'
+version = '1.1.1'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -16,9 +16,13 @@ neoForge {
     version = '21.1.262'
 }
 
+def builtStatusIo = file('../maki-status-io/build/libs/maki-status-io-1.0.0.jar')
+def shippedStatusIo = file('../../mods/maki-status-io-1.0.0.jar')
+
 dependencies {
     compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
-    compileOnly files('../../mods/maki-idle-pregen-1.0.1.jar')
+    compileOnly files('../../mods/maki-idle-pregen-1.1.1.jar')
+    compileOnly files(builtStatusIo.exists() ? builtStatusIo : shippedStatusIo)
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -41,12 +45,38 @@ tasks.named('jar') {
 def registeredMixins = [
     'maki.chunksmithcache.mixin.LodSupportMixin',
     'maki.chunksmithcache.mixin.ChunkMapReadMixin',
+    'maki.chunksmithcache.mixin.ChunkMapLifecycleAccessor',
     'maki.chunksmithcache.mixin.ChunkMapSaveMixin',
     'maki.chunksmithcache.mixin.SectionStorageMixin',
     'maki.chunksmithcache.mixin.EntityStorageMixin',
     'maki.chunksmithcache.mixin.ServerLevelUnloadMixin',
     'maki.chunksmithcache.mixin.MinecraftServerMixin'
 ]
+
+def issue47ControllerSource = file('src/main/java/maki/chunksmithcache/BackfillController.java')
+def issue47GuardSource = file('src/main/java/maki/chunksmithcache/BackfillGuard.java')
+def issue47StorageSource = file('src/main/java/maki/chunksmithcache/NormalChunkStorage.java')
+
+tasks.register('verifyIssue47BackfillOwnership') {
+    inputs.files(issue47ControllerSource, issue47GuardSource, issue47StorageSource)
+    doLast {
+        def controller = issue47ControllerSource.getText('UTF-8')
+        def guard = issue47GuardSource.getText('UTF-8')
+        def storage = issue47StorageSource.getText('UTF-8')
+        if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('waiting-dependency-scope-loaded')
+                || !controller.contains('candidateDeferredUntil') || !controller.contains('snapshotBackfillOwnership')
+                || !controller.contains('releaseIdlePregenClaim')) {
+            throw new GradleException('Issue #47 regression: status-aware scan / deferred candidate visibility / drain claim release is missing')
+        }
+        if (!guard.contains('scopeAvailable') || !guard.contains('scopeDrained')
+                || !guard.contains('releasePlayerOwnedDependencies') || !guard.contains('ChunkMapLifecycleAccessor')) {
+            throw new GradleException('Issue #47 regression: dependency ownership / player handoff / holder drain guard is missing')
+        }
+        if (!storage.contains('ChunkPyramid.GENERATION_PYRAMID') || !storage.contains('State.PROTO')) {
+            throw new GradleException('Issue #47 regression: vanilla dependency radius / ProtoChunk classification is missing')
+        }
+    }
+}
 
 def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
 def javapExecutable = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
@@ -80,6 +110,40 @@ tasks.register('verifyMixinAnnotationRetention') {
     }
 }
 
+tasks.register('verifyIssue41BackfillTicketLifecycle') {
+    inputs.file(layout.projectDirectory.file('src/main/java/maki/chunksmithcache/BackfillController.java'))
+    doLast {
+        def source = inputs.files.singleFile.getText('UTF-8')
+        if (source =~ /getChunkFuture\([^;]*ChunkStatus\.FULL,\s*true\)/) {
+            throw new GradleException('Issue #41 regression: backfill must not create vanilla UNKNOWN tickets via getChunkFuture(..., FULL, true)')
+        }
+        if (!source.contains('invokeGetChunkFutureMainThread(pos.x, pos.z, ChunkStatus.FULL, createMissingChunk)') || !source.contains('boolean createMissingChunk = false;')) {
+            throw new GradleException('Issue #41 regression: owned BACKFILL_TICKET lookup is missing')
+        }
+        ['backfillTicketHeld', 'ticketRemovedAt', 'unloadWaitMillis', 'guardActive', 'serverFrozen', 'retiredGuardCount', 'MAX_RETIRED_GUARDS', 'fullLoadTimeoutReached', 'pre-full-timeout-awaiting-future'].each { field ->
+            if (!source.contains(field)) {
+                throw new GradleException('Issue #41 regression: lifecycle diagnostic ' + field + ' is missing')
+            }
+        }
+    }
+}
+
+tasks.register('issue40RegressionTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.FingerprintPolicySelfTest'
+}
+
+tasks.register('backfillScopesTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.BackfillScopesSelfTest'
+}
+
 tasks.named('check') {
+    dependsOn tasks.named('backfillScopesTest')
     dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('verifyIssue47BackfillOwnership')
+    dependsOn tasks.named('issue40RegressionTest')
+    dependsOn tasks.named('verifyIssue41BackfillTicketLifecycle')
 }
