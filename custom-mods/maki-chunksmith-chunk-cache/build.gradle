@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.0.2'
+version = '1.0.4'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -41,12 +41,30 @@ tasks.named('jar') {
 def registeredMixins = [
     'maki.chunksmithcache.mixin.LodSupportMixin',
     'maki.chunksmithcache.mixin.ChunkMapReadMixin',
+    'maki.chunksmithcache.mixin.ChunkMapLifecycleAccessor',
     'maki.chunksmithcache.mixin.ChunkMapSaveMixin',
     'maki.chunksmithcache.mixin.SectionStorageMixin',
     'maki.chunksmithcache.mixin.EntityStorageMixin',
     'maki.chunksmithcache.mixin.ServerLevelUnloadMixin',
     'maki.chunksmithcache.mixin.MinecraftServerMixin'
 ]
+
+tasks.register('verifyIssue47BackfillOwnership') {
+    doLast {
+        def controller = file('src/main/java/maki/chunksmithcache/BackfillController.java').getText('UTF-8')
+        def guard = file('src/main/java/maki/chunksmithcache/BackfillGuard.java').getText('UTF-8')
+        def storage = file('src/main/java/maki/chunksmithcache/NormalChunkStorage.java').getText('UTF-8')
+        if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('snapshotBackfillOwnership')) {
+            throw new GradleException('Issue #47 regression: status-aware candidate scan is missing')
+        }
+        if (!guard.contains('scopeDrained') || !guard.contains('ChunkMapLifecycleAccessor')) {
+            throw new GradleException('Issue #47 regression: dependency holder drain guard is missing')
+        }
+        if (!storage.contains('ChunkPyramid.GENERATION_PYRAMID') || !storage.contains('State.PROTO')) {
+            throw new GradleException('Issue #47 regression: vanilla dependency radius / ProtoChunk classification is missing')
+        }
+    }
+}
 
 def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
 def javapExecutable = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
@@ -82,4 +100,5 @@ tasks.register('verifyMixinAnnotationRetention') {
 
 tasks.named('check') {
     dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('verifyIssue47BackfillOwnership')
 }
