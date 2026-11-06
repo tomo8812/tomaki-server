@@ -138,52 +138,18 @@ public final class AdaptivePolicy {
             if(hard||(pressureSamples>=3&&sinceReduction>=10)){
                 int drop=hard?Math.max(1,cap/2):Math.max(1,cap/4);
                 cap=Math.max(s.min,cap-drop);sinceReduction=0;pressureSamples=0;
+                // A real safety reduction invalidates the old-width experiment.
                 abandon(s,"pressure-recovery",s.retrySeconds);
-            }else {
-                if(!phase.equals("baseline"))cap=Math.min(cap,baselineCap);
-                window=new Window();baseline=probe=null;phase="baseline";settle=s.settleSeconds;
             }
+            // Until the normal pressure threshold is reached, retain the exact
+            // A/B/A phase/window/cap. The pause itself must not become a
+            // throughput result or cancel an experiment.
             reason=hard?"emergency-"+(pressure.isEmpty()?"heap":pressure):pressure;
             return cap;
         }
         pressureSamples=0;
         withoutProgress=0;
         reason="shared-backfill-pause";
-        return cap;
-    }
-
-    /**
-     * Backfill deliberately suppresses follow dispatch for a short slice.
-     * Do not interpret that interval as lower follow throughput or task-idle:
-     * preserve the current A/B/A window, phase, settle/cooldown timers and cap.
-     * Safety pressure is still honored and may reduce the cap.
-     */
-    public int suspendForBackfill(AdaptiveSample x,Settings s){
-        cap=Math.max(s.min,Math.min(s.max,cap));
-        if(!Double.isFinite(x.mspt())||!Double.isFinite(x.heap())){
-            reason="backfill-slice-measurement-unavailable";
-            return cap;
-        }
-        boolean hard=x.mspt()>=s.emergencyMspt||x.heap()>=90||x.oomKills()>0;
-        String pressure=x.oomKills()>0?"cgroup-oom":x.mspt()>=s.highMspt?"tick-pressure":
-            x.heap()>=s.highHeap?"heap-pressure":
-            x.memoryHeadroomMb()>=0&&x.memoryHeadroomMb()<s.memoryReserveMb?"memory-headroom":
-            x.gc()>=50||(x.gc()>=s.gcPressurePercent&&x.heap()>=55)?"gc-pressure":
-            x.nativeHeld()||x.synchronousWrites()>0?"native-backpressure":"";
-        if(hard||!pressure.isEmpty()){
-            pressureSamples++;
-            if(hard||(pressureSamples>=3&&sinceReduction>=10)){
-                int drop=hard?Math.max(1,cap/2):Math.max(1,cap/4);
-                cap=Math.max(s.min,cap-drop);
-                sinceReduction=0;
-                pressureSamples=0;
-                abandon(s,"backfill-slice-pressure-recovery",s.retrySeconds);
-            }
-            reason=hard?"emergency-"+(pressure.isEmpty()?"heap":pressure):pressure;
-            return cap;
-        }
-        pressureSamples=0;
-        reason="backfill-slice-suspended";
         return cap;
     }
 
