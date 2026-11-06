@@ -152,6 +152,33 @@ public final class CompatibilityInputSelfTest {
             "known legacy timestamp + audited LOD load-control versions must be recoverable by manifest proof"
         );
 
+        String arbitraryCurrentSource = "#\n#Fri Nov 06 12:34:56 UTC 2026\nmixin.perf.biome=true\nmixin.perf.noise=true\n";
+        byte[] arbitraryBytes = arbitraryCurrentSource.getBytes(StandardCharsets.UTF_8);
+        List<FingerprintManifest.Entry> oldCurrentRaw = new ArrayList<>(old);
+        oldCurrentRaw.set(1, new FingerprintManifest.Entry(
+            CompatibilityInput.ZFASTNOISE_PATH,
+            arbitraryBytes.length,
+            sha256(arbitraryBytes),
+            FingerprintManifest.Impact.RELEVANT,
+            "legacy raw zfastnoise"
+        ));
+        List<FingerprintManifest.Entry> currentWithRawAudit = new ArrayList<>(current);
+        currentWithRawAudit.add(new FingerprintManifest.Entry(
+            CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH,
+            arbitraryBytes.length,
+            sha256(arbitraryBytes),
+            FingerprintManifest.Impact.IGNORED,
+            "current raw zfastnoise audit"
+        ));
+        require(
+            FingerprintManifest.sameCompatibilityInputsExcept(
+                manifest(oldCurrentRaw),
+                manifest(currentWithRawAudit),
+                Set.of("policy:compatibility")
+            ),
+            "v2 active generation must migrate when its raw zfastnoise bytes exactly match the currently parsed source"
+        );
+
         List<FingerprintManifest.Entry> changedWorldgen = new ArrayList<>(current);
         changedWorldgen.set(changedWorldgen.size() - 1, entry("mods/worldgen.jar", "changed-worldgen", FingerprintManifest.Impact.RELEVANT));
         require(
