@@ -35,12 +35,6 @@ versionRange="[1.0.1,)"
 ordering="AFTER"
 side="SERVER"
 
-[[dependencies.maki_chunksmith_chunk_cache]]
-modId="maki_status_io"
-type="required"
-versionRange="[1.0.0,2.0.0)"
-ordering="AFTER"
-side="SERVER"
 
 [[mixins]]
 config="maki-chunksmith-chunk-cache.mixins.json"

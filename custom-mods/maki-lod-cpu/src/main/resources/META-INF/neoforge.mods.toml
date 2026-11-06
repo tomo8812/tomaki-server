@@ -22,11 +22,5 @@ type="required"
 versionRange="[4.6.0]"
 ordering="AFTER"
 side="SERVER"
-[[dependencies.maki_lod_cpu]]
-modId="maki_status_io"
-type="required"
-versionRange="[1.0.0,2.0.0)"
-ordering="AFTER"
-side="SERVER"
 [[mixins]]
 config="maki-lod-cpu.mixins.json"
