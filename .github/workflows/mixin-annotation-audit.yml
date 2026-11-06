@@ -37,6 +37,9 @@ jobs:
       - name: Build and check maki-chunksmith-chunk-cache
         run: gradle -p custom-mods/maki-chunksmith-chunk-cache clean check jar
 
+      - name: Build and check maki-idle-pregen
+        run: gradle -p custom-mods/maki-idle-pregen clean check jar
+
       - name: Build and check maki-ship-anchor-fix
         run: gradle -p custom-mods/maki-ship-anchor-fix clean check jar
 
