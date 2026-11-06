@@ -65,13 +65,14 @@ jobs:
         run: |
           curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
           python3 .github/scripts/audit_mixin_annotations.py --annotation-api /tmp/sponge-mixin.jar --github-actions --json-output /tmp/issue62-shipped-mixin-audit.json
-      - name: Commit rebuilt deployables
+      - name: Commit rebuilt deployables and retire one-shot workflow
         shell: bash
         run: |
           set -euxo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add mods
+          rm .github/workflows/issue62-package.yml
+          git add -A mods .github/workflows/issue62-package.yml
           git diff --cached --exit-code && { echo 'Expected rebuilt MOD changes were absent'; exit 1; } || true
           git commit -m 'build: rebuild all custom MOD deployables for issue 62'
           git push origin HEAD:fix/issue-62
