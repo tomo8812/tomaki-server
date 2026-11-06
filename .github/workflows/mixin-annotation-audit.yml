@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   source-build:
@@ -63,6 +63,44 @@ jobs:
           name: rebuilt-custom-mod-jars
           path: /tmp/maki-rebuilt/*.jar
           retention-days: 2
+
+      - name: Package issue 45 custom MOD JARs
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/issue-45'
+        env:
+          BRANCH: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/issue45-jars
+          cp custom-mods/maki-status-io/build/libs/maki-status-io-1.0.0.jar /tmp/issue45-jars/
+          cp custom-mods/maki-lod-cpu/build/libs/maki-lod-cpu-1.3.3.jar /tmp/issue45-jars/
+          cp custom-mods/maki-chunksmith-chunk-cache/build/libs/maki-chunksmith-chunk-cache-1.0.3.jar /tmp/issue45-jars/
+
+          git fetch origin "$BRANCH"
+          git checkout -B "$BRANCH" "origin/$BRANCH"
+
+          if [[ -f mods/maki-status-io-1.0.0.jar &&
+                -f mods/maki-lod-cpu-1.3.3.jar &&
+                -f mods/maki-chunksmith-chunk-cache-1.0.3.jar &&
+                ! -f mods/maki-lod-cpu-1.3.2.jar &&
+                ! -f mods/maki-chunksmith-chunk-cache-1.0.2.jar ]]; then
+            echo "Issue 45 JARs already packaged."
+            exit 0
+          fi
+
+          rm -f mods/maki-lod-cpu-1.3.2.jar mods/maki-chunksmith-chunk-cache-1.0.2.jar
+          cp /tmp/issue45-jars/*.jar mods/
+          git add -A --             mods/maki-status-io-1.0.0.jar             mods/maki-lod-cpu-1.3.2.jar             mods/maki-lod-cpu-1.3.3.jar             mods/maki-chunksmith-chunk-cache-1.0.2.jar             mods/maki-chunksmith-chunk-cache-1.0.3.jar
+
+          if git diff --cached --quiet; then
+            echo "No packaging changes."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build: package issue 45 custom mods"
+          git push origin "HEAD:$BRANCH"
+
 
       - name: Upload rebuilt JAR audit
         if: always()
