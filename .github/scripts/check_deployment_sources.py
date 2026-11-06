@@ -1,31 +1,87 @@
-"""Reject duplicate custom MOD IDs and stale embedded maintained Java sources."""
+"""Verify the deployable custom MOD set is source-owned, unique, and current."""
 from pathlib import Path
 import tomllib
 import zipfile
 
 root = Path(__file__).resolve().parents[2]
-seen = {}
-checked = 0
-for jar in sorted((root / "mods").glob("maki-*.jar")):
+mods_dir = root / "mods"
+projects_dir = root / "custom-mods"
+
+projects = sorted(path for path in projects_dir.iterdir() if path.is_dir() and (path / "build.gradle").is_file())
+project_names = {path.name for path in projects}
+expected_projects = {
+    "maki-airship-compat",
+    "maki-airship-foundation-compat",
+    "maki-assembly-tracking",
+    "maki-chunksmith-chunk-cache",
+    "maki-diorama-share",
+    "maki-idle-pregen",
+    "maki-lod-cpu",
+    "maki-lod-cpu-online-fix",
+    "maki-millenaire-lod-compat",
+    "maki-mods-observer",
+    "maki-ship-anchor-fix",
+    "maki-ship-edge",
+    "maki-ship-footsteps",
+    "maki-ship-save",
+}
+assert project_names == expected_projects, (
+    f"Unexpected custom MOD source projects: missing={sorted(expected_projects-project_names)} "
+    f"extra={sorted(project_names-expected_projects)}"
+)
+
+for forbidden in ("maki-status-io", "maki-lag-observer"):
+    assert not (projects_dir / forbidden).exists(), f"Retired source project present: {forbidden}"
+    assert not list(mods_dir.glob(forbidden + "-*.jar")), f"Retired deployable JAR present: {forbidden}"
+
+seen_ids = {}
+checked_sources = 0
+matched_projects = set()
+for jar in sorted(mods_dir.glob("maki-*.jar")):
+    project_name = next((name for name in expected_projects if jar.name.startswith(name + "-")), None)
+    assert project_name is not None, f"No maintained source project owns {jar.name}"
+    assert project_name not in matched_projects, f"Multiple deployed JARs for {project_name}"
+    matched_projects.add(project_name)
+    project = projects_dir / project_name
+
     with zipfile.ZipFile(jar) as archive:
         assert archive.testzip() is None, f"Corrupt archive: {jar.name}"
         metadata = tomllib.loads(archive.read("META-INF/neoforge.mods.toml").decode())
         for mod in metadata["mods"]:
             mod_id = mod["modId"]
-            assert mod_id not in seen, f"Duplicate {mod_id}: {seen.get(mod_id)} / {jar.name}"
-            seen[mod_id] = jar.name
-        project = root / "custom-mods" / jar.name.rsplit("-", 1)[0]
-        if not project.is_dir():
-            continue
+            assert mod_id not in seen_ids, f"Duplicate {mod_id}: {seen_ids.get(mod_id)} / {jar.name}"
+            seen_ids[mod_id] = jar.name
+
         names = set(archive.namelist())
-        for source in (project / "src/main/java").rglob("*.java"):
-            embedded = "META-INF/sources/" + source.relative_to(project / "src/main/java").as_posix()
-            # Older maintained projects may not embed sources. Require all embedded
-            # projects to cover every maintained source, including added hooks.
-            if any(name.startswith("META-INF/sources/") for name in names):
-                assert embedded in names, f"Missing source {embedded} in {jar.name}"
-                actual = archive.read(embedded).decode().replace("\r\n", "\n")
-                expected = source.read_text(encoding="utf-8")
-                assert actual == expected, f"Stale source {embedded} in {jar.name}"
-                checked += 1
-print(f"Deployment checks: {len(seen)} unique custom MODs; {checked} maintained embedded sources match")
+        embedded_java = {name for name in names if name.startswith("META-INF/sources/") and name.endswith(".java")}
+        maintained_java = {
+            "META-INF/sources/" + source.relative_to(project / "src/main/java").as_posix()
+            for source in (project / "src/main/java").rglob("*.java")
+        }
+        assert embedded_java == maintained_java, (
+            f"Embedded source set differs for {jar.name}: "
+            f"missing={sorted(maintained_java-embedded_java)} extra={sorted(embedded_java-maintained_java)}"
+        )
+        for embedded in sorted(maintained_java):
+            source = project / "src/main/java" / embedded.removeprefix("META-INF/sources/")
+            actual = archive.read(embedded).decode().replace("\r\n", "\n")
+            expected = source.read_text(encoding="utf-8").replace("\r\n", "\n")
+            assert actual == expected, f"Stale source {embedded} in {jar.name}"
+            checked_sources += 1
+
+assert matched_projects == expected_projects, (
+    f"Deployable custom MOD set incomplete: missing={sorted(expected_projects-matched_projects)}"
+)
+
+for path in projects_dir.rglob("*"):
+    if path.is_file() and path.suffix in {".java", ".gradle", ".toml", ".json", ".properties", ".md"}:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        assert "maki.statusio" not in text, f"Retired status-io reference in {path.relative_to(root)}"
+        assert "maki-lod-cpu-status.json" not in text, f"Retired status JSON reference in {path.relative_to(root)}"
+        assert "maki-lod-follow-status.json" not in text, f"Retired status JSON reference in {path.relative_to(root)}"
+        assert "maki-chunk-cache-backfill-status.json" not in text, f"Retired status JSON reference in {path.relative_to(root)}"
+
+print(
+    f"Deployment checks: {len(seen_ids)} unique custom MOD IDs; "
+    f"{len(matched_projects)} source-owned JARs; {checked_sources} embedded maintained sources match"
+)
