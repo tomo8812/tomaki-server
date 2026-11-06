@@ -90,7 +90,7 @@ tasks.register('verifyIssue41BackfillTicketLifecycle') {
         if (!source.contains('getChunkFuture(pos.x,pos.z,ChunkStatus.FULL,false)')) {
             throw new GradleException('Issue #41 regression: owned BACKFILL_TICKET lookup is missing')
         }
-        ['backfillTicketHeld', 'ticketRemovedAt', 'unloadWaitMillis', 'guardActive', 'serverFrozen'].each { field ->
+        ['backfillTicketHeld', 'ticketRemovedAt', 'unloadWaitMillis', 'guardActive', 'serverFrozen', 'retiredGuardCount', 'MAX_RETIRED_GUARDS'].each { field ->
             if (!source.contains(field)) {
                 throw new GradleException('Issue #41 regression: lifecycle diagnostic ' + field + ' is missing')
             }
