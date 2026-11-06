@@ -152,6 +152,8 @@ jobs:
             'Maki LOD CPU Online Fix initialized'
             'Maki Millenaire Chunksmith Compatibility initialized'
             'Maki Mods Observer initialized'
+            'Maki Mods Observer stall diagnostics enabled=false'
+            'Maki Mods Observer slow-NBT diagnostics enabled=false'
             'Maki Ship Anchor Fix initialized'
             'Maki Ship Edge initialized'
             'Maki Ship Footsteps initialized'
