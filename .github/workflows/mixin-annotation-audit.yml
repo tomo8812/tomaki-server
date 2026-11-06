@@ -24,6 +24,7 @@ jobs:
         with:
           sparse-checkout: |
             .github
+            config
             custom-mods
 
       - name: Select checks from the complete change
