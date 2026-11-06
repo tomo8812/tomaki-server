@@ -81,3 +81,8 @@ Version 1.0.4 makes legacy CSLOD backfill distinguish the state of normal chunk 
 - `waiting-no-candidate` is not reported when an LOD entry remains unresolved because normal storage could not be classified.
 
 This change does not patch Chunksmith itself. It keeps ownership in the existing cache/backfill compatibility MOD and uses Vanilla/NeoForge chunk lifecycle boundaries plus the installed Chunksmith 4.6.0 API.
+
+## Shared resource scheduling
+
+Version 1.2.0 no longer treats every active Chunksmith task as an unconditional backfill blocker. It asks the required maki-lod-cpu 1.4.0 shared budget for a reservation. Follow-owned generation can yield one effective dispatch slot while its existing in-flight work drains; external/unowned Chunksmith tasks remain protected and block new backfill. Existing BACKFILL_TICKET, dependency-scope persistence guards, Millénaire suppression, player handoff, durable LOD refresh, cache capture, and unload handling remain unchanged.
+
