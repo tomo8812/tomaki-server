@@ -24,7 +24,7 @@ letsdo-farm_and_charm-neoforge-1.1.29.jar
 letsdo-herbalbrews-neoforge-1.1.4.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
-maki-diorama-share-1.0.0.jar
+maki-diorama-share-1.0.1.jar
 maki-ship-anchor-fix-1.1.1.jar
 maki-ship-edge-1.0.0.jar
 maki-ship-footsteps-1.0.1.jar
