@@ -23,6 +23,10 @@ final class CompatibilityInput {
     private static final List<String> ZFASTNOISE_KEYS = List.of("mixin.perf.biome", "mixin.perf.noise");
     private static final Set<String> VERIFIED_LOD_CPU_VERSIONS = Set.of("1.3.4", "1.4.0");
     private static final Set<String> VERIFIED_ONLINE_FIX_VERSIONS = Set.of("1.0.2", "1.0.3");
+    private static final String LOD_CPU_1_3_4_SHA256 = "04c3a6f458550d15e4b8c736c597e376c1825cfb533a66181ff142c383fb7ed2";
+    private static final String LOD_CPU_1_4_0_SHA256 = "2cd157f1b78378f41863e6cfdfe545c3763dc3ddb1f0bce3cbfa6d9fd1d77799";
+    private static final String ONLINE_FIX_1_0_2_SHA256 = "833defdc614826804dcbf8f818827e6baf0a6d69c5f4e9b0946b9a2609d413f1";
+    private static final String ONLINE_FIX_1_0_3_SHA256 = "2217e4f0267b8786016e5f2ddbf6491eb4165f37e17439f23b7003f1cd1de206";
 
     private CompatibilityInput() {}
 
@@ -37,7 +41,7 @@ final class CompatibilityInput {
             return zfastnoiseEntries(key, file, rawSize, rawSha256);
         }
 
-        VerifiedMod verified = key.startsWith("mods/maki-lod-cpu") ? verifiedLoadControlMod(file) : null;
+        VerifiedMod verified = key.startsWith("mods/maki-lod-cpu") ? verifiedLoadControlMod(file, rawSha256) : null;
         if (verified != null) {
             String contractKey = verified.id().equals("maki_lod_cpu") ? LOD_CPU_CONTRACT_KEY : LOD_CPU_ONLINE_FIX_CONTRACT_KEY;
             String contract = verified.id().equals("maki_lod_cpu") ? LOD_CPU_CONTRACT : LOD_CPU_ONLINE_FIX_CONTRACT;
@@ -62,9 +66,9 @@ final class CompatibilityInput {
     static String policySignature() {
         return "semantic-v1"
             + "|zfastnoise=" + String.join(",", ZFASTNOISE_KEYS)
-            + "|maki_lod_cpu=" + String.join(",", VERIFIED_LOD_CPU_VERSIONS.stream().sorted().toList())
+            + "|maki_lod_cpu=1.3.4@" + LOD_CPU_1_3_4_SHA256 + ",1.4.0@" + LOD_CPU_1_4_0_SHA256
             + ":" + LOD_CPU_CONTRACT
-            + "|maki_lod_cpu_online_fix=" + String.join(",", VERIFIED_ONLINE_FIX_VERSIONS.stream().sorted().toList())
+            + "|maki_lod_cpu_online_fix=1.0.2@" + ONLINE_FIX_1_0_2_SHA256 + ",1.0.3@" + ONLINE_FIX_1_0_3_SHA256
             + ":" + LOD_CPU_ONLINE_FIX_CONTRACT;
     }
 
@@ -73,7 +77,7 @@ final class CompatibilityInput {
         if (key.startsWith(RAW_AUDIT_PREFIX)) return null;
 
         String lodVersion = versionFromHistoricalPath(key, "mods/maki-lod-cpu-", ".jar");
-        if (lodVersion != null && VERIFIED_LOD_CPU_VERSIONS.contains(lodVersion)) {
+        if (lodVersion != null && entry.sha256().equals(trustedArtifactSha("maki_lod_cpu", lodVersion))) {
             return valueEntry(
                 LOD_CPU_CONTRACT_KEY,
                 LOD_CPU_CONTRACT,
@@ -83,7 +87,7 @@ final class CompatibilityInput {
         }
 
         String onlineVersion = versionFromHistoricalPath(key, "mods/maki-lod-cpu-online-fix-", ".jar");
-        if (onlineVersion != null && VERIFIED_ONLINE_FIX_VERSIONS.contains(onlineVersion)) {
+        if (onlineVersion != null && entry.sha256().equals(trustedArtifactSha("maki_lod_cpu_online_fix", onlineVersion))) {
             return valueEntry(
                 LOD_CPU_ONLINE_FIX_CONTRACT_KEY,
                 LOD_CPU_ONLINE_FIX_CONTRACT,
@@ -145,16 +149,24 @@ final class CompatibilityInput {
             || entry.sha256().equals("fae3abedad69cc66a78764bb1ad837adc6d730c258af3604b40f4f68e0874fa6");
     }
 
-    private static VerifiedMod verifiedLoadControlMod(Path file) {
+    private static VerifiedMod verifiedLoadControlMod(Path file, String rawSha256) {
         if (!file.getFileName().toString().endsWith(".jar")) return null;
         List<ModDescriptor> mods = readMods(file);
         if (mods.size() != 1) return null;
         ModDescriptor mod = mods.getFirst();
-        if (mod.id().equals("maki_lod_cpu") && VERIFIED_LOD_CPU_VERSIONS.contains(mod.version())) {
-            return new VerifiedMod(mod.id(), mod.version());
+        String trusted = trustedArtifactSha(mod.id(), mod.version());
+        if (trusted != null && trusted.equals(rawSha256)) return new VerifiedMod(mod.id(), mod.version());
+        return null;
+    }
+
+    static String trustedArtifactSha(String modId, String version) {
+        if ("maki_lod_cpu".equals(modId)) {
+            if ("1.3.4".equals(version)) return LOD_CPU_1_3_4_SHA256;
+            if ("1.4.0".equals(version)) return LOD_CPU_1_4_0_SHA256;
         }
-        if (mod.id().equals("maki_lod_cpu_online_fix") && VERIFIED_ONLINE_FIX_VERSIONS.contains(mod.version())) {
-            return new VerifiedMod(mod.id(), mod.version());
+        if ("maki_lod_cpu_online_fix".equals(modId)) {
+            if ("1.0.2".equals(version)) return ONLINE_FIX_1_0_2_SHA256;
+            if ("1.0.3".equals(version)) return ONLINE_FIX_1_0_3_SHA256;
         }
         return null;
     }
