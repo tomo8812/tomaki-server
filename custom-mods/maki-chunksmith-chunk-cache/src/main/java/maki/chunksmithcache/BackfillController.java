@@ -201,7 +201,12 @@ public final class BackfillController {
       ServerLevel level=candidate.level();
       BackfillController.Target target=candidate.target();
       ChunkPos pos=target.pos();
-      if(level.getChunkSource().hasChunk(pos.x,pos.z)) {
+      if(CacheManager.chunksmithGeneratedHint(level,pos)) {
+         state.pendingCandidate=null;
+         releaseResourceBudget(state,"candidate-generated-during-drain");
+         state.phase="candidate-generated-during-drain";
+         advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
+      } else if(level.getChunkSource().hasChunk(pos.x,pos.z)) {
          state.pendingCandidate=null;
          releaseResourceBudget(state,"candidate-already-loaded");
          state.phase="candidate-already-loaded";
@@ -236,13 +241,6 @@ public final class BackfillController {
       if(state.resourceBudgetReserved||LodResourceBudgetBridge.reservationHeld())LodResourceBudgetBridge.release(outcome);
       state.resourceBudgetReserved=false;
       state.budgetReason="released:"+outcome;
-   }
-
-   private static boolean completeResourceBudget(BackfillController.State state,String outcome) {
-      boolean keep=LodResourceBudgetBridge.complete(outcome);
-      state.resourceBudgetReserved=keep&&LodResourceBudgetBridge.reservationHeld();
-      state.budgetReason=keep?"exclusive-continues":"yielded:"+outcome;
-      return keep;
    }
 
    public static void onUnload(ServerLevel level, LevelChunk chunk) {
@@ -293,6 +291,7 @@ public final class BackfillController {
             clearActive(var2);
          } else {
             var2.resourceBudgetReserved=LodResourceBudgetBridge.reservationHeld();
+            LodResourceBudgetBridge.started();
             IdlePregenBridge.setBackfillActive(true);
             var2.idlePregenClaimed=IdlePregenBridge.isClaimed();
             LOG.debug("Backfilling cached chunk {} in {}", new Object[]{var3, var0.dimension().location()});
@@ -552,8 +551,7 @@ public final class BackfillController {
                markProgress(state);
                enterPhase(state,state.completionOutcome+"-ticket-releasing");
                releaseOwnedTicket(level,pos,state);
-               if("completed".equals(state.completionOutcome))completeResourceBudget(state,state.completionOutcome);
-               else releaseResourceBudget(state,state.completionOutcome);
+               releaseResourceBudget(state,state.completionOutcome);
                if(active(state,token,level,pos)) {
                   if("completed".equals(state.completionOutcome)) {
                      retireSuccessfulGuard(level,pos,state);
@@ -758,7 +756,7 @@ public final class BackfillController {
 
    private static void clearActive(BackfillController.State var0) {
       MinecraftServer server=var0.activeLevel==null?null:var0.activeLevel.getServer();
-      if(var0.resourceBudgetReserved&&!"completed".equals(var0.completionOutcome))
+      if(var0.resourceBudgetReserved)
          releaseResourceBudget(var0,var0.completionOutcome==null?"cleared":var0.completionOutcome);
       IdlePregenBridge.setBackfillActive(false);
       var0.idlePregenClaimed=false;
