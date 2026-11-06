@@ -25,8 +25,12 @@ public final class AssemblyTracking {
     private record Pair(UUID target,UUID viewer){}
     private record Job(ServerLevel level,Set<UUID> affected,long due,int delay){}
     public AssemblyTracking(){
+        LOG.info("Maki Assembly Tracking initialized; bounded post-assembly player tracking repair is enabled by default and follows config/maki-assembly-tracking.properties.");
         NeoForge.EVENT_BUS.addListener((ServerTickEvent.Post e)->tick(e.getServer()));
-        NeoForge.EVENT_BUS.addListener((ServerStoppingEvent e)->{JOBS.clear();LAST.clear();owner=null;});
+        NeoForge.EVENT_BUS.addListener((ServerStoppingEvent e)->{
+            LOG.info("Maki Assembly Tracking stopping; clearing {} pending repair job(s).", JOBS.size());
+            JOBS.clear();LAST.clear();owner=null;
+        });
     }
     public static void assembled(ServerLevel level,Set<BlockPos> blocks){
         if(!enabled||blocks.isEmpty())return;
