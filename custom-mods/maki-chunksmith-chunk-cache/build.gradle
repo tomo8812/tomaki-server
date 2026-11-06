@@ -62,8 +62,8 @@ tasks.register('verifyIssue47BackfillOwnership') {
         if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('snapshotBackfillOwnership')) {
             throw new GradleException('Issue #47 regression: status-aware candidate scan is missing')
         }
-        if (!guard.contains('scopeDrained') || !guard.contains('ChunkMapLifecycleAccessor')) {
-            throw new GradleException('Issue #47 regression: dependency holder drain guard is missing')
+        if (!guard.contains('scopeAvailable') || !guard.contains('scopeDrained') || !guard.contains('ChunkMapLifecycleAccessor')) {
+            throw new GradleException('Issue #47 regression: dependency ownership / holder drain guard is missing')
         }
         if (!storage.contains('ChunkPyramid.GENERATION_PYRAMID') || !storage.contains('State.PROTO')) {
             throw new GradleException('Issue #47 regression: vanilla dependency radius / ProtoChunk classification is missing')
