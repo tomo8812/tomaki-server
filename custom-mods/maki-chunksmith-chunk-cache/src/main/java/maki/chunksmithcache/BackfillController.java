@@ -166,6 +166,10 @@ public final class BackfillController {
                state.phase="candidate-already-loaded";
                advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
                report(server,state,true);
+            } else if (!BackfillGuard.scopeAvailable(level,candidate.suppressed())) {
+               state.phase="candidate-dependency-scope-loaded";
+               advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
+               report(server,state,true);
             } else {
                start(level,target,state,candidate.suppressed());
             }
@@ -532,7 +536,7 @@ public final class BackfillController {
                advanceCursor(var4, var5);
                continue;
             }
-            if (!scope.suppressed().contains(var9.pos().toLong()) || !BackfillGuard.scopeAvailable(var4, scope.suppressed())) {
+            if (!scope.suppressed().contains(var9.pos().toLong())) {
                advanceCursor(var4, var5);
                continue;
             }
