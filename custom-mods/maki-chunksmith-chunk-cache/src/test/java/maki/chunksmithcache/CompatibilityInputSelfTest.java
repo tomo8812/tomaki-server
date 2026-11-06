@@ -169,7 +169,7 @@ public final class CompatibilityInputSelfTest {
         Files.writeString(active.resolve("same.nbt.gz"), "active-new");
         Files.writeString(source.resolve("old-only.nbt.gz"), "recover-me");
 
-        GenerationStore.mergeDirectory(source, active);
+        CacheDirectoryMerge.merge(source, active);
 
         require(Files.readString(active.resolve("same.nbt.gz")).equals("active-new"),
             "re-adoption must never overwrite an already active cache entry");
