@@ -233,7 +233,6 @@ public final class BackfillController {
          } else {
             IdlePregenBridge.setBackfillActive(true);
             var2.idlePregenClaimed=IdlePregenBridge.isClaimed();
-            report(var0.getServer(),var2,true);
             LOG.debug("Backfilling cached chunk {} in {}", new Object[]{var3, var0.dimension().location()});
             var0.getChunkSource().addRegionTicket(BACKFILL_TICKET, var3, 0, Unit.INSTANCE);
             var2.backfillTicketHeld=true;
@@ -286,7 +285,6 @@ public final class BackfillController {
          if(chunk==null) {
             state.waitReason=state.loadWarningLogged?"owned-ticket-full-generation-delayed":"owned-ticket-propagation";
             enterPhase(state,"waiting-owned-ticket");
-            report(level.getServer(),state,true);
             return;
          }
          handleFullChunk(level,target,state,state.previousSuppression,token,chunk);
@@ -414,6 +412,7 @@ public final class BackfillController {
          BackfillGuard.clear(var0,var1);
          var2.backfillsFailed++;
          var2.completionOutcome="failed-before-full";
+         var2.lastOutcome="failed-before-full";
          markProgress(var2);
          enterPhase(var2,"failed-before-full");
          report(var0.getServer(),var2,true);
@@ -470,7 +469,8 @@ public final class BackfillController {
          releaseOwnedTicket(var1,var2,var0);
          BackfillGuard.clear(var1, var2);
          var0.backfillsHandedOff++;
-         var0.phase="handed-to-player";
+         var0.lastOutcome="handed-to-player";
+         enterPhase(var0,"handed-to-player");
          LOG.info("Handed chunk-cache backfill {} to normal player loading", new Object[]{var2});
          clearActive(var0);
       }
@@ -534,6 +534,7 @@ public final class BackfillController {
          data.put("activeDimension",state.activeLevel==null?null:state.activeLevel.dimension().location().toString());
          data.put("activeChunkX",state.activePos==null?null:state.activePos.x);
          data.put("activeChunkZ",state.activePos==null?null:state.activePos.z);
+         data.put("activeChunkLoaded",state.activeLevel!=null&&state.activePos!=null&&state.activeLevel.getChunkSource().hasChunk(state.activePos.x,state.activePos.z));
          data.put("scansStarted",state.scansStarted);
          data.put("scanFailures",state.scanFailures);
          data.put("candidatesFound",state.candidatesFound);
