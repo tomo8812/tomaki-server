@@ -13,7 +13,7 @@ neoForge {
 }
 
 dependencies {
-    compileOnly files('../../mods/maki-lod-cpu-1.3.2.jar')
+    compileOnly files('../../mods/maki-lod-cpu-1.3.3.jar')
 }
 
 tasks.withType(JavaCompile).configureEach {
