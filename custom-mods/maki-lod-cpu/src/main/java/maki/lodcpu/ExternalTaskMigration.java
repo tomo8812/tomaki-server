@@ -92,7 +92,7 @@ final class ExternalTaskMigration {
     }
 
     private static Path backupRoot(Chunksmith chunky){
-        return chunky.getConfig().getDirectory().resolve("task-backups").resolve("maki-lod-cpu").resolve("v1").resolve("minecraft").resolve("overworld");
+        return chunky.getConfig().getDirectory().resolve("tasks").resolve(".maki-lod-cpu-backups").resolve("v1").resolve("minecraft").resolve("overworld");
     }
 
     private static String preflightExternalPersisted(Chunksmith chunky){
