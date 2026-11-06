@@ -1,6 +1,7 @@
 package maki.shipedge;
 
 import net.minecraft.world.entity.MoverType;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import org.valkyrienskies.core.api.ships.Ship;

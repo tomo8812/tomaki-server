@@ -584,7 +584,7 @@ public final class ModsObserver {
 
     private static Object reflectiveChunksmithTasks() {
         try {
-            Class<?> provider = Class.forName("com.kishku7.chunksmith.ChunksmithProvider", false, LagObserver.class.getClassLoader());
+            Class<?> provider = Class.forName("com.kishku7.chunksmith.ChunksmithProvider", false, ModsObserver.class.getClassLoader());
             boolean loaded = (boolean)provider.getMethod("isLoaded").invoke(null);
             if (!loaded) return 0;
             Object chunksmith = provider.getMethod("get").invoke(null);
@@ -597,7 +597,7 @@ public final class ModsObserver {
 
     private static Object reflectiveBoolean(String type, String method) {
         try {
-            Class<?> cls = Class.forName(type, false, LagObserver.class.getClassLoader());
+            Class<?> cls = Class.forName(type, false, ModsObserver.class.getClassLoader());
             Object value = cls.getMethod(method).invoke(null);
             return value instanceof Boolean ? value : null;
         } catch (Throwable ignored) {

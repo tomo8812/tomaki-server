@@ -31,7 +31,7 @@ public abstract class ShipStepMixin {
     @Inject(method = "move", at = @At(value = "INVOKE",
         target = "Lnet/minecraft/world/entity/Entity;getMovementEmission()Lnet/minecraft/world/entity/Entity$MovementEmission;"))
     private void maki$sampleDeckMotion(MoverType mover, Vec3 movement, CallbackInfo ci) {
-        if (!(this instanceof Player player) || player.isLocalPlayer()) return;
+        if (!((Object) this instanceof Player player) || player.isLocalPlayer()) return;
         EntityDraggingInformation dragging = ((IEntityDraggingInformationProvider) player).getDraggingInformation();
         Long ship = dragging.getLastShipStoodOn();
         Vector3dc relative = player.level().isClientSide
@@ -67,7 +67,7 @@ public abstract class ShipStepMixin {
         target = "Lnet/minecraft/world/entity/Entity;vibrationAndSoundEffectsFromBlock(Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;ZZLnet/minecraft/world/phys/Vec3;)Z"),
         require = 1, allow = 1)
     private void maki$useDeckForSound(Args args) {
-        if (!(this instanceof Player player) || !(Boolean) args.get(2) || !player.onGround()) return;
+        if (!((Object) this instanceof Player player) || !(Boolean) args.get(2) || !player.onGround()) return;
         BlockPos deck = player.getOnPos();
         Ship ship = VSGameUtilsKt.getShipManagingPos(player.level(), deck);
         if (ship == null) return;
