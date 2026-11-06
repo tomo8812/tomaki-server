@@ -111,6 +111,7 @@ tasks.register('verifyDormantDiagnostics') {
             !stall.contains('diagnostic-max-events') ||
             !stall.contains('WRITE_QUEUE.offer') ||
             !stall.contains('new Thread(ModsObserver::writerLoop') ||
+            !stall.contains('diagnosticSessionActive()') ||
             !stall.contains('reserveDiagnosticEvent()') ||
             !stall.contains('Files.size(LOG_FILE) >= settings.maxFileBytes') ||
             !stall.contains('if (!settings.enabled)') ||
@@ -121,6 +122,7 @@ tasks.register('verifyDormantDiagnostics') {
             !nbt.contains('SESSION_LIMIT_REACHED.get() || tag == null') ||
             !nbt.contains('diagnostic-max-duration-minutes') ||
             !nbt.contains('diagnostic-max-events') ||
+            !nbt.contains('diagnosticSessionActive()') ||
             !nbt.contains('reserveDiagnosticEvent()') ||
             !nbt.contains('Files.size(LOG_FILE) >= settings.maxFileBytes')) {
             throw new GradleException('Issue #62 regression: disabled NBT diagnostics must return before per-tick tracing state or NBT inspection')

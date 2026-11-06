@@ -74,7 +74,7 @@ public final class ModsObserver {
         owner = server;
         serverThread = Thread.currentThread();
         reloadSettingsIfDue();
-        if (!settings.enabled || SESSION_LIMIT_REACHED.get()) {
+        if (!diagnosticSessionActive()) {
             if (active) {
                 active = false;
                 stopWatchdog();
@@ -207,7 +207,7 @@ public final class ModsObserver {
             Settings s = settings;
             MinecraftServer server = owner;
             Thread thread = serverThread;
-            if (!s.enabled || server == null || thread == null) {
+            if (!diagnosticSessionActive() || server == null || thread == null) {
                 continue;
             }
 
@@ -314,7 +314,7 @@ public final class ModsObserver {
         }
     }
 
-    private static boolean reserveDiagnosticEvent() {
+    private static boolean diagnosticSessionActive() {
         Settings s = settings;
         if (!s.enabled || SESSION_LIMIT_REACHED.get()) return false;
         long now = System.nanoTime();
@@ -327,6 +327,12 @@ public final class ModsObserver {
             markSessionLimit("duration limit " + (s.maxDurationNanos / 60_000_000_000L) + " minute(s) reached");
             return false;
         }
+        return true;
+    }
+
+    private static boolean reserveDiagnosticEvent() {
+        Settings s = settings;
+        if (!diagnosticSessionActive()) return false;
         long accepted = ACCEPTED_EVENTS.incrementAndGet();
         if (accepted > s.maxEvents) {
             ACCEPTED_EVENTS.decrementAndGet();
