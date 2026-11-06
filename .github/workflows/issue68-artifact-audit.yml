@@ -1,5 +1,5 @@
 name: Issue 68 deployment bootstrap
-# issue68-final-build-4
+# issue68-final-build-v2-4
 
 on:
   push:
@@ -7,6 +7,8 @@ on:
       - fix/issue-68
     paths:
       - '.github/workflows/issue68-artifact-audit.yml'
+      - 'custom-mods/maki-chunksmith-chunk-cache/**'
+      - '.github/scripts/check_deployment_sources.py'
 
 permissions:
   contents: write
@@ -18,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/issue-68
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Set up Java 21
@@ -56,4 +58,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add mods/maki-chunksmith-chunk-cache-1.2.0.jar mods/maki-chunksmith-chunk-cache-1.2.1.jar
           git commit -m "build: ship maki-chunksmith-chunk-cache 1.2.1"
+          git fetch origin fix/issue-68
+          if ! git diff --quiet "$GITHUB_SHA" origin/fix/issue-68 -- custom-mods/maki-chunksmith-chunk-cache .github/scripts/check_deployment_sources.py; then
+            echo "Source changed while deployment JAR was building; refusing to publish a stale artifact" >&2
+            exit 75
+          fi
+          git rebase origin/fix/issue-68
           git push origin HEAD:fix/issue-68
