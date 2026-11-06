@@ -32,12 +32,14 @@ public final class CpuGovernor {
     public static int cap(){return cap;}
 
     static SharedWorkBudget.Decision reserveBackfill(String taskMode){
-        if(!configGood)return new SharedWorkBudget.Decision(false,false,"invalid-config",0L,0);
+        if(!configGood)return new SharedWorkBudget.Decision(false,false,"invalid-config",0L);
         return SHARED_BUDGET.request(System.nanoTime(),taskMode,settings);
     }
     static boolean backfillReservationHeld(){return SHARED_BUDGET.reserved();}
-    static boolean completeBackfill(String outcome){return SHARED_BUDGET.completed(System.nanoTime(),outcome,settings);}
-    static void releaseBackfill(String outcome,boolean giveFollowSlice){SHARED_BUDGET.release(System.nanoTime(),outcome,settings,giveFollowSlice);}
+    static void noteFollowInFlight(int count){SHARED_BUDGET.noteFollowInFlight(count);}
+    static boolean blockFollowDispatch(){return SHARED_BUDGET.blockFollowDispatch();}
+    static void backfillStarted(){SHARED_BUDGET.backfillStarted(System.nanoTime());}
+    static void releaseBackfill(String outcome){SHARED_BUDGET.release(System.nanoTime(),outcome,settings);}
     static String sharedBudgetStatus(){return SHARED_BUDGET.summary(System.nanoTime());}
 
     public static void markActive(){taskActivity=System.nanoTime();}
@@ -50,26 +52,27 @@ public final class CpuGovernor {
         long cpu=cpuTime(),gc=gcMillis();
         if(lastTime==0){
             lastTime=now;lastCpu=cpu;lastGc=gc;
-            LOG.info("Throughput governor 1.4.0 ready: allocated {} cores, ceiling {}..{}; follow and backfill share one pressure/fairness budget, and CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);
+            LOG.info("Throughput governor 1.4.0 ready: allocated {} cores, ceiling {}..{}; follow dispatch and real-chunk backfill share one pressure-aware time budget, and CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);
             return;
         }
+
         double seconds=(now-lastTime)/1e9;
         double used=cpu>=lastCpu&&lastCpu>=0?100.0*(cpu-lastCpu)/(now-lastTime)/capacity:Double.NaN;
         double gcPercent=gc>=lastGc&&lastGc>=0?100.0*(gc-lastGc)/(seconds*1000):Double.NaN;
         lastTime=now;lastCpu=cpu;lastGc=gc;
+
         var memory=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         double heap=memory.getMax()>0?100.0*memory.getUsed()/memory.getMax():Double.NaN;
         observedCpu=used;observedMspt=mspt;observedHeap=heap;
+
         MemoryBudget budget=MemoryBudget.read();
         LodCounters lod=LodCounters.read();
         boolean comparable=previousLod!=null&&lod.identity()==previousLod.identity()&&lod.available()&&previousLod.available();
         long writes=comparable?Math.max(0,lod.written()-previousLod.written()):0;
-        long bytes=comparable?Math.max(0,lod.bytes()-previousLod.bytes()):0;
         long sync=comparable?Math.max(0,lod.synchronousWrites()-previousLod.synchronousWrites()):0;
         previousLod=lod;
         long oom=budget.oomKills()>=0&&lastOom>=0?Math.max(0,budget.oomKills()-lastOom):0;
         lastOom=budget.oomKills();
-        long throttled=budget.throttledMicros()>=0&&lastThrottled>=0?Math.max(0,budget.throttledMicros()-lastThrottled):0;
         lastThrottled=budget.throttledMicros();
 
         WorkTelemetry work=observedWork;
@@ -77,6 +80,7 @@ public final class CpuGovernor {
         boolean stateFresh=state!=null&&now>=state.time()&&now-state.time()<10_000_000_000L;
         boolean active=stateFresh&&taskActivity!=0&&now-taskActivity<10_000_000_000L;
         WorkTelemetry.Batch batch=work==null?new WorkTelemetry.Batch(0,0):work.drain();
+
         int previous=cap;
         if(work!=previousWork){POLICY.reset(settings,"new-generation-task");previousWork=work;}
         AdaptiveSample sample=new AdaptiveSample(seconds,used,mspt,heap,gcPercent,budget.headroomMb(),batch.completions(),writes,
@@ -144,14 +148,12 @@ public final class CpuGovernor {
             lastStamp=stamp;
             configGood=true;
             cap=POLICY.reset(settings,"config-reloaded");
-            LOG.info("Loaded {}; CPU budget {} cores, ceiling {}..{}; A/B/A saved-LOD throughput window {}s, settle {}s; exclusive backfill epochs <= {}s / {} chunks with >= {}s follow slices",
+            LOG.info("Loaded {}; CPU budget {} cores, ceiling {}..{}; A/B/A saved-LOD throughput window {}s, settle {}s; safe backfill spacing {}..{}s",
                 CONFIG,capacity,fresh.min,fresh.max,fresh.windowSeconds,fresh.settleSeconds,
-                fresh.backfillExclusiveMaxSeconds,fresh.backfillExclusiveMaxChunks,fresh.backfillFollowMinSliceSeconds);
+                fresh.backfillMinSpacingSeconds,fresh.backfillMaxSafeWaitSeconds);
         }catch(Exception e){
             if(configGood)LOG.error("Throughput governor config missing/invalid; limiting generation and blocking new backfill until fixed: {}",e.toString());
             configGood=false;
         }
     }
-
-    private static Object finite(double n){return Double.isFinite(n)?n:null;}
 }
