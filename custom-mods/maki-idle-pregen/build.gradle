@@ -81,12 +81,16 @@ tasks.register('verifyValkyrienSkiesPauseApi') {
         }.get().metadata.installationPath.file('bin/javap').asFile
 
         def inspect = { String className ->
-            def output = new ByteArrayOutputStream()
-            exec {
-                commandLine javap, '-classpath', vsJar.absolutePath, '-p', className
-                standardOutput = output
+            def process = new ProcessBuilder(
+                    javap.absolutePath, '-classpath', vsJar.absolutePath, '-p', className)
+                    .redirectErrorStream(true)
+                    .start()
+            def output = process.inputStream.getText('UTF-8')
+            def exitCode = process.waitFor()
+            if (exitCode != 0) {
+                throw new GradleException("javap failed for ${className}: ${output}")
             }
-            return output.toString('UTF-8')
+            return output
         }
 
         def provider = inspect('org.valkyrienskies.mod.common.IShipObjectWorldServerProvider')
