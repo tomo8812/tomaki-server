@@ -68,6 +68,11 @@ public final class BackfillController {
       if (state.busy) {
          if (state.activeLevel != null && state.activePos != null && playerNear(state.activeLevel, state.activePos)) {
             handoffToPlayer(state);
+         } else if (state.awaitingScopeDrain && state.activeLevel != null && state.activePos != null
+            && BackfillGuard.scopeDrained(state.activeLevel, state.activePos)) {
+            BackfillGuard.clear(state.activeLevel, state.activePos);
+            state.phase="dependency-scope-drained";
+            clearActive(state);
          }
          report(server,state,false);
          return;
@@ -179,12 +184,18 @@ public final class BackfillController {
 
    public static void onUnload(ServerLevel var0, LevelChunk var1) {
       if (BackfillGuard.active(var0, var1.getPos())) {
-         BackfillGuard.clear(var0, var1.getPos());
          MinecraftServer var2 = var0.getServer();
          synchronized (STATES) {
             BackfillController.State var4 = STATES.get(var2);
             if (var4 != null && var0 == var4.activeLevel && var4.activePos != null && var1.getPos().toLong() == var4.activePos.toLong()) {
-               clearActive(var4);
+               var4.awaitingScopeDrain=true;
+               var4.phase="waiting-dependency-unload";
+               if (BackfillGuard.scopeDrained(var0, var1.getPos())) {
+                  BackfillGuard.clear(var0, var1.getPos());
+                  clearActive(var4);
+               } else {
+                  report(var2,var4,true);
+               }
             }
          }
       }
@@ -197,6 +208,7 @@ public final class BackfillController {
          var2.activeLevel = var0;
          var2.activePos = var3;
          var2.phase="loading-chunk";
+         var2.awaitingScopeDrain=false;
          var2.activeSince=System.currentTimeMillis();
          var2.backfillsStarted++;
          long var4 = ++var2.token;
@@ -307,12 +319,17 @@ public final class BackfillController {
          MillenaireBridge.restore(var3);
          var2.previousSuppression = null;
          var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var1, 0, Unit.INSTANCE);
-         BackfillGuard.clear(var0,var1);
+         IdlePregenBridge.setBackfillActive(false);
+         var2.idlePregenClaimed=false;
          var2.backfillsFailed++;
-         var2.phase="failed-before-full";
+         var2.awaitingScopeDrain=true;
+         var2.phase="failed-before-full-awaiting-dependency-unload";
          report(var0.getServer(),var2,true);
-         LOG.warn("Chunk-cache backfill for {} failed before reaching FULL; releasing guard and idle-work claim immediately",new Object[]{var1});
-         clearActive(var2);
+         LOG.warn("Chunk-cache backfill for {} failed before reaching FULL; ticket and idle claim are released while the dependency save guard drains",new Object[]{var1});
+         if (BackfillGuard.scopeDrained(var0,var1)) {
+            BackfillGuard.clear(var0,var1);
+            clearActive(var2);
+         }
       }
    }
 
@@ -373,6 +390,7 @@ public final class BackfillController {
       var0.activeLevel=null;
       var0.activePos=null;
       var0.previousSuppression=null;
+      var0.awaitingScopeDrain=false;
       var0.activeSince=0L;
       var0.phase="idle";
       var0.token++;
@@ -392,6 +410,7 @@ public final class BackfillController {
          data.put("busy",state.busy);
          data.put("scanning",state.scanning);
          data.put("idlePregenClaimed",state.idlePregenClaimed);
+         data.put("awaitingDependencyScopeDrain",state.awaitingScopeDrain);
          data.put("activeSince",state.activeSince==0L?null:java.time.Instant.ofEpochMilli(state.activeSince).toString());
          data.put("activeDimension",state.activeLevel==null?null:state.activeLevel.dimension().location().toString());
          data.put("activeChunkX",state.activePos==null?null:state.activePos.x);
@@ -699,6 +718,7 @@ public final class BackfillController {
       long lodOffersSubmitted;
       long lodRefreshCompleted;
       boolean idlePregenClaimed;
+      boolean awaitingScopeDrain;
       String phase="idle";
       ServerLevel activeLevel;
       ChunkPos activePos;
