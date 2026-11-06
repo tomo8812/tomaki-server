@@ -232,6 +232,7 @@ public final class BackfillController {
       state.lastRequestSetupWallMs = -1.0;
       state.lastRequestSetupCpuMs = -1.0;
       state.lastChunkFutureWaitWallMs = -1.0;
+      state.chunkFutureStartedAtNanos = 0L;
       state.lastPendingChunkTasksBefore = -1;
       state.lastPendingChunkTasksAfter = -1;
       state.lastPendingChunkWritesBefore = -1L;
@@ -248,7 +249,9 @@ public final class BackfillController {
                .execute(
                   () -> {
                      if (active(state, token, level, pos)) {
-                        state.lastChunkFutureWaitWallMs = elapsedMillis(queuedAt);
+                        state.lastChunkFutureWaitWallMs = state.chunkFutureStartedAtNanos == 0L
+                           ? -1.0
+                           : elapsedMillis(state.chunkFutureStartedAtNanos);
                         LevelChunk[] fullChunk = new LevelChunk[1];
 
                         try {
@@ -371,6 +374,7 @@ public final class BackfillController {
                boolean createMissingChunk = PlatformCompat.ENABLE_MOONRISE_WORKAROUNDS || PlatformCompat.ENABLE_C2ME_TICKET_COMPAT;
                state.lastCreateMissingChunk = createMissingChunk;
                long futureCallStartedAt = System.nanoTime();
+               state.chunkFutureStartedAtNanos = futureCallStartedAt;
                CompletableFuture<ChunkResult<ChunkAccess>> nativeFuture = ((ServerChunkCacheMixin)chunkSource)
                   .invokeGetChunkFutureMainThread(pos.x, pos.z, ChunkStatus.FULL, createMissingChunk);
                state.lastGetChunkFutureCallWallMs = elapsedMillis(futureCallStartedAt);
@@ -847,6 +851,7 @@ public final class BackfillController {
       double lastRequestSetupWallMs = -1.0;
       double lastRequestSetupCpuMs = -1.0;
       double lastChunkFutureWaitWallMs = -1.0;
+      long chunkFutureStartedAtNanos;
       int lastPendingChunkTasksBefore = -1;
       int lastPendingChunkTasksAfter = -1;
       long lastPendingChunkWritesBefore = -1L;
