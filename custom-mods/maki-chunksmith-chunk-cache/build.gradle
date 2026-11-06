@@ -144,13 +144,13 @@ tasks.register('verifyIssue66SharedBudget') {
         if (controller.contains('chunksmithTaskActive()')) {
             throw new GradleException('Issue #66 regression: unconditional Chunksmith-task backfill blocking returned')
         }
-        ['reserveResourceBudget', 'waiting-shared-budget-', 'releaseResourceBudget',
-         'LodResourceBudgetBridge.started()', 'budgetReason'].each { token ->
+        ['pendingCandidate', 'tryStartPending', 'reserveResourceBudget', 'waiting-shared-budget-',
+         'completeResourceBudget', 'releaseResourceBudget', 'budgetReason'].each { token ->
             if (!controller.contains(token)) {
                 throw new GradleException('Issue #66 regression: shared backfill budget lifecycle is missing ' + token)
             }
         }
-        ['reserveBackfill', 'backfillReservationHeld', 'backfillStarted', 'releaseBackfill'].each { token ->
+        ['reserveBackfill', 'backfillReservationHeld', 'completeBackfill', 'releaseBackfill'].each { token ->
             if (!bridge.contains(token)) {
                 throw new GradleException('Issue #66 regression: maki-lod-cpu budget bridge is missing ' + token)
             }
