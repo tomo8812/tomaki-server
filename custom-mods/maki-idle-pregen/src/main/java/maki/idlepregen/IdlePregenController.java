@@ -32,6 +32,7 @@ final class IdlePregenController {
                 enter(server);
             } else {
                 observeFreezeOwnership(server);
+                VsPhysicsPauseController.tick(server);
             }
         } else if (active) {
             leave(server, server.getPlayerCount() > 0 ? "player-online" : "idle-work-stopped");
@@ -51,6 +52,10 @@ final class IdlePregenController {
 
     static boolean isActive() {
         return active;
+    }
+
+    static boolean ownsVsPhysicsPause() {
+        return active && VsPhysicsPauseController.ownsPause();
     }
 
     private static boolean idleWorkRunning() {
@@ -74,8 +79,12 @@ final class IdlePregenController {
             freezeOwned = tickRateManager.isFrozen();
         }
 
+        VsPhysicsPauseController.beginSession();
         active = true;
-        LOG.log(Level.INFO, "Entered idle pregen mode; freezeOwned=" + freezeOwned);
+        VsPhysicsPauseController.tick(server);
+        LOG.log(Level.INFO,
+                "Entered idle pregen mode; freezeOwned=" + freezeOwned
+                        + ", vsPhysicsOwned=" + VsPhysicsPauseController.ownsPause());
     }
 
     private static void observeFreezeOwnership(MinecraftServer server) {
@@ -87,6 +96,8 @@ final class IdlePregenController {
     }
 
     private static void leave(MinecraftServer server, String reason) {
+        active = false;
+
         if (freezeOwned) {
             ServerTickRateManager tickRateManager = server.tickRateManager();
             if (tickRateManager.isFrozen()) {
@@ -95,7 +106,7 @@ final class IdlePregenController {
             freezeOwned = false;
         }
 
-        active = false;
+        VsPhysicsPauseController.leaveSession();
         LOG.log(Level.INFO, "Left idle pregen mode: " + reason);
     }
 }
