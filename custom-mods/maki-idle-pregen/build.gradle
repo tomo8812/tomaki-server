@@ -126,12 +126,12 @@ tasks.register('verifyValkyrienSkiesPauseApi') {
 
         def physShip = inspect('org.valkyrienskies.core.impl.game.ships.PhysShipImpl')
         [
-            'java.util.ArrayDeque invForces;',
-            'java.util.ArrayDeque invTorques;',
-            'java.util.ArrayDeque rotForces;',
-            'java.util.ArrayDeque rotTorques;',
-            'java.util.ArrayDeque invPosForces;',
-            'java.util.ArrayDeque invPosPositions;',
+            'invForces;',
+            'invTorques;',
+            'rotForces;',
+            'rotTorques;',
+            'invPosForces;',
+            'invPosPositions;',
             'getPhysicsListeners$impl();',
             'applyQueuedForces();'
         ].each { needle ->
