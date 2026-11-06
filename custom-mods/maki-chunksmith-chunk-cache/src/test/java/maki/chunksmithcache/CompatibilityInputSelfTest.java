@@ -24,6 +24,7 @@ public final class CompatibilityInputSelfTest {
             testAuditedModContracts(temp);
             testInstalledModAudit(temp);
             testHistoricalSemanticRecovery();
+            testReAdoptionConflictPolicy(temp);
             System.out.println("Issue #68 semantic compatibility regression checks: PASS");
         } finally {
             deleteTree(temp);
@@ -157,6 +158,24 @@ public final class CompatibilityInputSelfTest {
             bytes.length, sha256(bytes), FingerprintManifest.Impact.IGNORED, "current raw zfastnoise audit"));
         require(FingerprintManifest.sameCompatibilityInputsExcept(manifest(oldRaw), manifest(currentRaw), Set.of("policy:compatibility")),
             "an old raw zfastnoise entry may migrate only when it exactly matches the currently parsed source");
+    }
+
+    private static void testReAdoptionConflictPolicy(Path temp) throws Exception {
+        Path source = temp.resolve("quarantine-source");
+        Path active = temp.resolve("active-generation");
+        Files.createDirectories(source);
+        Files.createDirectories(active);
+        Files.writeString(source.resolve("same.nbt.gz"), "quarantined-old");
+        Files.writeString(active.resolve("same.nbt.gz"), "active-new");
+        Files.writeString(source.resolve("old-only.nbt.gz"), "recover-me");
+
+        GenerationStore.mergeDirectory(source, active);
+
+        require(Files.readString(active.resolve("same.nbt.gz")).equals("active-new"),
+            "re-adoption must never overwrite an already active cache entry");
+        require(Files.readString(active.resolve("old-only.nbt.gz")).equals("recover-me"),
+            "non-conflicting quarantined cache entries must be recovered");
+        require(!Files.exists(source), "successfully merged quarantine source must be removed");
     }
 
     private static void assertAudited(Path jar, String modId) throws Exception {
