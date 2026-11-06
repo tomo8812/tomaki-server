@@ -95,9 +95,8 @@ public final class NbtCopyObserver {
     }
 
     public static void enterCompound(CompoundTag tag) {
-        if (tag != null) {
-            enter("compound", tag.size(), System.identityHashCode(tag));
-        }
+        if (!settings.enabled || tag == null) return;
+        enter("compound", tag.size(), System.identityHashCode(tag));
     }
 
     public static void exitCompound() {
@@ -105,9 +104,8 @@ public final class NbtCopyObserver {
     }
 
     public static void enterList(ListTag tag) {
-        if (tag != null) {
-            enter("list", tag.size(), System.identityHashCode(tag));
-        }
+        if (!settings.enabled || tag == null) return;
+        enter("list", tag.size(), System.identityHashCode(tag));
     }
 
     public static void exitList() {

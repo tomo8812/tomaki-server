@@ -107,8 +107,9 @@ tasks.register('verifyDormantDiagnostics') {
             !stall.contains('return;\n        }\n        if (!active)')) {
             throw new GradleException('Issue #62 regression: disabled stall diagnostics must avoid per-tick sampling/I/O')
         }
-        if (!nbt.contains('reloadSettingsIfDue();\n        if (!settings.enabled)')) {
-            throw new GradleException('Issue #62 regression: disabled NBT diagnostics must return before per-tick tracing state')
+        if (!nbt.contains('reloadSettingsIfDue();\n        if (!settings.enabled)') ||
+            !nbt.contains('if (!settings.enabled || tag == null) return;')) {
+            throw new GradleException('Issue #62 regression: disabled NBT diagnostics must return before per-tick tracing state or NBT inspection')
         }
     }
 }

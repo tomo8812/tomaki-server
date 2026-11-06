@@ -807,7 +807,7 @@ public final class ModsObserver {
             int topThreads,
             int maxStackFrames) {
         static Settings defaults() {
-            return new Settings(false, 100L, 500L, 500L, 200L, 500L, 8, 24);
+            return new Settings(false, 100L, 500L, 500L, 200L, 500L, 8, 128);
         }
 
         static Settings parse(Properties p) {
