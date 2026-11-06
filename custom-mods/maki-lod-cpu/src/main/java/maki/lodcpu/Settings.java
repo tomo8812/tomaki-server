@@ -46,14 +46,12 @@ public final class Settings {
         s.backfillWriteQueueHigh=integer(p,"backfill-write-queue-high",32,1,100000);
         s.backfillMinSpacingSeconds=integer(p,"backfill-min-spacing-seconds",2,0,60);
         int cleanFollowWindowSeconds=(int)Math.ceil(s.interval*2.0);
+        int effectiveMinSpacing=Math.max(s.backfillMinSpacingSeconds,cleanFollowWindowSeconds);
         s.backfillMaxSafeWaitSeconds=integer(
-            p,"backfill-max-safe-wait-seconds",Math.max(30,cleanFollowWindowSeconds),
-            cleanFollowWindowSeconds,300);
+            p,"backfill-max-safe-wait-seconds",Math.max(30,effectiveMinSpacing),
+            effectiveMinSpacing,300);
         s.backfillDrainWaitSeconds=integer(p,"backfill-drain-wait-seconds",30,5,300);
         s.backfillSampleMaxAgeSeconds=integer(p,"backfill-sample-max-age-seconds",10,4,60);
-        int cleanFollowSeconds=(int)Math.ceil(s.interval*2.0);
-        if(s.backfillMaxSafeWaitSeconds<Math.max(s.backfillMinSpacingSeconds,cleanFollowSeconds))
-            throw new IllegalArgumentException("backfill-max-safe-wait-seconds");
         s.onlineMax=integer(p,"online-max-concurrent",2,1,2);
         s.followRadius=integer(p,"follow-radius-blocks",4096,128,8192);
         s.recenterSeconds=integer(p,"follow-recenter-seconds",30,10,600);
