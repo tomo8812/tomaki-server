@@ -6,27 +6,55 @@ Server-only idle pre-generation coordinator originally introduced for Issue #7.
 
 Vanilla tick freeze does not stop Valkyrien Skies' independent physics pipeline. A keep-active ship can therefore keep moving while the server is empty and idle pre-generation is active.
 
-Version 1.0.2 extends the existing idle coordinator instead of adding ship-state ownership to another MOD:
+Version 1.0.2 extends the existing idle coordinator instead of adding ship-state ownership to another MOD.
 
-- when idle pregen starts, inspect the server's current VS pipeline;
-- if VS physics is running, set its existing `arePhysicsRunning` switch to false and record ownership;
-- if physics was already paused, do not claim it and do not resume it later;
-- if another owner resumes physics during the idle session, release ownership and do not immediately pause it again;
-- on player return, idle-work completion, or server shutdown, resume only a pause owned by this MOD;
-- while this MOD owns the pause, let VS `postTickGame()` perform its normal game-stage bookkeeping but redirect only the final `ConcurrentLinkedQueue.add(...)` physics-frame handoff so the paused physics queue cannot accumulate stale game frames.
+### Simulation boundary
 
-The bundled VS implementation's physics loop resets its timing-debt accumulator and recent TPS queue before waiting while `arePhysicsRunning=false`. That means the supported pause path does not convert wall-clock idle duration into a large physics catch-up step on resume.
+During idle pre-generation the coordinator now treats the following as frozen simulation:
 
-The `postTickGame` guard deliberately preserves VS game-stage bookkeeping and per-tick state reset; it suppresses only the final physics-frame enqueue. It also does not cancel VS chunk loading, ship activation management, terrain hooks, server saving, or Chunksmith generation. It exists only while the idle coordinator itself owns the physics pause.
+- vanilla game simulation through the existing server tick freeze;
+- Millenaire village/queue progression through the existing guards;
+- Valkyrien Skies **physics time** by forcing each VS physics-step delta to `0.0`.
 
-The current VS bridge is version-sensitive because the distributed JAR exposes the pause switch through an internal pipeline API. The build therefore verifies the exact bundled
+VS game/physics state synchronization is deliberately not discarded. `postTickGame()` still constructs its normal `FG` frame, and the VS physics stage still drains and applies those frames. This preserves one-shot body lifecycle, terrain/voxel, dimension, joint, and other game-to-physics updates generated while Chunksmith is working.
+
+### Async physics
+
+For the repository's normal `synchronizePhysics=false` configuration:
+
+- if the VS pipeline is running, idle pregen sets its existing `arePhysicsRunning` switch to false and records ownership;
+- if it was already paused, the coordinator does not claim or later resume another owner's pause;
+- after each VS `postTickGame()` frame is created, an owned pause wakes the worker for one state-synchronization pass;
+- the mixin replaces that pass's physics delta with `0.0`, so the frame is drained on VS' own physics thread without advancing ship time;
+- when the zero-delta pass returns, the coordinator pauses the worker again;
+- player return, idle-work completion, or server shutdown resumes only a pause owned by this MOD;
+- an external async resume releases ownership and is not immediately re-paused in the same idle session.
+
+The async runner resets its timing-debt accumulator and TPS sample queue whenever it waits on `arePhysicsRunning=false`, so wall-clock idle duration is not converted into a later catch-up step.
+
+With the repository's `physicsTicksPerGameTick=3`, normal async physics targets about three physics passes per game tick. Idle mode wakes it at most once per game frame, reducing solver wakeups while still preserving the state synchronization required by worldgen/shipyard data.
+
+### Synchronized physics
+
+VS' synchronized runner does not consult `arePhysicsRunning`. The coordinator therefore does **not** claim that flag as a successful pause when the concrete pipeline's synchronized-mode field is active.
+
+The same `FQ.a(double)` delta guard still applies, so synchronized physics steps receive `0.0` seconds while idle. This preserves the synchronized pipeline's own handshakes and frame processing without advancing ship time. CPU suppression is weaker in this mode because VS still executes its configured synchronized passes; the current repository configuration is `synchronizePhysics=false`.
+
+### Compatibility boundary
+
+The distributed Valkyrien Skies JAR is not modified. The integration is version-sensitive because the current bundled implementation exposes the pause flag publicly but the concrete physics-step/synchronized-mode details are internal.
+
+`gradle clean check jar` therefore verifies the exact bundled
 `ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar` for:
 
 - `IShipObjectWorldServerProvider.getVsPipeline()`;
 - `VsiPipeline.getArePhysicsRunning()/setArePhysicsRunning(boolean)`;
-- the concrete pipeline `postTickGame()` method and its `ConcurrentLinkedQueue.add(Object)` physics-frame handoff used to prevent queued-frame backlog.
+- concrete `FQ` synchronized-mode field `c`;
+- concrete `FQ.a(double)` physics-step entry point;
+- `FQ.postTickGame()`;
+- the `FN.a(double, boolean)` path still draining queued game frames before physics work.
 
-The distributed Valkyrien Skies JAR is not modified.
+A VS update that changes these internals must fail the build-time compatibility check and be re-reviewed rather than silently using an invalid hook.
 
 ## Issue #27 fix (1.0.1)
 
@@ -34,10 +62,7 @@ Version 1.0.0 was compiled with an incompatible hand-written `@Mixin` annotation
 
 Version 1.0.1 moved the maintained source into this Gradle/NeoForge project and compiles against the real NeoForge/Mixin dependency set rather than defining Mixin annotation ABI by hand.
 
-The build includes `verifyMixinAnnotationRetention`, which checks every mixin class with `javap -v` and fails `check` unless:
-
-- class-level `@Mixin` is under `RuntimeInvisibleAnnotations`;
-- injector `@Inject` annotations remain under `RuntimeVisibleAnnotations`.
+The build includes `verifyMixinAnnotationRetention`, which checks every mixin class with `javap -v` and fails `check` unless class-level `@Mixin` is runtime-invisible and injector annotations are runtime-visible.
 
 ## Runtime behavior
 
@@ -45,7 +70,7 @@ The coordinator:
 
 - enters idle pregen only on a dedicated server with zero players and active Chunksmith/external idle work;
 - freezes vanilla simulation without taking ownership of a pre-existing administrator freeze;
-- pauses VS physics with the same ownership rule;
+- freezes VS physics time while preserving VS state-frame processing;
 - leaves immediately when a player appears or idle work stops;
 - pauses Millenaire village progression and spawn queue execution while preserving candidate admission/deferred recording;
 - never starts, stops, replaces, or recenters Chunksmith tasks.
@@ -67,7 +92,7 @@ The local Chunksmith and Millenaire JARs in `../../mods` are compile-only depend
 
 - real NeoForge/Mixin compilation;
 - Mixin annotation retention for all registered mixins;
-- the current bundled VS pause ABI and concrete post-tick hook;
-- a Java harness covering owned pause/resume, pre-existing external pause preservation, late pipeline availability, and external resume ownership release.
+- the current bundled VS pause/physics-step/game-frame-drain ABI;
+- a Java harness covering async owned pause/pulse/re-pause/resume, pre-existing pause preservation, synchronized zero-delta behavior, late pipeline availability, external resume ownership release, and async/synchronized mode transitions.
 
-Minecraft/NeoForge end-to-end validation with a real keep-active ship remains an environment-level test and must verify ship transform/velocity stability, Chunksmith progress, and VS worker CPU during an actual idle generation interval.
+Minecraft/NeoForge end-to-end validation with a real keep-active ship remains an environment-level test. It must compare actual ship transform/velocity, Chunksmith progress, and VS worker CPU across a real idle-generation interval. In synchronized mode, correctness is covered by the zero-delta boundary but a comparable CPU reduction is not expected because VS still executes synchronized passes.
