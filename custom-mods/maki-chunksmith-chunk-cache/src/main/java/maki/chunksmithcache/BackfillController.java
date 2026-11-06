@@ -233,6 +233,7 @@ public final class BackfillController {
          var2.fullChunkAcquiredAt=0L;
          var2.loadFuturePending=false;
          var2.loadWarningLogged=false;
+         var2.fullLoadTimeoutReached=false;
          var2.unloadDelayWarned=false;
          var2.backfillTicketHeld=false;
          var2.completionOutcome=null;
@@ -271,7 +272,19 @@ public final class BackfillController {
       long now=System.currentTimeMillis();
       long elapsed=now-state.activeSince;
       if(elapsed>=FULL_LOAD_TIMEOUT_MILLIS) {
-         LOG.warn("Chunk-cache backfill {} in {} did not reach FULL within {} ms while owned by the backfill ticket; aborting before FULL",
+         if(state.loadFuturePending) {
+            if(!state.fullLoadTimeoutReached) {
+               state.fullLoadTimeoutReached=true;
+               state.waitReason="in-flight-full-generation-timeout";
+               enterPhase(state,"pre-full-timeout-awaiting-future");
+               releaseIdleClaim(state);
+               LOG.warn("Chunk-cache backfill {} in {} has not reached FULL after {} ms; keeping its ticket and persistence guard until the in-flight FULL future settles, while releasing only the idle-work claim",
+                  new Object[]{pos,level.dimension().location(),elapsed});
+               report(level.getServer(),state,true);
+            }
+            return;
+         }
+         LOG.warn("Chunk-cache backfill {} in {} did not reach FULL within {} ms and has no in-flight generation future; aborting before FULL",
             new Object[]{pos,level.dimension().location(),elapsed});
          failBeforeFull(level,pos,state,state.previousSuppression,state.token);
          return;
@@ -300,9 +313,20 @@ public final class BackfillController {
          }
          LevelChunk chunk=levelChunk(result);
          if(chunk==null) {
+            if(state.fullLoadTimeoutReached) {
+               LOG.warn("Timed-out FULL future for {} in {} settled without a FULL chunk; performing guarded pre-FULL cleanup",
+                  new Object[]{pos,level.dimension().location()});
+               failBeforeFull(level,pos,state,state.previousSuppression,token);
+               return;
+            }
             state.waitReason=state.loadWarningLogged?"owned-ticket-full-generation-delayed":"owned-ticket-propagation";
             enterPhase(state,"waiting-owned-ticket");
             return;
+         }
+         if(state.fullLoadTimeoutReached) {
+            state.waitReason="late-full-after-timeout";
+            LOG.info("Timed-out FULL future for {} in {} eventually completed; finishing the guarded backfill before releasing its ticket",
+               new Object[]{pos,level.dimension().location()});
          }
          handleFullChunk(level,target,state,state.previousSuppression,token,chunk);
       }));
@@ -447,6 +471,10 @@ public final class BackfillController {
          markProgress(state);
          level.getChunkSource().removeRegionTicket(BACKFILL_TICKET,pos,0,Unit.INSTANCE);
       }
+      releaseIdleClaim(state);
+   }
+
+   private static void releaseIdleClaim(BackfillController.State state) {
       IdlePregenBridge.setBackfillActive(false);
       state.idlePregenClaimed=false;
    }
@@ -567,6 +595,7 @@ public final class BackfillController {
       var0.loadFuturePending=false;
       var0.backfillTicketHeld=false;
       var0.loadWarningLogged=false;
+      var0.fullLoadTimeoutReached=false;
       var0.unloadDelayWarned=false;
       var0.waitReason=null;
       var0.completionOutcome=null;
@@ -592,6 +621,7 @@ public final class BackfillController {
          data.put("serverFrozen",server.tickRateManager().isFrozen());
          data.put("backfillTicketHeld",state.backfillTicketHeld);
          data.put("loadFuturePending",state.loadFuturePending);
+         data.put("fullLoadTimeoutReached",state.fullLoadTimeoutReached);
          data.put("waitReason",state.waitReason);
          data.put("completionOutcome",state.completionOutcome);
          data.put("activeSince",instant(state.activeSince));
@@ -934,6 +964,7 @@ public final class BackfillController {
       boolean backfillTicketHeld;
       boolean loadFuturePending;
       boolean loadWarningLogged;
+      boolean fullLoadTimeoutReached;
       boolean unloadDelayWarned;
       String phase="idle";
       String waitReason;
