@@ -58,6 +58,14 @@ jobs:
           mkdir -p /tmp/maki-rebuilt
           cp custom-mods/*/build/libs/maki-*.jar /tmp/maki-rebuilt/
           python3 .github/scripts/audit_mixin_annotations.py --mods-dir /tmp/maki-rebuilt --annotation-api /tmp/sponge-mixin.jar --github-actions --json-output reports/rebuilt-mixin-audit.json
+      - name: Upload rebuilt custom MOD JARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: rebuilt-custom-mod-jars
+          path: /tmp/maki-rebuilt/*.jar
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload rebuilt JAR audit
         if: always()
         uses: actions/upload-artifact@v4
