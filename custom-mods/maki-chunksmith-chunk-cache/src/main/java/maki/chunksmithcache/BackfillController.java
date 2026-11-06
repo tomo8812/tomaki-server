@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -113,6 +114,7 @@ public final class BackfillController {
 
       state.scanning=true;
       state.phase="scanning";
+      state.normalStateUnknown=0L;
       state.scansStarted++;
       report(server,state,true);
       CompletableFuture.<BackfillController.Candidate>supplyAsync(() -> findCandidate(levels,state),SCAN)
@@ -126,7 +128,7 @@ public final class BackfillController {
                return;
             }
             if (candidate == null) {
-               state.phase="waiting-no-candidate";
+               state.phase=state.normalStateUnknown == 0L ? "waiting-no-candidate" : "waiting-normal-state-unknown";
                report(server,state,true);
                return;
             }
@@ -160,7 +162,7 @@ public final class BackfillController {
                advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
                report(server,state,true);
             } else {
-               start(level,target,state);
+               start(level,target,state,candidate.suppressed());
             }
          }));
    }
@@ -188,7 +190,7 @@ public final class BackfillController {
       }
    }
 
-   private static void start(ServerLevel var0, BackfillController.Target var1, BackfillController.State var2) {
+   private static void start(ServerLevel var0, BackfillController.Target var1, BackfillController.State var2, Set<Long> suppressed) {
       ChunkPos var3 = var1.pos();
       if (MillenaireBridge.canBackfillSafely()) {
          var2.busy = true;
@@ -198,7 +200,7 @@ public final class BackfillController {
          var2.activeSince=System.currentTimeMillis();
          var2.backfillsStarted++;
          long var4 = ++var2.token;
-         BackfillGuard.arm(var0, var3);
+         BackfillGuard.arm(var0, var3, suppressed);
          Boolean var6 = MillenaireBridge.suppressNaturalSpawns(true);
          var2.previousSuppression = var6;
          if (MillenaireBridge.isLoaded() && var6 == null) {
@@ -396,6 +398,7 @@ public final class BackfillController {
          data.put("activeChunkZ",state.activePos==null?null:state.activePos.z);
          data.put("scansStarted",state.scansStarted);
          data.put("scanFailures",state.scanFailures);
+         data.put("normalStateUnknown",state.normalStateUnknown);
          data.put("candidatesFound",state.candidatesFound);
          data.put("backfillsStarted",state.backfillsStarted);
          data.put("backfillsCompleted",state.backfillsCompleted);
@@ -413,7 +416,7 @@ public final class BackfillController {
       }
    }
 
-   private static BackfillController.Target nextCandidate(ServerLevel var0, BackfillController.Cursor var1, String var2) {
+   private static BackfillController.Target nextCandidate(ServerLevel var0, BackfillController.Cursor var1, String var2, BackfillController.State state) {
       Path var3 = CacheManager.lodRoot(var0);
       if (!Files.isDirectory(var3)) {
          return null;
@@ -463,9 +466,14 @@ public final class BackfillController {
                      int var13 = var7[0] * 32 + var10 % 32;
                      int var14 = var7[1] * 32 + var10 / 32;
                      ChunkPos var15 = new ChunkPos(var13, var14);
-                     if (!normalRegionContains(var0, var15) && !CacheManager.cacheExists(var0, var15, var2)) {
-                        var1.exhaustedAt = 0L;
-                        return new BackfillController.Target(var15, (Path)var4.get(var20), var10, var11, var12);
+                     NormalChunkStorage.State normal = NormalChunkStorage.inspect(var0, var15);
+                     if (normal != NormalChunkStorage.State.FULL && !CacheManager.cacheExists(var0, var15, var2)) {
+                        if (normal == NormalChunkStorage.State.UNKNOWN) {
+                           state.normalStateUnknown++;
+                        } else {
+                           var1.exhaustedAt = 0L;
+                           return new BackfillController.Target(var15, (Path)var4.get(var20), var10, var11, var12);
+                        }
                      }
                   }
                }
@@ -492,9 +500,25 @@ public final class BackfillController {
             var5 = var1.cursor.computeIfAbsent(CacheManager.dimensionKey(var4), var0x -> new BackfillController.Cursor());
          }
 
-         BackfillController.Target var9 = nextCandidate(var4, var5, var3.fingerprint());
-         if (var9 != null) {
-            return new BackfillController.Candidate(var4, var9);
+         BackfillController.Target var9;
+         while ((var9 = nextCandidate(var4, var5, var3.fingerprint(), var1)) != null) {
+            if (CacheManager.cacheExists(var4, var9.pos(), var3.fingerprint())) {
+               advanceCursor(var4, var5);
+               continue;
+            }
+
+            NormalChunkStorage.Scope scope = NormalChunkStorage.snapshotBackfillOwnership(var4, var9.pos());
+            if (scope.unknown() != 0) {
+               var1.normalStateUnknown += scope.unknown();
+               advanceCursor(var4, var5);
+               continue;
+            }
+            if (!scope.suppressed().contains(var9.pos().toLong())) {
+               advanceCursor(var4, var5);
+               continue;
+            }
+
+            return new BackfillController.Candidate(var4, var9, scope.suppressed());
          }
       }
 
@@ -644,7 +668,7 @@ public final class BackfillController {
       return List.copyOf(var1);
    }
 
-   private record Candidate(ServerLevel level, BackfillController.Target target) {
+   private record Candidate(ServerLevel level, BackfillController.Target target, Set<Long> suppressed) {
    }
 
    private static final class Cursor {
@@ -666,6 +690,7 @@ public final class BackfillController {
       long activeSince;
       long scansStarted;
       long scanFailures;
+      long normalStateUnknown;
       long candidatesFound;
       long backfillsStarted;
       long backfillsCompleted;
