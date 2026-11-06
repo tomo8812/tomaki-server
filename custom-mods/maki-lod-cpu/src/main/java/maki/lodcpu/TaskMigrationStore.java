@@ -16,13 +16,13 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.UUID;
 import java.util.stream.Stream;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /** Durable, versioned preservation of runtime Chunksmith task files. */
 final class TaskMigrationStore {
     static final int SCHEMA_VERSION=1;
-    private static final Logger LOG=LoggerFactory.getLogger("MakiLodFollow");
+    private static final Logger LOG=Logger.getLogger("MakiLodFollow");
     private static final DateTimeFormatter ID_TIME=DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX").withZone(ZoneOffset.UTC);
     private TaskMigrationStore(){}
 
@@ -118,7 +118,7 @@ final class TaskMigrationStore {
     }
     private static void appendAuditAfterStateChange(Path root,String action,String actor,String hash,long modified,String result,String backupId){
         try{appendAudit(root,action,actor,hash,modified,result,backupId);}
-        catch(IOException e){LOG.warn("Task migration completed but its final audit record could not be appended: action={} backup={}",action,backupId,e);}
+        catch(IOException e){LOG.log(Level.WARNING,"Task migration completed but its final audit record could not be appended: action="+action+" backup="+backupId,e);}
     }
 
     private static void writeAtomic(Path destination,byte[] bytes)throws IOException {
