@@ -121,18 +121,30 @@ final class GenerationStore {
             if (!Files.isDirectory(source)) return "quarantine not found: " + id;
             FingerprintManifest.Manifest manifest = FingerprintManifest.readIfValid(source.resolve(FingerprintManifest.FILE_NAME));
             if (manifest == null) return "restore refused: quarantine has no valid compatibility manifest";
-            if (!manifest.fingerprint().equals(snapshot.fingerprint())) {
-                return "restore refused: current fingerprint " + snapshot.fingerprint() + " != quarantined " + manifest.fingerprint();
+            FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+            boolean exact = manifest.fingerprint().equals(snapshot.fingerprint());
+            boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(
+                manifest,
+                current,
+                Set.of("policy:compatibility")
+            );
+            if (!exact && !semantic) {
+                List<String> changed = FingerprintManifest.changedInputs(manifest, current, FingerprintManifest.Impact.RELEVANT, 12);
+                return "restore refused: quarantined inputs are not proven compatibility-equivalent; current="
+                    + snapshot.fingerprint() + " quarantined=" + manifest.fingerprint() + " changed=" + changed;
             }
             Path active = dimensionRoot(level).resolve(snapshot.fingerprint());
             mergeDirectory(source, active);
             FingerprintManifest.Manifest activeManifest = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
             Set<String> accepted = new LinkedHashSet<>(manifest.storedFingerprints());
+            accepted.add(manifest.fingerprint());
             accepted.add(snapshot.fingerprint());
             if (activeManifest != null) accepted.addAll(activeManifest.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
-            LOG.info("Restored quarantined chunk-cache generation {} for {} after exact fingerprint match", id, CacheManager.dimensionKey(level));
-            return "restored " + id + " to active fingerprint " + snapshot.fingerprint();
+            String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
+            LOG.info("Restored quarantined chunk-cache generation {} for {} after {}; existing active cache entries won path conflicts",
+                id, CacheManager.dimensionKey(level), proof);
+            return "restored " + id + " to active fingerprint " + snapshot.fingerprint() + " after " + proof;
         } catch (Throwable error) {
             LOG.warn("Could not restore quarantined chunk-cache generation {}", id, error);
             return "restore failed: " + error.getClass().getSimpleName();
@@ -168,7 +180,7 @@ final class GenerationStore {
         }
         for (Path candidate : candidates) {
             FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(candidate.resolve(FingerprintManifest.FILE_NAME));
-            if (old == null || !FingerprintManifest.sameRelevantInputsExcept(old, current, Set.of("policy:compatibility"))) continue;
+            if (old == null || !FingerprintManifest.sameCompatibilityInputsExcept(old, current, Set.of("policy:compatibility"))) continue;
 
             String oldFingerprint = candidate.getFileName().toString();
             Stats before = stats(candidate);
@@ -182,7 +194,7 @@ final class GenerationStore {
             accepted.addAll(old.storedFingerprints());
             if (existing != null) accepted.addAll(existing.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
-            LOG.info("Adopted policy-equivalent chunk-cache generation {} as {} for {}; all worldgen/serialization-relevant inputs are unchanged; entries={} bytes={} trigger={}",
+            LOG.info("Adopted compatibility-equivalent chunk-cache generation {} as {} for {}; audited effective settings/worldgen/serialization inputs are unchanged; entries={} bytes={} trigger={}",
                 oldFingerprint, snapshot.fingerprint(), root.getFileName(), before.entries(), before.bytes(), trigger);
         }
     }
