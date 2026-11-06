@@ -230,10 +230,10 @@ public final class CacheManager {
          if (validEnvelope(root, var0, var1, var2)) {
             return true;
          }
-         quarantine(file);
+         GenerationStore.quarantineCorrupt(file);
          return false;
       } catch (Throwable error) {
-         quarantine(file);
+         GenerationStore.quarantineCorrupt(file);
          LOG.warn("Ignoring invalid chunk cache {}; it remains eligible for backfill", new Object[]{file, error});
          return false;
       }

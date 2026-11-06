@@ -9,15 +9,13 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 
 public final class BackfillGuard {
-   private static final Map<String, Map<Long, Session>> ACTIVE = new ConcurrentHashMap<>();
+   private static final BackfillScopes ACTIVE = new BackfillScopes();
 
    private BackfillGuard() {
    }
 
    public static void arm(ServerLevel level, ChunkPos target, Set<Long> suppressed) {
-      Set<Long> owned = ConcurrentHashMap.newKeySet();
-      owned.addAll(suppressed);
-      ACTIVE.computeIfAbsent(key(level),ignored -> new ConcurrentHashMap<>()).put(target.toLong(), new Session(target.toLong(), owned));
+      ACTIVE.arm(key(level),target.toLong(),suppressed);
    }
 
    public static boolean active(ServerLevel level, ChunkPos pos) {
@@ -25,7 +23,7 @@ public final class BackfillGuard {
          return false;
       }
 
-      return sessions(level).containsKey(pos.toLong());
+      return ACTIVE.get(key(level),pos.toLong()) != null;
    }
 
    public static boolean suppress(ServerLevel level, ChunkPos pos) {
@@ -35,7 +33,7 @@ public final class BackfillGuard {
 
       long packed=pos.toLong();
       boolean suppress=false;
-      for(Session session:sessions(level).values()) {
+      for(BackfillScopes.Session session:ACTIVE.sessions(key(level))) {
          if(!session.suppressed().contains(packed))continue;
          if(playerNear(level,pos)) {
             // Permanent handoff also applies after the player leaves.
@@ -62,7 +60,7 @@ public final class BackfillGuard {
          return 0;
       }
 
-      Session session = sessions(level).get(target.toLong());
+      BackfillScopes.Session session = ACTIVE.get(key(level),target.toLong());
       if (session == null || session.target() != target.toLong()) {
          return 0;
       }
@@ -88,7 +86,7 @@ public final class BackfillGuard {
 
       try {
          ChunkMapLifecycleAccessor chunks = (ChunkMapLifecycleAccessor)(Object)level.getChunkSource().chunkMap;
-         for(Session session:sessions(level).values()) {
+         for(BackfillScopes.Session session:ACTIVE.sessions(key(level))) {
             for(long packed:scope)if(session.suppressed().contains(packed))return false;
          }
          for (long packed : scope) {
@@ -109,7 +107,7 @@ public final class BackfillGuard {
          return true;
       }
 
-      Session session = sessions(level).get(target.toLong());
+      BackfillScopes.Session session = ACTIVE.get(key(level),target.toLong());
       if (session == null || session.target() != target.toLong()) {
          return true;
       }
@@ -130,16 +128,12 @@ public final class BackfillGuard {
    }
 
    public static void clear(ServerLevel level, ChunkPos target) {
-      if(level!=null&&target!=null)sessions(level).remove(target.toLong());
+      if(level!=null&&target!=null)ACTIVE.clear(key(level),target.toLong());
    }
 
    public static void releasePlayerTarget(ServerLevel level, ChunkPos target) {
-      Session session=sessions(level).get(target.toLong());
+      BackfillScopes.Session session=ACTIVE.get(key(level),target.toLong());
       if(session!=null)session.suppressed().remove(target.toLong());
-   }
-
-   private static Map<Long,Session> sessions(ServerLevel level) {
-      return ACTIVE.getOrDefault(key(level), java.util.Collections.emptyMap());
    }
 
    private static boolean playerNear(ServerLevel level, ChunkPos pos) {
@@ -157,6 +151,4 @@ public final class BackfillGuard {
       return level.dimension().location().toString();
    }
 
-   private record Session(long target, Set<Long> suppressed) {
-   }
 }

@@ -134,7 +134,14 @@ tasks.register('issue40RegressionTest', JavaExec) {
     mainClass = 'maki.chunksmithcache.FingerprintPolicySelfTest'
 }
 
+tasks.register('backfillScopesTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.BackfillScopesSelfTest'
+}
+
 tasks.named('check') {
+    dependsOn tasks.named('backfillScopesTest')
     dependsOn tasks.named('verifyMixinAnnotationRetention')
     dependsOn tasks.named('verifyIssue47BackfillOwnership')
     dependsOn tasks.named('issue40RegressionTest')

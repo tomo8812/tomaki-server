@@ -531,6 +531,7 @@ public final class BackfillController {
                   if("completed".equals(state.completionOutcome)) {
                      retireSuccessfulGuard(level,pos,state);
                   } else {
+                     state.awaitingScopeDrain=true;
                      state.waitReason="natural-unload";
                      enterPhase(state,state.completionOutcome+"-ticket-released-awaiting-unload");
                      report(level.getServer(),state,true);
@@ -572,9 +573,9 @@ public final class BackfillController {
             BackfillGuard.clear(retired.level,retired.pos);
             state.retiredGuards.remove(retiredKey(retired.level,retired.pos));
             state.retiredGuardsUnloaded++;
-            state.lastOutcome="retired-handed-to-player";
+            state.lastOutcome=retired.outcome;
             markProgress(state);
-            LOG.info("Released retired backfill guard {} in {} to normal player loading",
+            LOG.debug("Released drained backfill dependency scope {} in {}",
                new Object[]{retired.pos,retired.level.dimension().location()});
             changed=true;
             continue;
@@ -664,6 +665,7 @@ public final class BackfillController {
          var2.previousSuppression = null;
          var2.backfillsFailed++;
          var2.completionOutcome="failed";
+         var2.awaitingScopeDrain=true;
          markProgress(var2);
          enterPhase(var2,"failed-ticket-releasing");
          releaseOwnedTicket(var0,var1,var2);

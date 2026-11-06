@@ -94,6 +94,9 @@ jobs:
           curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
           python3 .github/scripts/audit_mixin_annotations.py --annotation-api /tmp/sponge-mixin.jar --github-actions --json-output reports/shipped-mixin-audit.json
 
+      - name: Verify deployment sources and unique custom MOD IDs
+        run: python3 .github/scripts/check_deployment_sources.py
+
       - name: Test audit regressions
         if: always()
         run: python3 -m unittest discover -s .github/scripts -p 'test_mixin*.py'

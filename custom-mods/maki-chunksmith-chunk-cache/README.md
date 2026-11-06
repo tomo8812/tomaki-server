@@ -1,5 +1,8 @@
 # maki-chunksmith-chunk-cache
 
+Version 1.1.1 combines compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and asynchronous diagnostic publication. See [integration validation](../../docs/pr-integration-2026-11-06.md).
+
+
 Maintained source for the server-only Chunksmith cold-cache/backfill compatibility mod.
 
 Issue #30 found that version 1.0.0 had all seven registered Mixin classes compiled with class-level `@Mixin` in `RuntimeVisibleAnnotations`. Injector annotations were already runtime-visible and the cache/backfill implementation itself was not implicated.
@@ -46,14 +49,14 @@ check also runs FingerprintPolicySelfTest, covering observation-only JAR changes
 Version 1.0.3 removes the circular dependency between the backfill idle-work claim and vanilla's expiring `UNKNOWN` chunk ticket.
 
 - the existing `BACKFILL_TICKET` is the sole ticket owned by backfill;
-- FULL acquisition polls `getChunkFuture(..., FULL, false)`, so the lookup does not create an auxiliary vanilla `UNKNOWN` ticket;
+- FULL acquisition uses the Chunksmith ticket-safe-point private invoker with `createMissingChunk=false`, so the lookup does not create an auxiliary vanilla `UNKNOWN` ticket;
 - the custom ticket and idle-work claim are released as soon as durable LOD/cache work is finished, while `BackfillGuard` remains active until the chunk actually unloads or a player takes ownership;
 - a successful completed guard is detached from the single active backfill pipeline, so a delayed unload does not block the next candidate; guards support multiple coordinates per dimension and are bounded to 8 detached entries;
 - detached guards are released on the real unload callback or player handoff, warn after 30 seconds, and never force-unload or delete another owner's ticket;
 - pre-FULL loading warns after 30 seconds; after five minutes an in-flight FULL future keeps its ticket and persistence guard until it settles while only the idle-work claim is released, and a timeout with no in-flight generation aborts safely;
 - status schema 2 records phase/progress/ticket timestamps, active and detached guard state, server freeze state, unload wait time, and typed wait reasons.
 
-This deliberately does not change Chunksmith 4.6.0, `maki-idle-pregen`, fingerprint rotation (#40), synchronous load scheduling (#44), status-file I/O (#45), or neighboring ProtoChunk persistence (#47).
+The integrated release also preserves #40, #44, #45 and #47; Chunksmith 4.6.0 itself is unchanged.
 ## Issue #44 non-blocking backfill chunk acquisition
 
 Version 1.0.3 removes the public `ServerChunkCache.getChunkFuture(...)` call from the server-thread backfill start path.
@@ -63,7 +66,7 @@ Version 1.0.3 removes the public `ServerChunkCache.getChunkFuture(...)` call fro
 - `BACKFILL_TICKET`, `BackfillGuard`, Millenaire spawn suppression, player handoff and cold-cache persistence remain owned by this MOD.
 - Ticket installation is tracked explicitly so a player handoff that happens before the queued safe-point request runs cannot leave or later create an orphan backfill ticket.
 - Backfill status records safe-point delay, distance-manager update wall time, private future-call wall time, setup CPU/wall time, future wait time, pending chunk tasks and pending chunk writes.
-- The separate post-success unload lifecycle from Issue #41 and synchronous status-file I/O from Issue #45 are intentionally not changed here.
+- The integrated release combines this acquisition path with #41 lifecycle, #45 diagnostic I/O and #47 dependency scopes.
 ## Issue #47 dependency-safe legacy backfill
 
 Version 1.0.4 makes legacy CSLOD backfill distinguish the state of normal chunk storage instead of treating every non-zero region header entry as explored/full.
