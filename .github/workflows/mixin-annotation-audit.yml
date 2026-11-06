@@ -31,6 +31,9 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
+      - name: Build and check maki-diorama-share
+        run: gradle -p custom-mods/maki-diorama-share clean check jar
+
       - name: Build and check maki-chunksmith-chunk-cache
         run: gradle -p custom-mods/maki-chunksmith-chunk-cache clean check jar
 
@@ -42,6 +45,13 @@ jobs:
 
       - name: Build and check maki-lag-observer
         run: gradle -p custom-mods/maki-lag-observer clean check jar
+
+      - name: Upload maki-diorama-share JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: maki-diorama-share-jar
+          path: custom-mods/maki-diorama-share/build/libs/maki-diorama-share-1.0.1.jar
+          retention-days: 14
 
       - name: Audit rebuilt JARs
         run: |
