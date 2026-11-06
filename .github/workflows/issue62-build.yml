@@ -7,7 +7,25 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - maki-airship-compat
+          - maki-airship-foundation-compat
+          - maki-assembly-tracking
+          - maki-chunksmith-chunk-cache
+          - maki-diorama-share
+          - maki-idle-pregen
+          - maki-lod-cpu
+          - maki-lod-cpu-online-fix
+          - maki-millenaire-lod-compat
+          - maki-mods-observer
+          - maki-ship-anchor-fix
+          - maki-ship-edge
+          - maki-ship-footsteps
+          - maki-ship-save
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -17,28 +35,5 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
-      - name: Build every maintained custom MOD
-        shell: bash
-        run: |
-          set -euxo pipefail
-          projects=(
-            maki-airship-compat
-            maki-airship-foundation-compat
-            maki-assembly-tracking
-            maki-chunksmith-chunk-cache
-            maki-diorama-share
-            maki-idle-pregen
-            maki-lod-cpu
-            maki-lod-cpu-online-fix
-            maki-millenaire-lod-compat
-            maki-mods-observer
-            maki-ship-anchor-fix
-            maki-ship-edge
-            maki-ship-footsteps
-            maki-ship-save
-          )
-          for project in "${projects[@]}"; do
-            echo "::group::$project"
-            gradle -p "custom-mods/$project" clean check jar --stacktrace
-            echo "::endgroup::"
-          done
+      - name: Build ${{ matrix.project }}
+        run: gradle -p custom-mods/${{ matrix.project }} clean check jar --stacktrace
