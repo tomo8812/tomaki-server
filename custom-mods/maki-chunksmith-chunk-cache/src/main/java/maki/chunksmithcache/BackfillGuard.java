@@ -1,48 +1,56 @@
 package maki.chunksmithcache;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 
 public final class BackfillGuard {
-   private static final Map<String, Long> ACTIVE = new ConcurrentHashMap<>();
+   private static final Map<String, Set<Long>> ACTIVE = new ConcurrentHashMap<>();
 
    private BackfillGuard() {
    }
 
-   public static void arm(ServerLevel var0, ChunkPos var1) {
-      ACTIVE.put(key(var0), var1.toLong());
+   public static void arm(ServerLevel level, ChunkPos pos) {
+      ACTIVE.computeIfAbsent(key(level), ignored -> ConcurrentHashMap.newKeySet()).add(pos.toLong());
    }
 
-   public static boolean active(ServerLevel var0, ChunkPos var1) {
-      if (var0 != null && var1 != null) {
-         Long var2 = ACTIVE.get(key(var0));
-         return var2 != null && var2 == var1.toLong();
-      } else {
+   public static boolean active(ServerLevel level, ChunkPos pos) {
+      if (level == null || pos == null) {
          return false;
       }
+      Set<Long> positions = ACTIVE.get(key(level));
+      return positions != null && positions.contains(pos.toLong());
    }
 
-   public static boolean activePoi(Object var0, ChunkPos var1) {
-      if (var0 != null && var1 != null) {
-         for (ServerLevel var3 : BackfillController.levels()) {
-            if (var3.getPoiManager() == var0 && active(var3, var1)) {
-               return true;
-            }
+   public static boolean activePoi(Object storage, ChunkPos pos) {
+      if (storage == null || pos == null) {
+         return false;
+      }
+      for (ServerLevel level : BackfillController.levels()) {
+         if (level.getPoiManager() == storage && active(level, pos)) {
+            return true;
          }
+      }
+      return false;
+   }
 
-         return false;
-      } else {
-         return false;
+   public static void clear(ServerLevel level, ChunkPos pos) {
+      if (level == null || pos == null) {
+         return;
+      }
+      String key = key(level);
+      Set<Long> positions = ACTIVE.get(key);
+      if (positions != null) {
+         positions.remove(pos.toLong());
+         if (positions.isEmpty()) {
+            ACTIVE.remove(key, positions);
+         }
       }
    }
 
-   public static void clear(ServerLevel var0, ChunkPos var1) {
-      ACTIVE.remove(key(var0), var1.toLong());
-   }
-
-   private static String key(ServerLevel var0) {
-      return var0.dimension().location().toString();
+   private static String key(ServerLevel level) {
+      return level.dimension().location().toString();
    }
 }
