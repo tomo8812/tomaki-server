@@ -23,7 +23,7 @@ public abstract class VsPipelineMixin {
     }
 
     @Inject(method = "a(D)V", at = @At("RETURN"), remap = false)
-    private void maki$completeIdlePhysicsStep(double deltaSeconds, CallbackInfo ci) {
+    private void maki$completeIdlePhysicsStep(CallbackInfo ci) {
         IdlePregenHooks.completeVsPhysicsStep(this);
     }
 
