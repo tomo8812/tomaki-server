@@ -215,15 +215,28 @@ jobs:
           path: /tmp/maki-rebuilt
       - name: Replace deployable custom MOD set
         shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euxo pipefail
+          current_head="$(git rev-parse HEAD)"
+          if [[ "$current_head" != "$EXPECTED_HEAD" ]]; then
+            echo "Skipping stale artifact publication: run head=$EXPECTED_HEAD current branch head=$current_head"
+            exit 0
+          fi
           rm -f mods/maki-*.jar
           cp /tmp/maki-rebuilt/maki-*.jar mods/
           python3 .github/scripts/check_deployment_sources.py
       - name: Commit audited deployment artifacts
         shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euxo pipefail
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_HEAD" ]] || {
+            echo "Branch advanced after artifact build; refusing stale publication."
+            exit 0
+          }
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add mods
