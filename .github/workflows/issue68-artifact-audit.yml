@@ -1,4 +1,4 @@
-name: Issue 68 artifact audit
+name: Issue 68 deployment bootstrap
 
 on:
   push:
@@ -6,58 +6,53 @@ on:
       - fix/issue-68
     paths:
       - '.github/workflows/issue68-artifact-audit.yml'
-  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  audit:
+  rebuild-and-commit:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: fix/issue-68
           fetch-depth: 0
-      - name: Compute canonical JAR digests
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build and validate maki-chunksmith-chunk-cache 1.2.1
+        run: gradle --build-cache -p custom-mods/maki-chunksmith-chunk-cache check jar
+
+      - name: Replace deployment JAR
         shell: bash
         run: |
-          python3 - <<'PY'
-          import hashlib, io, pathlib, subprocess, zipfile
+          set -euo pipefail
+          jar="$(find custom-mods/maki-chunksmith-chunk-cache/build/libs -maxdepth 1 -type f -name 'maki-chunksmith-chunk-cache-1.2.1.jar' -print -quit)"
+          test -n "$jar"
+          rm -f mods/maki-chunksmith-chunk-cache-1.2.0.jar
+          cp "$jar" mods/maki-chunksmith-chunk-cache-1.2.1.jar
+          python3 .github/scripts/check_deployment_sources.py
+          git status --short
+          test -f mods/maki-chunksmith-chunk-cache-1.2.1.jar
+          test ! -e mods/maki-chunksmith-chunk-cache-1.2.0.jar
 
-          CURRENT = [
-              "mods/maki-lod-cpu-1.4.0.jar",
-              "mods/maki-lod-cpu-online-fix-1.0.3.jar",
-              "mods/maki-diorama-share-1.0.1.jar",
-              "mods/maki-mods-observer-1.0.0.jar",
-              "mods/Jade-1.21.1-NeoForge-15.10.6.jar",
-              "mods/emi-1.1.24+1.21.1+neoforge.jar",
-              "mods/clientsort-neoforge-3.89.2+1.21.1.jar",
-              "mods/sound-physics-remastered-neoforge-1.21.1-1.5.2.jar",
-          ]
-          HISTORICAL = [
-              ("e5b4d959473865a59f5213c3f6abc1a275f265da", "mods/maki-lod-cpu-1.3.4.jar"),
-              ("e5b4d959473865a59f5213c3f6abc1a275f265da", "mods/maki-lod-cpu-online-fix-1.0.2.jar"),
-              ("c1de3e1840c93494b024de1ba86ab5cbb59dd1e8", "mods/maki-diorama-share-1.0.0.jar"),
-          ]
-
-          def canonical(data):
-              out = hashlib.sha256()
-              with zipfile.ZipFile(io.BytesIO(data)) as z:
-                  names = sorted(i.filename for i in z.infolist() if not i.is_dir())
-                  for name in names:
-                      upper = name.upper()
-                      if upper.startswith("META-INF/") and upper.endswith((".SF", ".RSA", ".DSA", ".EC")):
-                          continue
-                      payload = z.read(name)
-                      nb = name.encode("utf-8")
-                      out.update(len(nb).to_bytes(4, "big")); out.update(nb)
-                      out.update(len(payload).to_bytes(8, "big")); out.update(payload)
-              return out.hexdigest()
-
-          for p in CURRENT:
-              data = pathlib.Path(p).read_bytes()
-              print(f"CURRENT\t{p}\traw={hashlib.sha256(data).hexdigest()}\tcanonical={canonical(data)}")
-          for ref, p in HISTORICAL:
-              data = subprocess.check_output(["git","show",f"{ref}:{p}"])
-              print(f"HISTORICAL\t{ref}\t{p}\traw={hashlib.sha256(data).hexdigest()}\tcanonical={canonical(data)}")
-          PY
+      - name: Commit deployment JAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mods/maki-chunksmith-chunk-cache-1.2.0.jar mods/maki-chunksmith-chunk-cache-1.2.1.jar
+          git commit -m "build: ship maki-chunksmith-chunk-cache 1.2.1"
+          git push origin HEAD:fix/issue-68
