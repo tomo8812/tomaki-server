@@ -32,7 +32,7 @@ Version 1.0.4 makes legacy CSLOD backfill distinguish the state of normal chunk 
 - before FULL generation starts, the vanilla generation pyramid supplies the exact dependency radius; the guard snapshots only absent/incomplete positions and starts only when that owned scope has no existing updating/visible/pending-unload holders;
 - chunk, entity, and POI persistence is vetoed for that owned dependency scope, while existing FULL positions are never owned by backfill;
 - the own loading ticket and idle-pregen claim are released before waiting for dependency holders to drain, while the save guard remains until updating, visible, and pending-unload holders in the owned scope disappear; this avoids turning the broader #47 guard into the freeze/unload cycle handled by #41;
-- when a real player loads an incomplete normal chunk, a valid FULL cold-cache entry is preferred and can then promote normally; without a valid cache, the saved ProtoChunk continues through vanilla generation;
+- when a real player acquires a dependency chunk, that coordinate is permanently removed from the backfill-owned save scope before player changes can later unload; for incomplete normal storage a valid FULL cold-cache entry is preferred, otherwise the saved ProtoChunk continues through vanilla generation;
 - `waiting-no-candidate` is not reported when an LOD entry remains unresolved because normal storage could not be classified.
 
 This change does not patch Chunksmith itself. It keeps ownership in the existing cache/backfill compatibility MOD and uses Vanilla/NeoForge chunk lifecycle boundaries plus the installed Chunksmith 4.6.0 API.
