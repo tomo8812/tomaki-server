@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "maki.fndseat.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["FoundationSeatUtilMixin", "FoundationChairMixin", "FurnitureVehicleMixin"],
+  "injectors": {"defaultRequire": 1}
+}
