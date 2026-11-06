@@ -270,17 +270,6 @@ public final class BackfillController {
 
       long token=state.token;
       var future=level.getChunkSource().getChunkFuture(pos.x,pos.z,ChunkStatus.FULL,false);
-      if(future.isDone()) {
-         LevelChunk chunk=levelChunk(future.getNow(null));
-         if(chunk!=null) {
-            handleFullChunk(level,target,state,state.previousSuppression,token,chunk);
-         } else {
-            state.waitReason=state.loadWarningLogged?"owned-ticket-full-generation-delayed":"owned-ticket-propagation";
-            enterPhase(state,"waiting-owned-ticket");
-         }
-         return;
-      }
-
       state.loadFuturePending=true;
       state.waitReason="owned-ticket-full-generation";
       enterPhase(state,"waiting-full-chunk");
@@ -441,6 +430,7 @@ public final class BackfillController {
          markProgress(var2);
          enterPhase(var2,"failed-ticket-releasing");
          releaseOwnedTicket(var0,var1,var2);
+         if(!var2.busy||var2.activeLevel!=var0||var2.activePos==null||var2.activePos.toLong()!=var1.toLong())return;
          var2.token++;
          var2.waitReason="natural-unload";
          enterPhase(var2,"failed-ticket-released-awaiting-unload");
