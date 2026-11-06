@@ -8,7 +8,7 @@ import java.util.Comparator;
 import java.util.List;
 
 final class CompatibilityFingerprint {
-    static final String SCHEMA = "maki-chunk-cache-compat-v2";
+    static final String SCHEMA = "maki-chunk-cache-compat-v3";
 
     private CompatibilityFingerprint() {}
 
