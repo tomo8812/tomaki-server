@@ -176,6 +176,7 @@ final class SharedWorkBudget {
         if(!Double.isFinite(current.mspt())||current.mspt()>=settings.highMspt)return "mspt-pressure";
         if(!Double.isFinite(current.heap())||current.heap()>=settings.highHeap)return "heap-pressure";
         if(current.memoryHeadroomMb()>=0&&current.memoryHeadroomMb()<settings.memoryReserveMb)return "memory-headroom";
+        if(current.memoryPsi()>=0&&current.memoryPsi()>=settings.backfillMemoryPsiPressurePercent)return "memory-pressure";
         if(Double.isFinite(current.gc())&&current.gc()>=settings.gcPressurePercent)return "gc-pressure";
         if(current.ioPsi()>=0&&current.ioPsi()>=settings.backfillIoPressurePercent)return "io-pressure";
         if(current.nativeHeld()||current.synchronousWrites()>0)return "native-backpressure";
