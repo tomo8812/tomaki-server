@@ -16,11 +16,8 @@ neoForge {
     version = '21.1.262'
 }
 
-def builtStatusIo = file('../maki-status-io/build/libs/maki-status-io-1.0.0.jar')
-def shippedStatusIo = file('../../mods/maki-status-io-1.0.0.jar')
 
 dependencies {
-    compileOnly files(builtStatusIo.exists() ? builtStatusIo : shippedStatusIo)
     compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'

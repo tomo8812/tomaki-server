@@ -1,12 +1,10 @@
 package maki.lodcpu;
 
 import com.sun.management.OperatingSystemMXBean;
-import com.google.gson.Gson;
 import java.lang.management.ManagementFactory;
 import java.nio.file.*;
 import java.io.Reader;
 import java.util.*;
-import maki.statusio.StatusIo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,7 +12,6 @@ public final class CpuGovernor {
     private static final Logger LOG=LoggerFactory.getLogger("MakiLodCpu");
     private static final Path CONFIG=Path.of("config/maki-lod-cpu.properties");
     private static final AdaptivePolicy POLICY=new AdaptivePolicy();
-    private static final Gson JSON=new Gson();
     private static Settings settings=new Settings();
     private static volatile int cap=2;
     private static volatile long taskActivity;
@@ -76,8 +73,7 @@ public final class CpuGovernor {
             reportedExperiment=POLICY.experimentNumber;
         }
         if(previous!=cap||experimentFinished||now-lastReport>=30_000_000_000L){
-            LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}",previous,cap,fmt(used),fmt(capacity),fmt(mspt),fmt(heap),players,POLICY.reason,fmt(writes/seconds),writes,fmt(batch.completions()/seconds),batch.completions(),fmt(gcPercent),sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase);
-            report(sample,state,budget,bytes,throttled,players,active);lastReport=now;
+            LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}",previous,cap,fmt(used),fmt(capacity),fmt(mspt),fmt(heap),players,POLICY.reason,fmt(writes/seconds),writes,fmt(batch.completions()/seconds),batch.completions(),fmt(gcPercent),sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase);            lastReport=now;
         }
     }
     private static String fmt(double n){return String.format(Locale.ROOT,"%.1f",n);}
@@ -115,33 +111,4 @@ public final class CpuGovernor {
         }catch(Exception e){if(configGood)LOG.error("Throughput governor config missing/invalid; limiting generation to 1 until fixed: {}",e.toString());configGood=false;}
     }
     private static Object finite(double n){return Double.isFinite(n)?n:null;}
-    private static void report(AdaptiveSample x,WorkTelemetry.NativeState state,MemoryBudget memory,long bytes,long throttled,int players,boolean active){
-        try{
-            Map<String,Object> m=new LinkedHashMap<>();
-            m.put("time",java.time.Instant.now().toString());m.put("statusSchemaVersion",2);m.put("controllerVersion","1.3.3");
-            m.put("cpuBudgetCores",capacity);m.put("cpuBudgetUsedPercent",finite(x.cpu()));
-            m.put("mspt",finite(x.mspt()));m.put("heapUsedPercent",finite(x.heap()));m.put("players",players);
-            m.put("cpuConcurrencyCeiling",cap);m.put("reason",POLICY.reason);m.put("reasonScope","follow-owned-generation-task");m.put("active",active);
-            m.put("nativeDispatchWidth",x.nativeWidth());m.put("inFlight",x.inFlight());m.put("sampleSeconds",x.seconds());
-            m.put("lodSavedPerSecond",finite(x.lodWrites()/x.seconds()));m.put("lodSavedBytesPerSecond",finite(bytes/x.seconds()));m.put("lodSavedInSample",x.lodWrites());
-            m.put("lodSavedScope","all-chunksmith-cslod-store-writes");
-            m.put("requestCompletionsPerSecond",finite(x.completions()/x.seconds()));m.put("requestCompletionsInSample",x.completions());
-            m.put("requestCompletionScope","follow-owned-generation-task");
-            m.put("throughputBasis",x.storeAvailable()?"successful-native-LOD-store-writes":"completed-requests-fallback");
-            m.put("lodWriteQueue",x.lodQueue());m.put("worldWriteQueue",x.worldWriteQueue());m.put("synchronousLodWrites",x.synchronousWrites());
-            m.put("nativeBackpressure",x.nativeHeld());m.put("gcTimePercent",finite(x.gc()));
-            m.put("nativeWriteHeld",state!=null&&state.writeHeld());m.put("nativeResidencyHeld",state!=null&&state.residencyHeld());
-            m.put("nativeHeapHeld",state!=null&&state.heapHeld());m.put("nativeAddedChunks",state==null?-1:state.addedChunks());
-            m.put("systemMemoryHeadroomMb",memory.headroomMb());m.put("processRssMb",memory.rssMb());
-            m.put("memoryPsiSomeAvg10",memory.memoryPsi());m.put("ioPsiSomeAvg10",memory.ioPsi());
-            m.put("cgroupThrottledMicrosInSample",throttled);m.put("cgroupOomKillsInSample",x.oomKills());
-            m.put("requestLatencyP95BucketUpperMs",x.latencyP95Ms());
-            m.put("experimentPhase",POLICY.phase);m.put("lastWindowRate",POLICY.lastWindowRate);
-            m.put("baselineRate",POLICY.baselineRate);m.put("probeRate",POLICY.probeRate);m.put("confirmedBaselineRate",POLICY.confirmedBaselineRate);
-            m.put("lastExperiment",POLICY.lastExperiment);
-            m.put("experimentNumber",POLICY.experimentNumber);
-            m.put("experimentRetryRemainingSeconds",POLICY.retryRemainingSeconds());
-            StatusIo.publish(Path.of("logs/maki-lod-cpu-status.json"),JSON.toJson(m)+"\n");
-        }catch(Exception e){LOG.debug("Cannot write throughput status",e);}
-    }
 }
