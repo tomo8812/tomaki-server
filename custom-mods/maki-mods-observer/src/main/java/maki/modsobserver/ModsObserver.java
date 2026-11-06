@@ -29,6 +29,7 @@ public final class ModsObserver {
     private static final Path CONFIG = Path.of("config/maki-mods-observer.properties");
     private static final Path LOG_FILE = Path.of("logs/maki-mods-observer.jsonl");
     private static final long THREAD_CPU_BASELINE_INTERVAL_NANOS = 1_000_000_000L;
+    private static final long CONFIG_RELOAD_INTERVAL_NANOS = 5_000_000_000L;
     private static final Object WRITE_LOCK = new Object();
     private static final Map<Long, Long> PREVIOUS_THREAD_CPU = new HashMap<>();
 
@@ -49,6 +50,8 @@ public final class ModsObserver {
     private static volatile Settings settings = Settings.defaults();
     private static volatile long configStamp = Long.MIN_VALUE;
     private static volatile boolean writeWarningLogged;
+    private static volatile boolean active;
+    private static volatile long nextConfigCheckNanos;
 
     private ModsObserver() {
     }
@@ -59,13 +62,21 @@ public final class ModsObserver {
         }
         owner = server;
         serverThread = Thread.currentThread();
-        ensureCpuTimeEnabled();
-        reloadSettings();
-        if (settings.enabled) {
-            ensureWatchdog();
-        } else {
-            stopWatchdog();
+        reloadSettingsIfDue();
+        if (!settings.enabled) {
+            if (active) {
+                active = false;
+                stopWatchdog();
+                resetTimingState();
+            }
+            return;
         }
+        if (!active) {
+            active = true;
+            resetTimingState();
+            ensureCpuTimeEnabled();
+        }
+        ensureWatchdog();
 
         long now = System.nanoTime();
         long previous = lastTickStartNanos;
@@ -92,7 +103,7 @@ public final class ModsObserver {
     }
 
     public static void tickEnd(MinecraftServer server) {
-        if (owner != server) {
+        if (owner != server || !active) {
             return;
         }
         long now = System.nanoTime();
@@ -119,12 +130,28 @@ public final class ModsObserver {
         if (owner != server) {
             return;
         }
+        active = false;
         stopWatchdog();
         tickInProgress = false;
         lastTickEndCpuNanos = -1L;
         tickState = TickSnapshot.stopped(tickSequence);
         owner = null;
         serverThread = null;
+        synchronized (PREVIOUS_THREAD_CPU) {
+            PREVIOUS_THREAD_CPU.clear();
+            threadCpuBaselineNanos = 0L;
+        }
+    }
+
+    private static void resetTimingState() {
+        tickInProgress = false;
+        tickStartNanos = 0L;
+        tickStartCpuNanos = -1L;
+        lastTickStartNanos = 0L;
+        lastTickEndNanos = 0L;
+        lastTickEndCpuNanos = -1L;
+        lastStallSampleNanos = 0L;
+        tickState = TickSnapshot.initial();
         synchronized (PREVIOUS_THREAD_CPU) {
             PREVIOUS_THREAD_CPU.clear();
             threadCpuBaselineNanos = 0L;
@@ -165,7 +192,7 @@ public final class ModsObserver {
                 }
             }
 
-            reloadSettings();
+            reloadSettingsIfDue();
             Settings s = settings;
             MinecraftServer server = owner;
             Thread thread = serverThread;
@@ -690,6 +717,7 @@ public final class ModsObserver {
             }
             settings = Settings.parse(properties);
             configStamp = stamp;
+            LOG.info("Maki Mods Observer stall diagnostics enabled={}; config={}", settings.enabled, CONFIG);
         } catch (Exception error) {
             LOG.warn("Invalid Maki Mods Observer config; retaining previous settings", error);
         }

@@ -93,7 +93,28 @@ tasks.register('verifyNbtCopyTargets') {
     }
 }
 
+
+tasks.register('verifyDormantDiagnostics') {
+    inputs.files(
+        file('src/main/java/maki/modsobserver/ModsObserver.java'),
+        file('src/main/java/maki/modsobserver/NbtCopyObserver.java')
+    )
+    doLast {
+        def stall = inputs.files.find { it.name == 'ModsObserver.java' }.getText('UTF-8')
+        def nbt = inputs.files.find { it.name == 'NbtCopyObserver.java' }.getText('UTF-8')
+        if (!stall.contains('CONFIG_RELOAD_INTERVAL_NANOS = 5_000_000_000L') ||
+            !stall.contains('if (!settings.enabled)') ||
+            !stall.contains('return;\n        }\n        if (!active)')) {
+            throw new GradleException('Issue #62 regression: disabled stall diagnostics must avoid per-tick sampling/I/O')
+        }
+        if (!nbt.contains('reloadSettingsIfDue();\n        if (!settings.enabled)')) {
+            throw new GradleException('Issue #62 regression: disabled NBT diagnostics must return before per-tick tracing state')
+        }
+    }
+}
+
 tasks.named('check') {
+    dependsOn tasks.named('verifyDormantDiagnostics')
     dependsOn tasks.named('verifyMixinAnnotationRetention')
     dependsOn tasks.named('verifyNbtCopyTargets')
 }

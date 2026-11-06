@@ -61,16 +61,20 @@ public final class NbtCopyObserver {
         }
         owner = server;
         serverThread = Thread.currentThread();
+        reloadSettingsIfDue();
+        if (!settings.enabled) {
+            tickInProgress = false;
+            return;
+        }
         tickInProgress = true;
         tickSequence++;
         ACTIVE.remove();
         SLOW_ROOTS_THIS_TICK.clear();
         ensureCpuTimeEnabled();
-        reloadSettingsIfDue();
     }
 
     public static void tickEnd(MinecraftServer server) {
-        if (owner != server) {
+        if (owner != server || !settings.enabled) {
             return;
         }
         tickInProgress = false;
@@ -339,6 +343,7 @@ public final class NbtCopyObserver {
             }
             settings = Settings.parse(properties);
             configStamp = stamp;
+            LOG.info("Maki Mods Observer slow-NBT diagnostics enabled={}; thresholdMs={}", settings.enabled, settings.slowThresholdNanos / 1_000_000L);
         } catch (Exception error) {
             LOG.warn("Invalid NBT copy observer config; retaining previous settings", error);
         }

@@ -35,3 +35,12 @@ terrain_slabs-neoforge-3.1.2.jar
 ```
 
 ここに記載していない `mods/` 内のJARは、クライアント側へ入れる必要はありません。
+
+
+## サーバー側の自作MOD
+
+サーバーでは `custom-mods/` の14プロジェクトから生成した `maki-*.jar` を1つずつ `mods/` に配置します。Issue #62以降、通常運用の状態確認は `latest.log` を使用し、定期status JSONは使用しません。
+
+`maki-lag-observer` は `maki-mods-observer` に置換され、`maki-status-io` は廃止されています。更新時は旧 `maki-lag-observer-*.jar` と `maki-status-io-*.jar`、旧 `config/maki-lag-observer.properties` を残さないでください。詳細診断が必要な場合だけ `config/maki-mods-observer.properties` でObserverを有効化します。
+
+Chunksmithのtask/cache/cursor、LOD、Diorama、world内のMODデータ、migration backup/auditは診断ファイルではないため削除しません。
