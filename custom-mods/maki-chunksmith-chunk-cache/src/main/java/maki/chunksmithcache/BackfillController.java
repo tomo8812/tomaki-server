@@ -45,6 +45,7 @@ public final class BackfillController {
    private static final long FULL_LOAD_WARN_MILLIS = 30000L;
    private static final long FULL_LOAD_TIMEOUT_MILLIS = 300000L;
    private static final long UNLOAD_WARN_MILLIS = 30000L;
+   private static final int MAX_RETIRED_GUARDS = 8;
    private static final ExecutorService SCAN = Executors.newSingleThreadExecutor(var0 -> {
       Thread var1 = new Thread(var0, "maki-chunk-cache-scan");
       var1.setDaemon(true);
@@ -66,6 +67,7 @@ public final class BackfillController {
          state = STATES.computeIfAbsent(server, ignored -> new BackfillController.State());
       }
 
+      maintainRetiredGuards(server,state);
       state.ticks++;
       if (state.busy) {
          if (state.activeLevel != null && state.activePos != null && playerNear(state.activeLevel, state.activePos)) {
@@ -96,6 +98,12 @@ public final class BackfillController {
       }
       if (server.getAverageTickTimeNanos() / 1000000.0 > 40.0) {
          state.phase="waiting-mspt";
+         report(server,state,false);
+         return;
+      }
+      if (state.retiredGuards.size() >= MAX_RETIRED_GUARDS) {
+         enterPhase(state,"waiting-retired-guard-cap");
+         state.waitReason="retired-guard-cap";
          report(server,state,false);
          return;
       }
@@ -196,6 +204,15 @@ public final class BackfillController {
                var4.lastOutcome=var4.completionOutcome;
                markProgress(var4);
                clearActive(var4);
+            } else if (var4 != null) {
+               BackfillController.RetiredGuard retired=var4.retiredGuards.remove(retiredKey(var0,var1.getPos()));
+               if(retired!=null) {
+                  var4.retiredGuardsUnloaded++;
+                  var4.lastUnloadAt=System.currentTimeMillis();
+                  var4.lastOutcome=retired.outcome;
+                  markProgress(var4);
+                  report(var2,var4,true);
+               }
             }
          }
       }
@@ -357,12 +374,69 @@ public final class BackfillController {
                enterPhase(state,state.completionOutcome+"-ticket-releasing");
                releaseOwnedTicket(level,pos,state);
                if(active(state,token,level,pos)) {
-                  state.waitReason="natural-unload";
-                  enterPhase(state,state.completionOutcome+"-ticket-released-awaiting-unload");
-                  report(level.getServer(),state,true);
+                  if("completed".equals(state.completionOutcome)) {
+                     retireSuccessfulGuard(level,pos,state);
+                  } else {
+                     state.waitReason="natural-unload";
+                     enterPhase(state,state.completionOutcome+"-ticket-released-awaiting-unload");
+                     report(level.getServer(),state,true);
+                  }
                }
             }));
          }));
+   }
+
+   private static void retireSuccessfulGuard(ServerLevel level,ChunkPos pos,BackfillController.State state) {
+      long now=System.currentTimeMillis();
+      BackfillController.RetiredGuard retired=new BackfillController.RetiredGuard(
+         level,pos,"completed",now,state.ticketRemovedAt);
+      state.retiredGuards.put(retiredKey(level,pos),retired);
+      state.retiredGuardsCreated++;
+      state.lastOutcome="completed";
+      markProgress(state);
+      LOG.debug("Detached completed backfill guard {} in {} from the active pipeline; {} retired guard(s) remain",
+         new Object[]{pos,level.dimension().location(),state.retiredGuards.size()});
+      clearActive(state);
+   }
+
+   private static void maintainRetiredGuards(MinecraftServer server,BackfillController.State state) {
+      if(state.retiredGuards.isEmpty())return;
+      long now=System.currentTimeMillis();
+      boolean changed=false;
+      for(BackfillController.RetiredGuard retired : new ArrayList<>(state.retiredGuards.values())) {
+         if(!BackfillGuard.active(retired.level,retired.pos)) {
+            state.retiredGuards.remove(retiredKey(retired.level,retired.pos));
+            state.retiredGuardsReleasedExternally++;
+            state.lastOutcome=retired.outcome;
+            markProgress(state);
+            changed=true;
+            continue;
+         }
+         if(playerNear(retired.level,retired.pos)) {
+            BackfillGuard.clear(retired.level,retired.pos);
+            state.retiredGuards.remove(retiredKey(retired.level,retired.pos));
+            state.retiredGuardsHandedOff++;
+            state.lastOutcome="retired-handed-to-player";
+            markProgress(state);
+            LOG.info("Released retired backfill guard {} in {} to normal player loading",
+               new Object[]{retired.pos,retired.level.dimension().location()});
+            changed=true;
+            continue;
+         }
+         long elapsed=now-retired.ticketRemovedAt;
+         if(elapsed>=UNLOAD_WARN_MILLIS&&!retired.warned) {
+            retired.warned=true;
+            state.retiredGuardWarnings++;
+            LOG.warn("Retired backfill guard {} in {} has remained loaded {} ms after its owned ticket and idle claim were released; it no longer blocks later backfills and remains guarded against normal-world persistence",
+               new Object[]{retired.pos,retired.level.dimension().location(),elapsed});
+            changed=true;
+         }
+      }
+      if(changed)report(server,state,true);
+   }
+
+   private static String retiredKey(ServerLevel level,ChunkPos pos) {
+      return level.dimension().location().toString()+"@"+pos.toLong();
    }
 
    private static void releaseOwnedTicket(ServerLevel level,ChunkPos pos,BackfillController.State state) {
@@ -531,6 +605,32 @@ public final class BackfillController {
          data.put("lastTicketRemovedAt",instant(state.lastTicketRemovedAt));
          data.put("lastUnloadAt",instant(state.lastUnloadAt));
          data.put("lastOutcome",state.lastOutcome);
+         data.put("retiredGuardCount",state.retiredGuards.size());
+         data.put("retiredGuardCap",MAX_RETIRED_GUARDS);
+         data.put("retiredGuardsCreated",state.retiredGuardsCreated);
+         data.put("retiredGuardsUnloaded",state.retiredGuardsUnloaded);
+         data.put("retiredGuardsHandedOff",state.retiredGuardsHandedOff);
+         data.put("retiredGuardsReleasedExternally",state.retiredGuardsReleasedExternally);
+         data.put("retiredGuardWarnings",state.retiredGuardWarnings);
+         List<Map<String,Object>> retiredData=new ArrayList<>();
+         long oldestRetiredAge=0L;
+         for(BackfillController.RetiredGuard retired : state.retiredGuards.values()) {
+            long age=Math.max(0L,now-retired.ticketRemovedAt);
+            oldestRetiredAge=Math.max(oldestRetiredAge,age);
+            Map<String,Object> item=new LinkedHashMap<>();
+            item.put("dimension",retired.level.dimension().location().toString());
+            item.put("chunkX",retired.pos.x);
+            item.put("chunkZ",retired.pos.z);
+            item.put("outcome",retired.outcome);
+            item.put("retiredAt",instant(retired.retiredAt));
+            item.put("ticketRemovedAt",instant(retired.ticketRemovedAt));
+            item.put("ageMillis",age);
+            item.put("warned",retired.warned);
+            item.put("loaded",retired.level.getChunkSource().hasChunk(retired.pos.x,retired.pos.z));
+            retiredData.add(item);
+         }
+         data.put("oldestRetiredGuardAgeMillis",state.retiredGuards.isEmpty()?null:oldestRetiredAge);
+         data.put("retiredGuards",retiredData);
          data.put("activeDimension",state.activeLevel==null?null:state.activeLevel.dimension().location().toString());
          data.put("activeChunkX",state.activePos==null?null:state.activePos.x);
          data.put("activeChunkZ",state.activePos==null?null:state.activePos.z);
@@ -825,6 +925,11 @@ public final class BackfillController {
       long backfillsHandedOff;
       long lodOffersSubmitted;
       long lodRefreshCompleted;
+      long retiredGuardsCreated;
+      long retiredGuardsUnloaded;
+      long retiredGuardsHandedOff;
+      long retiredGuardsReleasedExternally;
+      long retiredGuardWarnings;
       boolean idlePregenClaimed;
       boolean backfillTicketHeld;
       boolean loadFuturePending;
@@ -839,6 +944,24 @@ public final class BackfillController {
       BackfillController.Target activeTarget;
       Boolean previousSuppression;
       final Map<String, BackfillController.Cursor> cursor = new HashMap<>();
+      final Map<String, BackfillController.RetiredGuard> retiredGuards = new LinkedHashMap<>();
+   }
+
+   private static final class RetiredGuard {
+      final ServerLevel level;
+      final ChunkPos pos;
+      final String outcome;
+      final long retiredAt;
+      final long ticketRemovedAt;
+      boolean warned;
+
+      RetiredGuard(ServerLevel level,ChunkPos pos,String outcome,long retiredAt,long ticketRemovedAt) {
+         this.level=level;
+         this.pos=pos;
+         this.outcome=outcome;
+         this.retiredAt=retiredAt;
+         this.ticketRemovedAt=ticketRemovedAt;
+      }
    }
 
    private record Target(ChunkPos pos, Path region, int slot, int offset, int length) {
