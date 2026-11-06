@@ -159,6 +159,37 @@ tasks.register('verifyIssue66SharedBudget') {
     }
 }
 
+def issue66CacheManagerSource = file('src/main/java/maki/chunksmithcache/CacheManager.java')
+def issue66WorldMixinSource = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldMixin.java')
+def issue66ChunksmithJar = file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+
+tasks.register('verifyIssue66CacheVisibility') {
+    inputs.files(issue66CacheManagerSource, issue66WorldMixinSource, issue66ChunksmithJar)
+    doLast {
+        def cache = issue66CacheManagerSource.getText('UTF-8')
+        def mixin = issue66WorldMixinSource.getText('UTF-8')
+        ['CAPTURE_PENDING', 'BackfillGuard.suppress', 'chunksmithGeneratedHint'].each { token ->
+            if (!cache.contains(token)) throw new GradleException('Issue #66 regression: cache overlap protection missing ' + token)
+        }
+        if (!mixin.contains('isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;')
+                || !mixin.contains('chunksmithGeneratedHint')) {
+            throw new GradleException('Issue #66 regression: cache-backed generated-state Mixin missing')
+        }
+        def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
+        def process = new ProcessBuilder(
+            javap, '-classpath', issue66ChunksmithJar.absolutePath,
+            '-p', '-s', 'com.kishku7.chunksmith.platform.NeoForgeWorld'
+        ).redirectErrorStream(true).start()
+        def text = process.inputStream.getText('UTF-8')
+        def exit = process.waitFor()
+        if (exit != 0) throw new GradleException('Issue #66: javap NeoForgeWorld failed\n' + text)
+        if (!text.contains('isChunkGenerated(int, int)')
+                || !text.contains('(II)Ljava/util/concurrent/CompletableFuture;')) {
+            throw new GradleException('Issue #66: Chunksmith generated-state method no longer matches the cache Mixin')
+        }
+    }
+}
+
 tasks.register('issue40RegressionTest', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
@@ -172,6 +203,7 @@ tasks.register('backfillScopesTest', JavaExec) {
 }
 
 tasks.named('check') {
+    dependsOn tasks.named('verifyIssue66CacheVisibility')
     dependsOn tasks.named('backfillScopesTest')
     dependsOn tasks.named('verifyMixinAnnotationRetention')
     dependsOn tasks.named('verifyIssue47BackfillOwnership')
