@@ -10,7 +10,7 @@ import net.minecraft.server.ServerTickRateManager;
 final class IdlePregenController {
     private static final Logger LOG = System.getLogger("MakiIdlePregen");
     private static MinecraftServer owner;
-    private static boolean active;
+    private static volatile boolean active;
     private static boolean freezeOwned;
 
     private IdlePregenController() {
