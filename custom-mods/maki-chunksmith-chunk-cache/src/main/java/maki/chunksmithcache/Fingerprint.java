@@ -24,6 +24,7 @@ import net.minecraft.world.level.storage.LevelResource;
 final class Fingerprint {
     private static final String LEGACY_SCHEMA = "maki-chunk-cache-v1";
     private static final Map<MinecraftServer, CompletableFuture<SharedState>> SHARED = new WeakHashMap<>();
+    private static final Map<ServerLevel, Snapshot> LEVEL_SNAPSHOTS = new WeakHashMap<>();
 
     private Fingerprint() {}
 
@@ -41,6 +42,8 @@ final class Fingerprint {
         kick(server);
         CompletableFuture<SharedState> future;
         synchronized (Fingerprint.class) {
+            Snapshot cached = LEVEL_SNAPSHOTS.get(level);
+            if (cached != null) return cached;
             future = SHARED.get(server);
         }
         if (future == null || !future.isDone() || future.isCompletedExceptionally()) return null;
@@ -63,7 +66,13 @@ final class Fingerprint {
             CompatibilityFingerprint.update(legacy, level.getChunkSource().getGenerator().getClass().getName());
             CompatibilityFingerprint.update(legacy, Integer.toString(dataVersion));
             String legacyFingerprint = CompatibilityFingerprint.hex(legacy.digest()).substring(0, 24);
-            return new Snapshot(fingerprint, legacyFingerprint, shared.policy(), List.copyOf(entries));
+            Snapshot computed = new Snapshot(fingerprint, legacyFingerprint, shared.policy(), List.copyOf(entries));
+            synchronized (Fingerprint.class) {
+                Snapshot cached = LEVEL_SNAPSHOTS.get(level);
+                if (cached != null) return cached;
+                LEVEL_SNAPSHOTS.put(level, computed);
+            }
+            return computed;
         } catch (Throwable ignored) {
             return null;
         }
