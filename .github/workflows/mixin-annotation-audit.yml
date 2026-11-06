@@ -140,6 +140,11 @@ jobs:
             exit 1
           fi
 
+          # "Done" is logged before the first normal server-loop tick can run.
+          # Give the observer's MinecraftServer tick hook a few ticks to load its
+          # opt-in settings before asserting the default-disabled state.
+          sleep 3
+
           log=logs/latest.log
           required=(
             'Maki Airship Compatibility initialized'
