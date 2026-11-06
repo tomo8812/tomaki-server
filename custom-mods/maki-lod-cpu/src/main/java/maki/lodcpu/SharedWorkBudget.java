@@ -21,14 +21,16 @@ final class SharedWorkBudget {
         boolean nativeHeld
     ) {}
 
-    record Decision(boolean reserved, boolean ready, String reason, long waitMillis, int completedInEpoch) {}
+    record Decision(boolean reserved, boolean ready, String reason, long waitMillis) {}
 
     private Sample sample;
-    private boolean exclusive;
+    private boolean reserved;
+    private boolean followDrained;
     private long reservationAtNanos;
-    private long epochStartedAtNanos;
-    private long followSliceUntilNanos;
-    private int completedInEpoch;
+    private long workStartedAtNanos;
+    private long demandSinceNanos;
+    private long nextEligibleAtNanos;
+    private double averageBackfillMillis=-1.0;
     private String lastReason="warming-up";
 
     synchronized void observe(Sample next) {
@@ -37,91 +39,118 @@ final class SharedWorkBudget {
 
     synchronized Decision request(long nowNanos,String taskMode,Settings settings) {
         if("external".equals(taskMode)) {
-            releaseInternal(nowNanos,settings,false);
+            cancelPending();
             lastReason="external-chunksmith-task";
             return decision(nowNanos,false,false,lastReason);
         }
 
-        if(!exclusive && nowNanos<followSliceUntilNanos) {
-            lastReason="follow-min-slice";
+        String pressure=pressure(nowNanos,settings);
+        if(pressure!=null) {
+            cancelPending();
+            lastReason=pressure;
             return decision(nowNanos,false,false,lastReason);
         }
 
-        if(!exclusive) {
-            exclusive=true;
-            reservationAtNanos=nowNanos;
-            epochStartedAtNanos=0L;
-            completedInEpoch=0;
-        }
-
-        // A follow-owned task must drain completely before backfill receives the machine.
-        if("follow".equals(taskMode)) {
-            lastReason="pausing-follow";
-            return decision(nowNanos,true,false,lastReason);
-        }
-
-        String pressure=pressure(nowNanos,settings);
-        if(pressure!=null) {
-            long wait=elapsedMillis(nowNanos,reservationAtNanos);
-            if(wait>=settings.backfillDrainWaitSeconds*1000L) {
-                releaseInternal(nowNanos,settings,true);
-                lastReason="pressure-timeout-"+pressure;
+        if(demandSinceNanos==0L)demandSinceNanos=nowNanos;
+        if(!reserved) {
+            if(nowNanos<nextEligibleAtNanos) {
+                lastReason="dynamic-cooldown";
                 return decision(nowNanos,false,false,lastReason);
             }
-            lastReason="waiting-"+pressure;
+            reserved=true;
+            reservationAtNanos=nowNanos;
+            workStartedAtNanos=0L;
+            followDrained="none".equals(taskMode);
+        }
+
+        if("none".equals(taskMode))followDrained=true;
+        if("follow".equals(taskMode)&&!followDrained) {
+            if(elapsedMillis(nowNanos,reservationAtNanos)>=settings.backfillDrainWaitSeconds*1000L) {
+                cancelPending();
+                nextEligibleAtNanos=nowNanos+settings.backfillMinSpacingSeconds*1_000_000_000L;
+                lastReason="follow-drain-timeout";
+                return decision(nowNanos,false,false,lastReason);
+            }
+            lastReason="draining-follow-dispatch";
             return decision(nowNanos,true,false,lastReason);
         }
 
-        if(epochStartedAtNanos==0L)epochStartedAtNanos=nowNanos;
         lastReason="granted";
         return decision(nowNanos,true,true,lastReason);
     }
 
-    synchronized boolean completed(long nowNanos,String outcome,Settings settings) {
-        if(!exclusive)return false;
-        completedInEpoch++;
-
-        String pressure=pressure(nowNanos,settings);
-        if(pressure!=null) {
-            releaseInternal(nowNanos,settings,true);
-            lastReason="yield-"+pressure;
-            return false;
+    synchronized void noteFollowInFlight(int count) {
+        if(reserved&&workStartedAtNanos==0L&&count==0) {
+            followDrained=true;
+            lastReason="follow-drained";
         }
-
-        if(outcome==null||!outcome.startsWith("completed")) {
-            releaseInternal(nowNanos,settings,true);
-            lastReason="yield-"+(outcome==null?"unknown-outcome":outcome);
-            return false;
-        }
-
-        int chunkLimit=dynamicChunkLimit(settings);
-        long timeLimitMillis=dynamicTimeLimitMillis(settings);
-        long elapsed=elapsedMillis(nowNanos,epochStartedAtNanos);
-        if(completedInEpoch>=chunkLimit||elapsed>=timeLimitMillis) {
-            releaseInternal(nowNanos,settings,true);
-            lastReason=completedInEpoch>=chunkLimit?"yield-chunk-quota":"yield-time-quota";
-            return false;
-        }
-
-        lastReason="continue-exclusive";
-        return true;
     }
 
-    synchronized void release(long nowNanos,String outcome,Settings settings,boolean giveFollowSlice) {
-        releaseInternal(nowNanos,settings,giveFollowSlice);
-        lastReason="released-"+(outcome==null?"unspecified":outcome);
+    synchronized boolean blockFollowDispatch() {
+        // The task itself remains alive. The dispatch thread waits here while
+        // current requests drain and during the one admitted backfill.
+        return reserved;
     }
 
-    synchronized boolean reserved(){return exclusive;}
+    synchronized void backfillStarted(long nowNanos) {
+        if(reserved&&followDrained&&workStartedAtNanos==0L) {
+            workStartedAtNanos=nowNanos;
+            lastReason="backfill-active";
+        }
+    }
+
+    synchronized void release(long nowNanos,String outcome,Settings settings) {
+        if(!reserved)return;
+
+        if(workStartedAtNanos!=0L&&nowNanos>=workStartedAtNanos) {
+            double elapsed=(nowNanos-workStartedAtNanos)/1_000_000.0;
+            averageBackfillMillis=averageBackfillMillis<0
+                ?elapsed
+                :averageBackfillMillis*.75+elapsed*.25;
+        }
+
+        double measured=averageBackfillMillis<0
+            ?settings.backfillMinSpacingSeconds*1000.0
+            :averageBackfillMillis;
+        double factor=2.0; // follow receives the larger time share by default
+        Sample current=sample;
+        if(current!=null) {
+            boolean abundant=Double.isFinite(current.mspt())&&current.mspt()<25
+                &&current.memoryHeadroomMb()>=settings.memoryReserveMb*2
+                &&(current.ioPsi()<0||current.ioPsi()<settings.backfillIoPressurePercent*.5)
+                &&current.lodQueue()<Math.max(1,settings.backfillLodQueueHigh/2)
+                &&current.worldWriteQueue()<Math.max(1,settings.backfillWriteQueueHigh/2);
+            if(abundant)factor=1.0;
+            if(current.ioPsi()>=0&&current.ioPsi()>=settings.backfillIoPressurePercent*.5)factor*=1.5;
+            if(current.followRequestsPerSecond()>0
+                &&current.lodWritesPerSecond()<current.followRequestsPerSecond()*.8)factor*=1.5;
+        }
+        if(outcome!=null&&!outcome.startsWith("completed")&&!outcome.equals("no-candidate"))factor*=2.0;
+
+        long min=settings.backfillMinSpacingSeconds*1000L;
+        long max=settings.backfillMaxSafeWaitSeconds*1000L;
+        long cooldown=Math.max(min,Math.min(max,Math.round(measured*factor)));
+        nextEligibleAtNanos=nowNanos+cooldown*1_000_000L;
+
+        reserved=false;
+        followDrained=false;
+        reservationAtNanos=0L;
+        workStartedAtNanos=0L;
+        demandSinceNanos=0L;
+        lastReason="cooldown-after-"+(outcome==null?"release":outcome);
+    }
+
+    synchronized boolean reserved(){return reserved;}
 
     synchronized String summary(long nowNanos) {
         Sample current=sample;
         String p=current==null?"measurement-unavailable":pressure(nowNanos,CpuGovernor.settings());
-        return "state="+(exclusive?(epochStartedAtNanos==0L?"draining":"exclusive"):"follow")
+        return "state="+(reserved?(workStartedAtNanos==0L?"draining":"backfill"):"follow")
             +",reason="+lastReason
-            +",completedInEpoch="+completedInEpoch
-            +",epochMs="+elapsedMillis(nowNanos,epochStartedAtNanos)
-            +",followSliceRemainingMs="+Math.max(0L,(followSliceUntilNanos-nowNanos)/1_000_000L)
+            +",safeWaitMs="+elapsedMillis(nowNanos,demandSinceNanos)
+            +",drainMs="+elapsedMillis(nowNanos,reservationAtNanos)
+            +",avgBackfillMs="+value(averageBackfillMillis)
+            +",cooldownRemainingMs="+Math.max(0L,(nextEligibleAtNanos-nowNanos)/1_000_000L)
             +",pressure="+(p==null?"none":p)
             +",cpu="+value(current==null?Double.NaN:current.cpu())
             +",mspt="+value(current==null?Double.NaN:current.mspt())
@@ -155,40 +184,18 @@ final class SharedWorkBudget {
         return null;
     }
 
-    private int dynamicChunkLimit(Settings settings) {
-        int limit=settings.backfillExclusiveMaxChunks;
-        if(abundant(settings))limit=Math.min(1024,limit*2);
-        return limit;
+    private void cancelPending() {
+        if(reserved&&workStartedAtNanos==0L) {
+            reserved=false;
+            followDrained=false;
+            reservationAtNanos=0L;
+        }
+        demandSinceNanos=0L;
     }
 
-    private long dynamicTimeLimitMillis(Settings settings) {
-        long limit=settings.backfillExclusiveMaxSeconds*1000L;
-        if(abundant(settings))limit=Math.min(3_600_000L,limit*2L);
-        return limit;
-    }
-
-    private boolean abundant(Settings settings) {
-        Sample current=sample;
-        return current!=null
-            &&Double.isFinite(current.cpu())&&current.cpu()<60
-            &&Double.isFinite(current.mspt())&&current.mspt()<25
-            &&current.memoryHeadroomMb()>=settings.memoryReserveMb*2
-            &&(current.ioPsi()<0||current.ioPsi()<settings.backfillIoPressurePercent*.5)
-            &&current.lodQueue()<Math.max(1,settings.backfillLodQueueHigh/2)
-            &&current.worldWriteQueue()<Math.max(1,settings.backfillWriteQueueHigh/2);
-    }
-
-    private void releaseInternal(long nowNanos,Settings settings,boolean giveFollowSlice) {
-        exclusive=false;
-        reservationAtNanos=0L;
-        epochStartedAtNanos=0L;
-        completedInEpoch=0;
-        if(giveFollowSlice)followSliceUntilNanos=nowNanos+settings.backfillFollowMinSliceSeconds*1_000_000_000L;
-    }
-
-    private Decision decision(long nowNanos,boolean reserved,boolean ready,String reason) {
-        long wait=exclusive?elapsedMillis(nowNanos,reservationAtNanos):Math.max(0L,(followSliceUntilNanos-nowNanos)/1_000_000L);
-        return new Decision(reserved,ready,reason,wait,completedInEpoch);
+    private Decision decision(long nowNanos,boolean hasReservation,boolean ready,String reason) {
+        long wait=demandSinceNanos==0L?0L:elapsedMillis(nowNanos,demandSinceNanos);
+        return new Decision(hasReservation,ready,reason,wait);
     }
 
     private static long elapsedMillis(long now,long then) {
@@ -196,6 +203,6 @@ final class SharedWorkBudget {
     }
 
     private static String value(double v) {
-        return Double.isFinite(v)?String.format(java.util.Locale.ROOT,"%.1f",v):"unknown";
+        return Double.isFinite(v)&&v>=0?String.format(java.util.Locale.ROOT,"%.1f",v):"unknown";
     }
 }
