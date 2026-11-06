@@ -1,0 +1,1 @@
+{"required":true,"minVersion":"0.8.7","package":"maki.shiptracking.mixin","compatibilityLevel":"JAVA_21","server":["ChunkMapAccess","TrackedEntityAccess","EurekaAssemblyMixin"],"injectors":{"defaultRequire":1}}
