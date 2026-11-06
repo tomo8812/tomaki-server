@@ -11,7 +11,10 @@
     "SectionStorageMixin",
     "EntityStorageMixin",
     "ServerLevelUnloadMixin",
-    "MinecraftServerMixin"
+    "MinecraftServerMixin",
+    "NeoForgeWorldMixin"
   ],
-  "injectors": {"defaultRequire": 1}
+  "injectors": {
+    "defaultRequire": 1
+  }
 }
