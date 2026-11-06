@@ -5,7 +5,7 @@ on:
     branches: [fix/issue-36]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -27,6 +27,17 @@ jobs:
 
       - name: Build and check lag observer
         run: gradle -p custom-mods/maki-lag-observer clean check jar
+
+      - name: Replace shipped lag observer JAR
+        if: github.actor != 'github-actions[bot]'
+        run: |
+          rm -f mods/maki-lag-observer-1.0.0.jar
+          cp custom-mods/maki-lag-observer/build/libs/maki-lag-observer-1.1.0.jar mods/
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mods/maki-lag-observer-1.0.0.jar mods/maki-lag-observer-1.1.0.jar
+          git commit -m "build: ship maki-lag-observer 1.1.0"
+          git push
 
       - name: Upload lag observer JAR
         uses: actions/upload-artifact@v4
