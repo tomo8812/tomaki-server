@@ -59,9 +59,10 @@ tasks.register('verifyIssue47BackfillOwnership') {
         def controller = issue47ControllerSource.getText('UTF-8')
         def guard = issue47GuardSource.getText('UTF-8')
         def storage = issue47StorageSource.getText('UTF-8')
-        if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('snapshotBackfillOwnership')
+        if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('waiting-dependency-scope-loaded')
+                || !controller.contains('candidateDeferredUntil') || !controller.contains('snapshotBackfillOwnership')
                 || !controller.contains('releaseIdlePregenClaim')) {
-            throw new GradleException('Issue #47 regression: status-aware scan / drain claim release is missing')
+            throw new GradleException('Issue #47 regression: status-aware scan / deferred candidate visibility / drain claim release is missing')
         }
         if (!guard.contains('scopeAvailable') || !guard.contains('scopeDrained') || !guard.contains('ChunkMapLifecycleAccessor')) {
             throw new GradleException('Issue #47 regression: dependency ownership / holder drain guard is missing')
