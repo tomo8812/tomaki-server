@@ -91,7 +91,9 @@ final class FingerprintPolicy {
     String compatibilitySignature() {
         List<String> ids = observationOnlyModIds.stream().sorted().toList();
         List<String> paths = ignoredPaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
-        return "policy-v2|ignored-mod-ids=" + String.join(",", ids) + "|ignored-paths=" + String.join(",", paths);
+        return "policy-v3|ignored-mod-ids=" + String.join(",", ids)
+            + "|ignored-paths=" + String.join(",", paths)
+            + "|" + CompatibilityInput.policySignature();
     }
 
     int retentionDays() { return retentionDays; }
