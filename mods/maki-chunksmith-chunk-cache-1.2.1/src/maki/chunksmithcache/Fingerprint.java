@@ -143,8 +143,7 @@ final class Fingerprint {
                }
 
                String key = logicalRoot + "/" + relative;
-               FingerprintManifest.Impact impact = policy.classify(key, file);
-               entries.add(new FingerprintManifest.Entry(key, size, CompatibilityFingerprint.hex(content.digest()), impact, policy.reason(key, file, impact)));
+               entries.addAll(CompatibilityInput.entries(key, file, size, CompatibilityFingerprint.hex(content.digest()), policy));
             }
          }
       }

@@ -201,6 +201,69 @@ final class FingerprintManifest {
       return true;
    }
 
+   static boolean sameCompatibilityInputsExcept(FingerprintManifest.Manifest oldManifest, FingerprintManifest.Manifest newManifest, Set<String> excludedKeys) {
+      FingerprintManifest.Entry currentRawZfastnoise = findEntry(newManifest.entries(), "audit:raw:config/zfastnoise.mixin.properties");
+      FingerprintManifest.Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), "config/zfastnoise.mixin.properties");
+      Map<String, FingerprintManifest.Entry> oldEntries = compatibilityByKey(
+         oldManifest.entries(), excludedKeys, currentRawZfastnoise, currentEffectiveZfastnoise
+      );
+      Map<String, FingerprintManifest.Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null);
+      if (oldEntries != null && newEntries != null && oldEntries.keySet().equals(newEntries.keySet())) {
+         for (String key : oldEntries.keySet()) {
+            if (!equivalent(oldEntries.get(key), newEntries.get(key))) {
+               return false;
+            }
+         }
+
+         return true;
+      } else {
+         return false;
+      }
+   }
+
+   private static FingerprintManifest.Entry findEntry(List<FingerprintManifest.Entry> entries, String key) {
+      for (FingerprintManifest.Entry entry : entries) {
+         if (entry.key().equals(key)) {
+            return entry;
+         }
+      }
+
+      return null;
+   }
+
+   private static Map<String, FingerprintManifest.Entry> compatibilityByKey(
+      List<FingerprintManifest.Entry> entries,
+      Set<String> excludedKeys,
+      FingerprintManifest.Entry currentRawZfastnoise,
+      FingerprintManifest.Entry currentEffectiveZfastnoise
+   ) {
+      Map<String, FingerprintManifest.Entry> result = new LinkedHashMap<>();
+
+      for (FingerprintManifest.Entry original : entries) {
+         if (!excludedKeys.contains(original.key())) {
+            FingerprintManifest.Entry entry;
+            if (original.key().equals("config/zfastnoise.mixin.properties")
+               && currentRawZfastnoise != null
+               && currentEffectiveZfastnoise != null
+               && original.size() == currentRawZfastnoise.size()
+               && original.sha256().equals(currentRawZfastnoise.sha256())) {
+               entry = currentEffectiveZfastnoise;
+            } else {
+               entry = CompatibilityInput.normalizeHistoricalEntry(original);
+            }
+
+            if (entry != null && entry.impact() == FingerprintManifest.Impact.RELEVANT) {
+               FingerprintManifest.Entry previous = result.putIfAbsent(entry.key(), entry);
+               if (previous != null && !equivalent(previous, entry)) {
+                  return null;
+               }
+            }
+         }
+      }
+
+      return result;
+   }
+
    private static Map<String, FingerprintManifest.Entry> byKey(List<FingerprintManifest.Entry> entries) {
       Map<String, FingerprintManifest.Entry> result = new LinkedHashMap<>();
 
@@ -216,12 +279,22 @@ final class FingerprintManifest {
    }
 
    private static String changeSuffix(FingerprintManifest.Entry oldEntry, FingerprintManifest.Entry newEntry) {
-      if (oldEntry == null) {
+      FingerprintManifest.Entry present = newEntry != null ? newEntry : oldEntry;
+      String key = present == null ? "" : present.key();
+      if (key.equals("audit:raw:config/zfastnoise.mixin.properties")) {
+         return "(source-format/comment changed; effective values unchanged)";
+      } else if (key.startsWith("audit:mod:")) {
+         return "(audited generation-neutral JAR changed; compatibility contract unchanged)";
+      } else if (key.equals("config/zfastnoise.mixin.properties") && oldEntry != null && newEntry != null) {
+         return "(effective values changed)";
+      } else if (oldEntry == null) {
          return "(added)";
       } else if (newEntry == null) {
          return "(removed)";
+      } else if (oldEntry.impact() != newEntry.impact()) {
+         return "(classification " + oldEntry.impact() + "->" + newEntry.impact() + ")";
       } else {
-         return oldEntry.impact() != newEntry.impact() ? "(classification " + oldEntry.impact() + "->" + newEntry.impact() + ")" : "(changed)";
+         return present.reason().contains("fail-closed") ? "(changed; fail-closed relevant)" : "(changed)";
       }
    }
 

@@ -45,6 +45,7 @@ final class GenerationStore {
 
          migrateExactLegacy(root, snapshot, trigger);
          migratePolicyEquivalent(root, snapshot, trigger);
+         migrateEquivalentQuarantines(root, snapshot, trigger);
          quarantineIncompatible(root, snapshot, trigger);
          Path active = root.resolve(snapshot.fingerprint());
          Files.createDirectories(active);
@@ -149,22 +150,36 @@ final class GenerationStore {
             return "restore refused: quarantine has no valid compatibility manifest";
          }
 
-         if (!manifest.fingerprint().equals(snapshot.fingerprint())) {
-            return "restore refused: current fingerprint " + snapshot.fingerprint() + " != quarantined " + manifest.fingerprint();
+         FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+         boolean exact = manifest.fingerprint().equals(snapshot.fingerprint());
+         boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(manifest, current, Set.of("policy:compatibility"));
+         if (!exact && !semantic) {
+            List<String> changed = FingerprintManifest.changedInputs(manifest, current, FingerprintManifest.Impact.RELEVANT, 12);
+            return "restore refused: quarantined inputs are not proven compatibility-equivalent; current="
+               + snapshot.fingerprint()
+               + " quarantined="
+               + manifest.fingerprint()
+               + " changed="
+               + changed;
          }
 
          Path active = dimensionRoot(level).resolve(snapshot.fingerprint());
          mergeDirectory(source, active);
          FingerprintManifest.Manifest activeManifest = FingerprintManifest.readIfValid(active.resolve("manifest-v2.txt"));
          Set<String> accepted = new LinkedHashSet<>(manifest.storedFingerprints());
+         accepted.add(manifest.fingerprint());
          accepted.add(snapshot.fingerprint());
          if (activeManifest != null) {
             accepted.addAll(activeManifest.storedFingerprints());
          }
 
          FingerprintManifest.writeAtomic(active.resolve("manifest-v2.txt"), snapshot.manifest(accepted));
-         LOG.info("Restored quarantined chunk-cache generation {} for {} after exact fingerprint match", id, CacheManager.dimensionKey(level));
-         return "restored " + id + " to active fingerprint " + snapshot.fingerprint();
+         String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
+         LOG.info(
+            "Restored quarantined chunk-cache generation {} for {} after {}; existing active cache entries won path conflicts",
+            new Object[]{id, CacheManager.dimensionKey(level), proof}
+         );
+         return "restored " + id + " to active fingerprint " + snapshot.fingerprint() + " after " + proof;
       } catch (Throwable error) {
          LOG.warn("Could not restore quarantined chunk-cache generation {}", id, error);
          return "restore failed: " + error.getClass().getSimpleName();
@@ -210,7 +225,7 @@ final class GenerationStore {
 
       for (Path candidate : candidates) {
          FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(candidate.resolve("manifest-v2.txt"));
-         if (old != null && FingerprintManifest.sameRelevantInputsExcept(old, current, Set.of("policy:compatibility"))) {
+         if (old != null && FingerprintManifest.sameCompatibilityInputsExcept(old, current, Set.of("policy:compatibility"))) {
             String oldFingerprint = candidate.getFileName().toString();
             GenerationStore.Stats before = stats(candidate);
             Path active = root.resolve(snapshot.fingerprint());
@@ -226,9 +241,50 @@ final class GenerationStore {
 
             FingerprintManifest.writeAtomic(active.resolve("manifest-v2.txt"), snapshot.manifest(accepted));
             LOG.info(
-               "Adopted policy-equivalent chunk-cache generation {} as {} for {}; all worldgen/serialization-relevant inputs are unchanged; entries={} bytes={} trigger={}",
+               "Adopted compatibility-equivalent chunk-cache generation {} as {} for {}; audited effective settings/worldgen/serialization inputs are unchanged; entries={} bytes={} trigger={}",
                new Object[]{oldFingerprint, snapshot.fingerprint(), root.getFileName(), before.entries(), before.bytes(), trigger}
             );
+         }
+      }
+   }
+
+   private static void migrateEquivalentQuarantines(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+      Path quarantineRoot = root.resolve(".quarantine");
+      if (Files.isDirectory(quarantineRoot)) {
+         FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+
+         List<Path> candidates;
+         try (Stream<Path> stream = Files.list(quarantineRoot)) {
+            candidates = stream.filter(x$0 -> Files.isDirectory(x$0)).toList();
+         }
+
+         for (Path candidate : candidates) {
+            FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(candidate.resolve("manifest-v2.txt"));
+            if (old != null) {
+               boolean exact = old.fingerprint().equals(snapshot.fingerprint());
+               boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(old, current, Set.of("policy:compatibility"));
+               if (exact || semantic) {
+                  GenerationStore.Stats before = stats(candidate);
+                  Path active = root.resolve(snapshot.fingerprint());
+                  FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve("manifest-v2.txt"));
+                  mergeDirectory(candidate, active);
+                  Files.deleteIfExists(active.resolve("quarantine-info.txt"));
+                  Set<String> accepted = new LinkedHashSet<>();
+                  accepted.add(snapshot.fingerprint());
+                  accepted.add(old.fingerprint());
+                  accepted.addAll(old.storedFingerprints());
+                  if (existing != null) {
+                     accepted.addAll(existing.storedFingerprints());
+                  }
+
+                  FingerprintManifest.writeAtomic(active.resolve("manifest-v2.txt"), snapshot.manifest(accepted));
+                  String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
+                  LOG.info(
+                     "Re-adopted quarantined chunk-cache generation {} as {} for {}; proof={}; entries={} bytes={}; existing active cache entries won path conflicts; trigger={}",
+                     new Object[]{old.fingerprint(), snapshot.fingerprint(), root.getFileName(), proof, before.entries(), before.bytes(), trigger}
+                  );
+               }
+            }
          }
       }
    }
@@ -393,35 +449,7 @@ final class GenerationStore {
    }
 
    private static void mergeDirectory(Path source, Path target) throws IOException {
-      Files.createDirectories(target);
-
-      List<Path> paths;
-      try (Stream<Path> stream = Files.walk(source)) {
-         paths = stream.sorted(Comparator.comparingInt(Path::getNameCount)).toList();
-      }
-
-      for (Path path : paths) {
-         if (!path.equals(source)) {
-            Path relative = source.relativize(path);
-            Path destination = target.resolve(relative);
-            if (Files.isDirectory(path)) {
-               Files.createDirectories(destination);
-            } else if (Files.isRegularFile(path)) {
-               Files.createDirectories(destination.getParent());
-               if (Files.exists(destination)) {
-                  Files.delete(path);
-               } else {
-                  move(path, destination);
-               }
-            }
-         }
-      }
-
-      try (Stream<Path> stream = Files.walk(source)) {
-         for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) {
-            Files.deleteIfExists(path);
-         }
-      }
+      CacheDirectoryMerge.merge(source, target);
    }
 
    private static Path unique(Path target) {

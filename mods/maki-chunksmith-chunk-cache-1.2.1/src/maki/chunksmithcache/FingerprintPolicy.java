@@ -17,22 +17,15 @@ import java.util.jar.JarFile;
 final class FingerprintPolicy {
    static final String CONFIG_RELATIVE = "config/maki-chunksmith-chunk-cache.properties";
    private static final String OWN_MOD_ID = "maki_chunksmith_chunk_cache";
-   private static final String DEFAULT_OBSERVATION_MOD_IDS = "maki_mods_observer";
    private static final String DEFAULT_IGNORED_PATHS = "config/maki-mods-observer.properties";
    private static final long DEFAULT_MAX_BYTES = 53687091200L;
-   private final Set<String> observationOnlyModIds;
    private final List<String> ignoredPaths;
    private final int retentionDays;
    private final int maxGenerations;
    private final long maxBytes;
    private final int minProtectionHours;
 
-   private FingerprintPolicy(
-      Set<String> observationOnlyModIds, List<String> ignoredPaths, int retentionDays, int maxGenerations, long maxBytes, int minProtectionHours
-   ) {
-      LinkedHashSet<String> ids = new LinkedHashSet<>(observationOnlyModIds);
-      ids.add("maki_chunksmith_chunk_cache");
-      this.observationOnlyModIds = Set.copyOf(ids);
+   private FingerprintPolicy(List<String> ignoredPaths, int retentionDays, int maxGenerations, long maxBytes, int minProtectionHours) {
       this.ignoredPaths = List.copyOf(ignoredPaths);
       this.retentionDays = retentionDays;
       this.maxGenerations = maxGenerations;
@@ -50,10 +43,8 @@ final class FingerprintPolicy {
          }
       }
 
-      Set<String> ids = csv(properties.getProperty("fingerprint.observation-only-mod-ids", "maki_mods_observer"));
       List<String> paths = new ArrayList<>(csv(properties.getProperty("fingerprint.ignore-paths", "config/maki-mods-observer.properties")));
       return new FingerprintPolicy(
-         ids,
          paths,
          boundedInt(properties, "quarantine.retention-days", 30, 1, 3650),
          boundedInt(properties, "quarantine.max-generations", 8, 1, 1024),
@@ -62,8 +53,12 @@ final class FingerprintPolicy {
       );
    }
 
-   static FingerprintPolicy forTesting(Set<String> observationOnlyModIds, List<String> ignoredPaths) {
-      return new FingerprintPolicy(observationOnlyModIds, ignoredPaths, 30, 8, 53687091200L, 24);
+   static FingerprintPolicy forTesting(List<String> ignoredPaths) {
+      return new FingerprintPolicy(ignoredPaths, 30, 8, 53687091200L, 24);
+   }
+
+   static FingerprintPolicy forTesting(Set<String> ignoredModIds, List<String> ignoredPaths) {
+      return forTesting(ignoredPaths);
    }
 
    FingerprintManifest.Impact classify(String logicalPath, Path physicalPath) {
@@ -78,7 +73,7 @@ final class FingerprintPolicy {
 
       if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
          Set<String> ids = readTopLevelModIds(physicalPath);
-         if (!ids.isEmpty() && ids.stream().allMatch(this.observationOnlyModIds::contains)) {
+         if (ids.size() == 1 && ids.contains("maki_chunksmith_chunk_cache")) {
             return FingerprintManifest.Impact.IGNORED;
          }
       }
@@ -102,10 +97,12 @@ final class FingerprintPolicy {
 
       if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
          Set<String> ids = readTopLevelModIds(physicalPath);
-         if (impact == FingerprintManifest.Impact.IGNORED) {
-            return "observation-only mod ids=" + String.join(",", ids);
+         if (impact == FingerprintManifest.Impact.IGNORED && ids.contains("maki_chunksmith_chunk_cache")) {
+            return "chunk-cache implementation itself; compatibility schema/policy is hashed separately";
          } else {
-            return ids.isEmpty() ? "unknown mod metadata; fail-closed relevant" : "mod ids=" + String.join(",", ids) + "; fail-closed relevant";
+            return ids.isEmpty()
+               ? "unknown mod metadata; fail-closed relevant"
+               : "mod ids=" + String.join(",", ids) + "; not an exact audited generation-neutral artifact; fail-closed relevant";
          }
       } else {
          return "worldgen/serialization input by default";
@@ -113,9 +110,8 @@ final class FingerprintPolicy {
    }
 
    String compatibilitySignature() {
-      List<String> ids = this.observationOnlyModIds.stream().sorted().toList();
       List<String> paths = this.ignoredPaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
-      return "policy-v2|ignored-mod-ids=" + String.join(",", ids) + "|ignored-paths=" + String.join(",", paths);
+      return "policy-v4|self-mod-id=maki_chunksmith_chunk_cache|ignored-paths=" + String.join(",", paths) + "|" + CompatibilityInput.policySignature();
    }
 
    int retentionDays() {
@@ -181,6 +177,11 @@ final class FingerprintPolicy {
                   int equals = line.indexOf(61);
                   if (equals >= 0) {
                      String value = line.substring(equals + 1).trim();
+                     int comment = value.indexOf(35);
+                     if (comment >= 0) {
+                        value = value.substring(0, comment).trim();
+                     }
+
                      if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
                         ids.add(value.substring(1, value.length() - 1).toLowerCase(Locale.ROOT));
                      }
@@ -201,7 +202,7 @@ final class FingerprintPolicy {
       LinkedHashSet<String> result = new LinkedHashSet<>();
 
       for (String item : value.split(",")) {
-         String normalized = item.trim().toLowerCase(Locale.ROOT);
+         String normalized = item.trim();
          if (!normalized.isEmpty()) {
             result.add(normalized);
          }
@@ -226,13 +227,7 @@ final class FingerprintPolicy {
       }
    }
 
-   private static String normalize(String path) {
-      String normalized = path.replace('\\', '/');
-
-      while (normalized.startsWith("./")) {
-         normalized = normalized.substring(2);
-      }
-
-      return normalized;
+   private static String normalize(String value) {
+      return value.replace('\\', '/');
    }
 }

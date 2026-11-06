@@ -8,14 +8,14 @@ import java.util.Comparator;
 import java.util.List;
 
 final class CompatibilityFingerprint {
-   static final String SCHEMA = "maki-chunk-cache-compat-v2";
+   static final String SCHEMA = "maki-chunk-cache-compat-v3";
 
    private CompatibilityFingerprint() {
    }
 
    static String compute(List<FingerprintManifest.Entry> entries) {
       MessageDigest digest = digest();
-      update(digest, "maki-chunk-cache-compat-v2");
+      update(digest, "maki-chunk-cache-compat-v3");
       List<FingerprintManifest.Entry> sorted = new ArrayList<>(entries);
       sorted.sort(Comparator.comparing(FingerprintManifest.Entry::key));
 
