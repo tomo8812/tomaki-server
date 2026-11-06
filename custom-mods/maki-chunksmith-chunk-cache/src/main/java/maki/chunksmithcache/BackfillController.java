@@ -11,7 +11,6 @@ import com.kishku7.chunksmith.mixin.ChunkStorageAccessor;
 import com.kishku7.chunksmith.ducks.MinecraftServerExtension;
 import com.kishku7.chunksmith.PlatformCompat;
 
-import com.kishku7.chunksmith.ChunksmithProvider;
 import com.kishku7.chunksmith.lod.LodSupport;
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -112,24 +111,20 @@ public final class BackfillController {
          report(server,state,false);
          return;
       }
-      if (server.getAverageTickTimeNanos() / 1000000.0 > 40.0) {
-         state.phase="waiting-mspt";
-         report(server,state,false);
-         return;
-      }
       if (state.retiredGuards.size() >= MAX_RETIRED_GUARDS) {
+         releaseResourceBudget(state,"retired-guard-cap");
          enterPhase(state,"waiting-retired-guard-cap");
          state.waitReason="retired-guard-cap";
          report(server,state,false);
          return;
       }
       if (!MillenaireBridge.canBackfillSafely()) {
+         releaseResourceBudget(state,"millenaire-safety");
          state.phase="waiting-millenaire-safety";
          report(server,state,false);
          return;
       }
-      if (chunksmithTaskActive()) {
-         state.phase="waiting-chunksmith-task";
+      if (!reserveResourceBudget(state)) {
          report(server,state,false);
          return;
       }
@@ -140,6 +135,7 @@ public final class BackfillController {
          if (fingerprint != null) levels.add(new BackfillController.ScanLevel(level,fingerprint));
       }
       if (levels.isEmpty()) {
+         releaseResourceBudget(state,"no-fingerprint");
          state.phase="waiting-fingerprint";
          report(server,state,false);
          return;
@@ -154,6 +150,7 @@ public final class BackfillController {
          .whenComplete((candidate,error) -> server.execute(() -> {
             state.scanning=false;
             if (error != null) {
+               releaseResourceBudget(state,"scan-failed");
                state.scanFailures++;
                state.phase="scan-failed";
                LOG.warn("Chunk-cache backfill candidate scan failed",error);
@@ -161,6 +158,7 @@ public final class BackfillController {
                return;
             }
             if (candidate == null) {
+               releaseResourceBudget(state,"no-candidate");
                long now=System.currentTimeMillis();
                state.phase=state.normalStateUnknown != 0L
                   ? "waiting-normal-state-unknown"
@@ -170,22 +168,24 @@ public final class BackfillController {
             }
             state.candidatesFound++;
             if (state.busy) {
+               releaseResourceBudget(state,"became-busy");
                state.phase="busy";
                report(server,state,true);
                return;
             }
             if (server.getPlayerCount() != 0) {
+               releaseResourceBudget(state,"players-online");
                state.phase="waiting-players";
                report(server,state,true);
                return;
             }
-            if (server.getAverageTickTimeNanos() / 1000000.0 > 40.0) {
-               state.phase="waiting-mspt";
+            if (!MillenaireBridge.canBackfillSafely()) {
+               releaseResourceBudget(state,"millenaire-safety");
+               state.phase="waiting-millenaire-safety";
                report(server,state,true);
                return;
             }
-            if (chunksmithTaskActive()) {
-               state.phase="waiting-chunksmith-task";
+            if (!reserveResourceBudget(state)) {
                report(server,state,true);
                return;
             }
@@ -194,11 +194,13 @@ public final class BackfillController {
             BackfillController.Target target=candidate.target();
             ChunkPos pos=target.pos();
             if (level.getChunkSource().hasChunk(pos.x,pos.z)) {
+               releaseResourceBudget(state,"candidate-already-loaded");
                state.phase="candidate-already-loaded";
                state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
                advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
                report(server,state,true);
             } else if (!BackfillGuard.scopeAvailable(level,candidate.suppressed())) {
+               releaseResourceBudget(state,"dependency-scope-loaded");
                state.phase="candidate-dependency-scope-loaded";
                state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
                advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
@@ -209,14 +211,25 @@ public final class BackfillController {
          }));
    }
 
-   private static boolean chunksmithTaskActive() {
-      try {
-         return ChunksmithProvider.isLoaded()
-            && ChunksmithProvider.get()!=null
-            && !ChunksmithProvider.get().getGenerationTasks().isEmpty();
-      } catch(Throwable ignored) {
+   private static boolean reserveResourceBudget(BackfillController.State state) {
+      String decision=LodResourceBudgetBridge.reserve();
+      state.resourceBudgetReserved=LodResourceBudgetBridge.reservationHeld();
+      state.budgetReason=decision;
+      if("granted".equals(decision)) {
+         state.waitReason=null;
          return true;
       }
+      state.waitReason="shared-budget:"+decision;
+      enterPhase(state,"waiting-shared-budget-"+decision.replaceAll("[^a-z0-9-]","-"));
+      return false;
+   }
+
+   private static void releaseResourceBudget(BackfillController.State state,String outcome) {
+      if(state.resourceBudgetReserved||LodResourceBudgetBridge.reservationHeld()) {
+         LodResourceBudgetBridge.release(outcome);
+      }
+      state.resourceBudgetReserved=false;
+      state.budgetReason="released:"+outcome;
    }
 
    public static void onUnload(ServerLevel level, LevelChunk chunk) {
@@ -263,8 +276,11 @@ public final class BackfillController {
          if (MillenaireBridge.isLoaded() && var6 == null) {
             LOG.warn("Millenaire suppression could not be acquired; skipping chunk-cache backfill to preserve natural-generation semantics", new Object[0]);
             BackfillGuard.clear(var0, var3);
+            releaseResourceBudget(var2,"millenaire-suppression-failed");
             clearActive(var2);
          } else {
+            var2.resourceBudgetReserved=LodResourceBudgetBridge.reservationHeld();
+            LodResourceBudgetBridge.started();
             IdlePregenBridge.setBackfillActive(true);
             var2.idlePregenClaimed=IdlePregenBridge.isClaimed();
             LOG.debug("Backfilling cached chunk {} in {}", new Object[]{var3, var0.dimension().location()});
@@ -524,6 +540,7 @@ public final class BackfillController {
                markProgress(state);
                enterPhase(state,state.completionOutcome+"-ticket-releasing");
                releaseOwnedTicket(level,pos,state);
+               releaseResourceBudget(state,state.completionOutcome);
                if(active(state,token,level,pos)) {
                   if("completed".equals(state.completionOutcome)) {
                      retireSuccessfulGuard(level,pos,state);
@@ -640,10 +657,11 @@ public final class BackfillController {
       if (active(var2, var4, var0, var1)) {
          MillenaireBridge.restore(var3);
          var2.previousSuppression = null;
-         releaseOwnedTicket(var0,var1,var2);
          var2.awaitingScopeDrain=true;
          var2.backfillsFailed++;
          var2.completionOutcome="failed-before-full";
+         releaseOwnedTicket(var0,var1,var2);
+         releaseResourceBudget(var2,var2.completionOutcome);
          var2.lastOutcome="failed-before-full";
          markProgress(var2);
          enterPhase(var2,"failed-before-full");
@@ -666,6 +684,7 @@ public final class BackfillController {
          markProgress(var2);
          enterPhase(var2,"failed-ticket-releasing");
          releaseOwnedTicket(var0,var1,var2);
+         releaseResourceBudget(var2,var2.completionOutcome);
          if(!var2.busy||var2.activeLevel!=var0||var2.activePos==null||var2.activePos.toLong()!=var1.toLong())return;
          var2.token++;
          var2.waitReason="natural-unload";
@@ -710,6 +729,7 @@ public final class BackfillController {
          }
 
          releaseOwnedTicket(var1,var2,var0);
+         releaseResourceBudget(var0,"handed-to-player");
          BackfillGuard.releasePlayerTarget(var1,var2);
          BackfillGuard.releasePlayerOwnedDependencies(var1,var2);
          if(!BackfillGuard.scopeDrained(var1,var2)) {
@@ -725,6 +745,7 @@ public final class BackfillController {
 
    private static void clearActive(BackfillController.State var0) {
       MinecraftServer server=var0.activeLevel==null?null:var0.activeLevel.getServer();
+      if(var0.resourceBudgetReserved)releaseResourceBudget(var0,var0.completionOutcome==null?"cleared":var0.completionOutcome);
       IdlePregenBridge.setBackfillActive(false);
       var0.idlePregenClaimed=false;
       var0.busy=false;
@@ -756,8 +777,8 @@ public final class BackfillController {
       state.lastReport=now;
       String dimension=state.activeLevel==null?"none":state.activeLevel.dimension().location().toString();
       String chunk=state.activePos==null?"none":state.activePos.x+","+state.activePos.z;
-      LOG.info("Chunk-cache backfill state: phase={}, busy={}, scanning={}, dimension={}, chunk={}, waitReason={}, outcome={}, ownTicket={}, futurePending={}, dependencyDrain={}, retiredGuards={}, started={}, completed={}, failed={}, handedOff={}",
-         state.phase,state.busy,state.scanning,dimension,chunk,state.waitReason,state.completionOutcome,state.backfillTicketHeld,state.loadFuturePending,state.awaitingScopeDrain,state.retiredGuards.size(),state.backfillsStarted,state.backfillsCompleted,state.backfillsFailed,state.backfillsHandedOff);
+      LOG.info("Chunk-cache backfill state: phase={}, busy={}, scanning={}, dimension={}, chunk={}, waitReason={}, outcome={}, budgetReason={}, budgetReserved={}, ownTicket={}, futurePending={}, dependencyDrain={}, retiredGuards={}, started={}, completed={}, failed={}, handedOff={}, sharedBudget=[{}]",
+         state.phase,state.busy,state.scanning,dimension,chunk,state.waitReason,state.completionOutcome,state.budgetReason,state.resourceBudgetReserved,state.backfillTicketHeld,state.loadFuturePending,state.awaitingScopeDrain,state.retiredGuards.size(),state.backfillsStarted,state.backfillsCompleted,state.backfillsFailed,state.backfillsHandedOff,LodResourceBudgetBridge.status());
    }
 
    private static Double metric(double value) {
@@ -1045,6 +1066,7 @@ public final class BackfillController {
       long retiredGuardsReleasedExternally;
       long retiredGuardWarnings;
       boolean idlePregenClaimed;
+      boolean resourceBudgetReserved;
       boolean awaitingScopeDrain;
       long lastRequestQueuedAt;
       double lastTicketSafePointDelayMs = -1.0;
@@ -1066,6 +1088,7 @@ public final class BackfillController {
       boolean fullLoadTimeoutReached;
       boolean unloadDelayWarned;
       String phase="idle";
+      String budgetReason="not-requested";
       String waitReason;
       String completionOutcome;
       String lastOutcome;
