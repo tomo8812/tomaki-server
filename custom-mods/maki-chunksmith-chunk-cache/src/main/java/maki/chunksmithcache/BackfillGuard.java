@@ -3,22 +3,19 @@ package maki.chunksmithcache;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import maki.chunksmithcache.mixin.ChunkMapLifecycleAccessor;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
 
 public final class BackfillGuard {
-   private static final Map<String, Long> ACTIVE_TARGET = new ConcurrentHashMap<>();
-   private static final Map<String, Set<Long>> ACTIVE_SCOPE = new ConcurrentHashMap<>();
-   private static final Map<String, Set<Long>> QUARANTINE = new ConcurrentHashMap<>();
+   private static final Map<String, Session> ACTIVE = new ConcurrentHashMap<>();
 
    private BackfillGuard() {
    }
 
    public static void arm(ServerLevel level, ChunkPos target, Set<Long> suppressed) {
-      String key = key(level);
-      ACTIVE_TARGET.put(key, target.toLong());
-      ACTIVE_SCOPE.put(key, Set.copyOf(suppressed));
+      ACTIVE.put(key(level), new Session(target.toLong(), Set.copyOf(suppressed)));
    }
 
    public static boolean active(ServerLevel level, ChunkPos pos) {
@@ -26,22 +23,31 @@ public final class BackfillGuard {
          return false;
       }
 
-      Long target = ACTIVE_TARGET.get(key(level));
-      return target != null && target == pos.toLong();
+      Session session = ACTIVE.get(key(level));
+      return session != null && session.target() == pos.toLong();
    }
 
    public static boolean suppress(ServerLevel level, ChunkPos pos) {
-      return suppress(level, pos, false);
+      if (level == null || pos == null) {
+         return false;
+      }
+
+      Session session = ACTIVE.get(key(level));
+      if (session == null || !session.suppressed().contains(pos.toLong())) {
+         return false;
+      }
+
+      return !playerNear(level, pos);
    }
 
    public static boolean suppressAndRemember(ServerLevel level, ChunkPos pos) {
-      return suppress(level, pos, true);
+      return suppress(level, pos);
    }
 
    public static boolean activePoi(Object poiManager, ChunkPos pos) {
       if (poiManager != null && pos != null) {
          for (ServerLevel level : BackfillController.levels()) {
-            if (level.getPoiManager() == poiManager && suppressAndRemember(level, pos)) {
+            if (level.getPoiManager() == poiManager && suppress(level, pos)) {
                return true;
             }
          }
@@ -50,50 +56,37 @@ public final class BackfillGuard {
       return false;
    }
 
-   public static void clear(ServerLevel level, ChunkPos target) {
-      String key = key(level);
-      Long active = ACTIVE_TARGET.get(key);
-      if (active != null && active == target.toLong()) {
-         ACTIVE_TARGET.remove(key, active);
-         ACTIVE_SCOPE.remove(key);
-         Set<Long> quarantine = QUARANTINE.get(key);
-         if (quarantine != null) {
-            quarantine.remove(target.toLong());
-            if (quarantine.isEmpty()) {
-               QUARANTINE.remove(key, quarantine);
+   public static boolean scopeDrained(ServerLevel level, ChunkPos target) {
+      if (level == null || target == null) {
+         return true;
+      }
+
+      Session session = ACTIVE.get(key(level));
+      if (session == null || session.target() != target.toLong()) {
+         return true;
+      }
+
+      try {
+         ChunkMapLifecycleAccessor chunks = (ChunkMapLifecycleAccessor)(Object)level.getChunkSource().chunkMap;
+         for (long packed : session.suppressed()) {
+            if (chunks.maki$getUpdatingChunkMap().containsKey(packed)
+               || chunks.maki$getVisibleChunkMap().containsKey(packed)
+               || chunks.maki$getPendingUnloads().containsKey(packed)) {
+               return false;
             }
          }
+         return true;
+      } catch (Throwable ignored) {
+         return false;
       }
    }
 
-   private static boolean suppress(ServerLevel level, ChunkPos pos, boolean remember) {
-      if (level == null || pos == null) {
-         return false;
-      }
-
+   public static void clear(ServerLevel level, ChunkPos target) {
       String key = key(level);
-      long packed = pos.toLong();
-      Set<Long> scope = ACTIVE_SCOPE.get(key);
-      Set<Long> quarantine = QUARANTINE.get(key);
-      boolean owned = scope != null && scope.contains(packed) || quarantine != null && quarantine.contains(packed);
-      if (!owned) {
-         return false;
+      Session session = ACTIVE.get(key);
+      if (session != null && session.target() == target.toLong()) {
+         ACTIVE.remove(key, session);
       }
-
-      if (playerNear(level, pos)) {
-         if (quarantine != null) {
-            quarantine.remove(packed);
-            if (quarantine.isEmpty()) {
-               QUARANTINE.remove(key, quarantine);
-            }
-         }
-         return false;
-      }
-
-      if (remember) {
-         QUARANTINE.computeIfAbsent(key, ignored -> ConcurrentHashMap.newKeySet()).add(packed);
-      }
-      return true;
    }
 
    private static boolean playerNear(ServerLevel level, ChunkPos pos) {
@@ -109,5 +102,8 @@ public final class BackfillGuard {
 
    private static String key(ServerLevel level) {
       return level.dimension().location().toString();
+   }
+
+   private record Session(long target, Set<Long> suppressed) {
    }
 }
