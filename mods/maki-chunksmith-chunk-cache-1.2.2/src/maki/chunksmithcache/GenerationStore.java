@@ -22,6 +22,7 @@ final class GenerationStore {
    private static final Logger LOG = LoggerFactory.getLogger("MakiChunkCache");
    private static final String QUARANTINE_DIR = ".quarantine";
    private static final String QUARANTINE_INFO = "quarantine-info.txt";
+   private static final String RECOVERY_INFO = "recovery-info.txt";
 
    private GenerationStore() {
    }
@@ -57,6 +58,7 @@ final class GenerationStore {
          }
 
          FingerprintManifest.writeAtomic(active.resolve("manifest-v2.txt"), snapshot.manifest(accepted));
+         CompatibilityInput.persistHistoricalEvidence(active, level.getServer().getServerDirectory(), snapshot.entries());
          FingerprintManifest.writeAtomic(root.resolve(".current-manifest-v2.txt"), currentState);
          pruneQuarantine(root, snapshot.policy());
       } catch (Throwable error) {
@@ -73,12 +75,7 @@ final class GenerationStore {
    }
 
    static boolean acceptsStoredFingerprint(Path generationDirectory, String expectedFingerprint, String storedFingerprint) {
-      if (expectedFingerprint.equals(storedFingerprint)) {
-         return true;
-      }
-
-      FingerprintManifest.Manifest manifest = FingerprintManifest.readIfValid(generationDirectory.resolve("manifest-v2.txt"));
-      return manifest != null && expectedFingerprint.equals(manifest.fingerprint()) && manifest.storedFingerprints().contains(storedFingerprint);
+      return StoredFingerprintAcceptance.accepts(generationDirectory, expectedFingerprint, storedFingerprint);
    }
 
    static Path quarantineCorrupt(Path cacheFile) {
@@ -152,9 +149,9 @@ final class GenerationStore {
 
          FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
          boolean exact = manifest.fingerprint().equals(snapshot.fingerprint());
-         boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(manifest, current, Set.of("policy:compatibility"));
+         boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(manifest, current, Set.of("policy:compatibility"), source);
          if (!exact && !semantic) {
-            List<String> changed = FingerprintManifest.changedInputs(manifest, current, FingerprintManifest.Impact.RELEVANT, 12);
+            List<String> changed = FingerprintManifest.changedCompatibilityInputs(manifest, current, Set.of("policy:compatibility"), 12, source);
             return "restore refused: quarantined inputs are not proven compatibility-equivalent; current="
                + snapshot.fingerprint()
                + " quarantined="
@@ -164,8 +161,9 @@ final class GenerationStore {
          }
 
          Path active = dimensionRoot(level).resolve(snapshot.fingerprint());
-         mergeDirectory(source, active);
          FingerprintManifest.Manifest activeManifest = FingerprintManifest.readIfValid(active.resolve("manifest-v2.txt"));
+         List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(manifest, current, Set.of("policy:compatibility"), 12, source);
+         CacheDirectoryMerge.MergeStats merge = mergeDirectory(source, active);
          Set<String> accepted = new LinkedHashSet<>(manifest.storedFingerprints());
          accepted.add(manifest.fingerprint());
          accepted.add(snapshot.fingerprint());
@@ -175,11 +173,35 @@ final class GenerationStore {
 
          FingerprintManifest.writeAtomic(active.resolve("manifest-v2.txt"), snapshot.manifest(accepted));
          String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
+         long activeEntries = stats(active).entries();
          LOG.info(
-            "Restored quarantined chunk-cache generation {} for {} after {}; existing active cache entries won path conflicts",
-            new Object[]{id, CacheManager.dimensionKey(level), proof}
+            "Restored quarantined chunk-cache generation {} for {} after {}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} proofDetails={}",
+            new Object[]{
+               id,
+               CacheManager.dimensionKey(level),
+               proof,
+               merge.sourceEntries(),
+               merge.adoptedEntries(),
+               merge.duplicateEntries(),
+               activeEntries,
+               proofDetails
+            }
          );
-         return "restored " + id + " to active fingerprint " + snapshot.fingerprint() + " after " + proof;
+         return "restored "
+            + id
+            + " to active fingerprint "
+            + snapshot.fingerprint()
+            + " after "
+            + proof
+            + " (source="
+            + merge.sourceEntries()
+            + ", adopted="
+            + merge.adoptedEntries()
+            + ", duplicates="
+            + merge.duplicateEntries()
+            + ", active="
+            + activeEntries
+            + ")";
       } catch (Throwable error) {
          LOG.warn("Could not restore quarantined chunk-cache generation {}", id, error);
          return "restore failed: " + error.getClass().getSimpleName();
@@ -225,12 +247,13 @@ final class GenerationStore {
 
       for (Path candidate : candidates) {
          FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(candidate.resolve("manifest-v2.txt"));
-         if (old != null && FingerprintManifest.sameCompatibilityInputsExcept(old, current, Set.of("policy:compatibility"))) {
+         if (old != null && FingerprintManifest.sameCompatibilityInputsExcept(old, current, Set.of("policy:compatibility"), candidate)) {
             String oldFingerprint = candidate.getFileName().toString();
             GenerationStore.Stats before = stats(candidate);
             Path active = root.resolve(snapshot.fingerprint());
             FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve("manifest-v2.txt"));
-            mergeDirectory(candidate, active);
+            List<String> proofDetails = FingerprintManifest.compatibilityProofs(old, current, Set.of("policy:compatibility"), 12, candidate);
+            CacheDirectoryMerge.MergeStats merge = mergeDirectory(candidate, active);
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
             accepted.add(oldFingerprint);
@@ -240,9 +263,21 @@ final class GenerationStore {
             }
 
             FingerprintManifest.writeAtomic(active.resolve("manifest-v2.txt"), snapshot.manifest(accepted));
+            long activeEntries = stats(active).entries();
             LOG.info(
-               "Adopted compatibility-equivalent chunk-cache generation {} as {} for {}; audited effective settings/worldgen/serialization inputs are unchanged; entries={} bytes={} trigger={}",
-               new Object[]{oldFingerprint, snapshot.fingerprint(), root.getFileName(), before.entries(), before.bytes(), trigger}
+               "Adopted compatibility-equivalent chunk-cache generation {} as {} for {}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} bytes={} proofDetails={} trigger={}",
+               new Object[]{
+                  oldFingerprint,
+                  snapshot.fingerprint(),
+                  root.getFileName(),
+                  merge.sourceEntries(),
+                  merge.adoptedEntries(),
+                  merge.duplicateEntries(),
+                  activeEntries,
+                  before.bytes(),
+                  proofDetails,
+                  trigger
+               }
             );
          }
       }
@@ -252,23 +287,39 @@ final class GenerationStore {
       Path quarantineRoot = root.resolve(".quarantine");
       if (Files.isDirectory(quarantineRoot)) {
          FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+         List<GenerationStore.QuarantineCandidate> candidates = new ArrayList<>();
 
-         List<Path> candidates;
          try (Stream<Path> stream = Files.list(quarantineRoot)) {
-            candidates = stream.filter(x$0 -> Files.isDirectory(x$0)).toList();
+            for (Path candidate : stream.filter(x$0 -> Files.isDirectory(x$0)).toList()) {
+               FingerprintManifest.Manifest manifest = FingerprintManifest.readIfValid(candidate.resolve("manifest-v2.txt"));
+               if (manifest != null) {
+                  candidates.add(new GenerationStore.QuarantineCandidate(candidate, manifest));
+               }
+            }
          }
 
-         for (Path candidate : candidates) {
-            FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(candidate.resolve("manifest-v2.txt"));
-            if (old != null) {
+         candidates.sort(Comparator.<GenerationStore.QuarantineCandidate>comparingLong(value -> value.manifest().createdAtMillis()).reversed());
+         Path active = root.resolve(snapshot.fingerprint());
+
+         for (GenerationStore.QuarantineCandidate candidateValue : candidates) {
+            Path candidate = candidateValue.path();
+            FingerprintManifest.Manifest old = candidateValue.manifest();
+            FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve("manifest-v2.txt"));
+            if (!alreadyRecovered(candidate, snapshot.fingerprint(), old.fingerprint(), existing)) {
                boolean exact = old.fingerprint().equals(snapshot.fingerprint());
-               boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(old, current, Set.of("policy:compatibility"));
-               if (exact || semantic) {
+               boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(old, current, Set.of("policy:compatibility"), candidate);
+               if (!exact && !semantic) {
+                  List<String> changed = FingerprintManifest.changedCompatibilityInputs(old, current, Set.of("policy:compatibility"), 12, candidate);
+                  LOG.info(
+                     "Kept quarantined chunk-cache generation {} for {}; migration refused; reason=compatibility proof missing or inputs changed; changedInputs={} trigger={}",
+                     new Object[]{old.fingerprint(), root.getFileName(), changed, trigger}
+                  );
+               } else {
                   GenerationStore.Stats before = stats(candidate);
-                  Path active = root.resolve(snapshot.fingerprint());
-                  FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve("manifest-v2.txt"));
-                  mergeDirectory(candidate, active);
-                  Files.deleteIfExists(active.resolve("quarantine-info.txt"));
+                  List<String> proofDetails = exact
+                     ? List.of()
+                     : FingerprintManifest.compatibilityProofs(old, current, Set.of("policy:compatibility"), 12, candidate);
+                  CacheDirectoryMerge.MergeStats merge = CacheDirectoryMerge.copyCacheEntriesPreservingSource(candidate, active);
                   Set<String> accepted = new LinkedHashSet<>();
                   accepted.add(snapshot.fingerprint());
                   accepted.add(old.fingerprint());
@@ -278,10 +329,46 @@ final class GenerationStore {
                   }
 
                   FingerprintManifest.writeAtomic(active.resolve("manifest-v2.txt"), snapshot.manifest(accepted));
+                  long activeEntries = stats(active).entries();
                   String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
+                  Files.writeString(
+                     candidate.resolve("recovery-info.txt"),
+                     "sourceFingerprint="
+                        + old.fingerprint()
+                        + "\ntargetFingerprint="
+                        + snapshot.fingerprint()
+                        + "\nproof="
+                        + proof
+                        + "\nproofDetails="
+                        + proofDetails
+                        + "\nsourceEntries="
+                        + merge.sourceEntries()
+                        + "\nadoptedEntries="
+                        + merge.adoptedEntries()
+                        + "\nduplicateEntries="
+                        + merge.duplicateEntries()
+                        + "\nactiveEntriesAfter="
+                        + activeEntries
+                        + "\nsourcePreserved=true\ntrigger="
+                        + trigger
+                        + "\n"
+                  );
+                  Files.setLastModifiedTime(candidate, FileTime.fromMillis(System.currentTimeMillis()));
                   LOG.info(
-                     "Re-adopted quarantined chunk-cache generation {} as {} for {}; proof={}; entries={} bytes={}; existing active cache entries won path conflicts; trigger={}",
-                     new Object[]{old.fingerprint(), snapshot.fingerprint(), root.getFileName(), proof, before.entries(), before.bytes(), trigger}
+                     "Re-adopted quarantined chunk-cache generation {} as {} for {}; proof={}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} bytes={} proofDetails={}; quarantine source preserved until retention/capacity pruning; trigger={}",
+                     new Object[]{
+                        old.fingerprint(),
+                        snapshot.fingerprint(),
+                        root.getFileName(),
+                        proof,
+                        merge.sourceEntries(),
+                        merge.adoptedEntries(),
+                        merge.duplicateEntries(),
+                        activeEntries,
+                        before.bytes(),
+                        proofDetails,
+                        trigger
+                     }
                   );
                }
             }
@@ -309,10 +396,10 @@ final class GenerationStore {
             changed = List.of("unknown: no v2 manifest");
          } else {
             FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
-            changed = FingerprintManifest.changedInputs(oldManifest, current, FingerprintManifest.Impact.RELEVANT, 12);
+            changed = FingerprintManifest.changedCompatibilityInputs(oldManifest, current, Set.of("policy:compatibility"), 12, generation);
             reason = changed.isEmpty()
                ? "fingerprint mismatch with no explainable manifest diff; fail-closed"
-               : "worldgen/serialization compatibility inputs changed";
+               : "compatibility inputs changed or historical migration proof is missing";
          }
 
          Path quarantine = root.resolve(".quarantine");
@@ -448,8 +535,28 @@ final class GenerationStore {
       return new GenerationStore.Stats(entries, bytes);
    }
 
-   private static void mergeDirectory(Path source, Path target) throws IOException {
-      CacheDirectoryMerge.merge(source, target);
+   private static CacheDirectoryMerge.MergeStats mergeDirectory(Path source, Path target) throws IOException {
+      return CacheDirectoryMerge.merge(source, target);
+   }
+
+   private static boolean alreadyRecovered(Path quarantine, String targetFingerprint, String sourceFingerprint, FingerprintManifest.Manifest activeManifest) {
+      if (activeManifest != null && targetFingerprint.equals(activeManifest.fingerprint()) && activeManifest.storedFingerprints().contains(sourceFingerprint)) {
+         Path info = quarantine.resolve("recovery-info.txt");
+         if (!Files.isRegularFile(info)) {
+            return false;
+         }
+
+         try {
+            String text = Files.readString(info);
+            return text.contains("sourceFingerprint=" + sourceFingerprint + "\n")
+               && text.contains("targetFingerprint=" + targetFingerprint + "\n")
+               && text.contains("sourcePreserved=true\n");
+         } catch (Throwable ignored) {
+            return false;
+         }
+      } else {
+         return false;
+      }
    }
 
    private static Path unique(Path target) {
@@ -483,6 +590,9 @@ final class GenerationStore {
             Files.deleteIfExists(path);
          }
       }
+   }
+
+   private record QuarantineCandidate(Path path, FingerprintManifest.Manifest manifest) {
    }
 
    private record QuarantineEntry(Path path, GenerationStore.Stats stats, long modifiedAtMillis) {
