@@ -132,4 +132,19 @@ final class TaskMigrationStoreTest {
         assertFalse(Files.exists(source));
     }
 
+    @Test
+    void restoreRejectsBackupWithMissingMetadata() throws Exception {
+        Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
+        Path root=temp.resolve("world/data/maki_lod_task_backups/v1/minecraft/overworld");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source,TASK,StandardCharsets.UTF_8);
+        var backup=TaskMigrationStore.backup(source,root,"backup","test-admin");
+        Files.delete(source);
+        Files.delete(backup.directory().resolve("migration.meta"));
+
+        var error=assertThrows(Exception.class,()->TaskMigrationStore.restore(source,root,backup.id(),"test-admin"));
+        assertTrue(error.getMessage().contains("metadata is missing"));
+        assertFalse(Files.exists(source));
+    }
+
 }
