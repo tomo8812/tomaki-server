@@ -2,8 +2,15 @@ package maki.chunksmithcache;
 
 import com.google.gson.Gson;
 import com.kishku7.chunksmith.ChunksmithProvider;
+import com.kishku7.chunksmith.PlatformCompat;
+import com.kishku7.chunksmith.ducks.MinecraftServerExtension;
 import com.kishku7.chunksmith.lod.LodSupport;
+import com.kishku7.chunksmith.mixin.ChunkStorageAccessor;
+import com.kishku7.chunksmith.mixin.IOWorkerAccessor;
+import com.kishku7.chunksmith.mixin.ServerChunkCacheMixin;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.ThreadMXBean;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -24,13 +31,17 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ChunkResult;
+import net.minecraft.server.level.ServerChunkCache;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.level.TicketType;
 import net.minecraft.util.Unit;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.ChunkAccess;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
+import net.minecraft.world.level.chunk.storage.IOWorker;
 import net.minecraft.world.level.storage.LevelResource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +50,7 @@ public final class BackfillController {
    private static final TicketType<Unit> BACKFILL_TICKET = TicketType.create("maki_chunk_cache_backfill", (var0, var1) -> 0);
    private static final Logger LOG = LoggerFactory.getLogger("MakiChunkCache");
    private static final Gson JSON = new Gson();
+   private static final ThreadMXBean THREAD_CPU = ManagementFactory.getThreadMXBean();
    private static final Map<MinecraftServer, BackfillController.State> STATES = new WeakHashMap<>();
    private static volatile List<ServerLevel> LEVELS = List.of();
    private static final long RESCAN_MILLIS = 600000L;
@@ -188,115 +200,250 @@ public final class BackfillController {
       }
    }
 
-   private static void start(ServerLevel var0, BackfillController.Target var1, BackfillController.State var2) {
-      ChunkPos var3 = var1.pos();
-      if (MillenaireBridge.canBackfillSafely()) {
-         var2.busy = true;
-         var2.activeLevel = var0;
-         var2.activePos = var3;
-         var2.phase="loading-chunk";
-         var2.activeSince=System.currentTimeMillis();
-         var2.backfillsStarted++;
-         long var4 = ++var2.token;
-         BackfillGuard.arm(var0, var3);
-         Boolean var6 = MillenaireBridge.suppressNaturalSpawns(true);
-         var2.previousSuppression = var6;
-         if (MillenaireBridge.isLoaded() && var6 == null) {
-            LOG.warn("Millenaire suppression could not be acquired; skipping chunk-cache backfill to preserve natural-generation semantics", new Object[0]);
-            BackfillGuard.clear(var0, var3);
-            clearActive(var2);
-         } else {
-            IdlePregenBridge.setBackfillActive(true);
-            var2.idlePregenClaimed=IdlePregenBridge.isClaimed();
-            report(var0.getServer(),var2,true);
-            LOG.debug("Backfilling cached chunk {} in {}", new Object[]{var3, var0.dimension().location()});
-            var0.getChunkSource().addRegionTicket(BACKFILL_TICKET, var3, 0, Unit.INSTANCE);
-            var0.getChunkSource()
-               .getChunkFuture(var3.x, var3.z, ChunkStatus.FULL, true)
-               .whenComplete(
-                  (var7, var8) -> var0.getServer()
-                     .execute(
-                        () -> {
-                           if (active(var2, var4, var0, var3)) {
-                              LevelChunk[] var9 = new LevelChunk[1];
-                              try {
-                                 if (var8 != null || var7 == null) {
-                                    failBeforeFull(var0, var3, var2, var6, var4);
-                                    return;
-                                 }
+   private static void start(ServerLevel level, BackfillController.Target target, BackfillController.State state) {
+      ChunkPos pos = target.pos();
+      if (!MillenaireBridge.canBackfillSafely()) {
+         return;
+      }
 
-                                 ChunkResultBridge.ifSuccess(var7, var1xxx -> {
-                                    if (var1xxx instanceof LevelChunk var2xx) {
-                                       var9[0] = var2xx;
-                                    }
-                                 });
-                                 if (var9[0] == null) {
-                                    failBeforeFull(var0, var3, var2, var6, var4);
-                                    return;
-                                 }
+      state.busy = true;
+      state.activeLevel = level;
+      state.activePos = pos;
+      state.phase = "queued-chunk-load";
+      state.activeSince = System.currentTimeMillis();
+      state.backfillsStarted++;
+      long token = ++state.token;
+      BackfillGuard.arm(level, pos);
+      Boolean previousSuppression = MillenaireBridge.suppressNaturalSpawns(true);
+      state.previousSuppression = previousSuppression;
+      if (MillenaireBridge.isLoaded() && previousSuppression == null) {
+         LOG.warn("Millenaire suppression could not be acquired; skipping chunk-cache backfill to preserve natural-generation semantics", new Object[0]);
+         BackfillGuard.clear(level, pos);
+         clearActive(state);
+         return;
+      }
 
-                                 try {
-                                    var2.phase="submitting-lod";
-                                    LodSupport.offer(var0, var9[0]);
-                                    var2.lodOffersSubmitted++;
-                                    var2.phase="waiting-lod-durable";
-                                    report(var0.getServer(),var2,true);
-                                 } catch (Throwable var11) {
-                                    LOG.warn("Could not refresh LOD for backfill {}; leaving it pending for retry", new Object[]{var3, var11});
-                                    fail(var0, var3, var2, var6, var4);
-                                    return;
-                                 }
+      IdlePregenBridge.setBackfillActive(true);
+      state.idlePregenClaimed = IdlePregenBridge.isClaimed();
+      state.lastRequestQueuedAt = System.currentTimeMillis();
+      state.lastTicketSafePointDelayMs = -1.0;
+      state.lastDistanceManagerUpdateWallMs = -1.0;
+      state.lastGetChunkFutureCallWallMs = -1.0;
+      state.lastRequestSetupWallMs = -1.0;
+      state.lastRequestSetupCpuMs = -1.0;
+      state.lastChunkFutureWaitWallMs = -1.0;
+      state.lastPendingChunkTasksBefore = -1;
+      state.lastPendingChunkTasksAfter = -1;
+      state.lastPendingChunkWritesBefore = -1L;
+      state.lastPendingChunkWritesAfter = -1L;
+      state.lastLoadedBeforeRequest = null;
+      state.lastCreateMissingChunk = null;
+      report(level.getServer(), state, true);
+      LOG.debug("Queueing cached-chunk backfill {} in {} at the Chunksmith ticket safe point", new Object[]{pos, level.dimension().location()});
 
-                                 if (!MillenaireBridge.rememberPending(var0, var3)) {
-                                    LOG.warn("Could not preserve Millenaire pending state for backfill {}; leaving it pending for retry", new Object[]{var3});
-                                    fail(var0, var3, var2, var6, var4);
-                                    return;
-                                 }
+      long queuedAt = System.nanoTime();
+      requestChunkFuture(level, pos, state, token, queuedAt)
+         .whenComplete(
+            (chunkResult, error) -> level.getServer()
+               .execute(
+                  () -> {
+                     if (active(state, token, level, pos)) {
+                        state.lastChunkFutureWaitWallMs = elapsedMillis(queuedAt);
+                        LevelChunk[] fullChunk = new LevelChunk[1];
 
-                                 MillenaireBridge.restore(var6);
-                                 var2.previousSuppression = null;
-                                 LevelChunk var10 = var9[0];
-                                 CompletableFuture.<Boolean>supplyAsync(() -> waitForLodRefresh(var1), SCAN)
-                                    .whenComplete((var7xx, var8xx) -> var0.getServer().execute(() -> {
-                                       if (active(var2, var4, var0, var3)) {
-                                          if (!Boolean.TRUE.equals(var7xx)) {
-                                             LOG.warn("Backfill LOD refresh was not durably observed for {}; leaving it pending for retry", new Object[]{var3});
-                                             fail(var0, var3, var2, var6, var4);
-                                          } else {
-                                             var2.lodRefreshCompleted++;
-                                             var2.phase="writing-cache";
-                                             report(var0.getServer(),var2,true);
-                                             CacheManager.capture(var0, var10, true).whenComplete((var5xxxx, var6xxxxx) -> var0.getServer().execute(() -> {
-                                                if (active(var2, var4, var0, var3)) {
-                                                   if (!Boolean.TRUE.equals(var5xxxx)) {
-                                                      var2.backfillsFailed++;
-                                                      var2.phase="cache-write-failed-awaiting-unload";
-                                                      LOG.warn(
-                                                         "Backfill cache write failed for {}; releasing without treating it as complete", new Object[]{var3}
-                                                      );
-                                                   } else {
-                                                      var2.backfillsCompleted++;
-                                                      var2.phase="completed-awaiting-unload";
-                                                      advanceCursor(var0, var2.cursor.get(CacheManager.dimensionKey(var0)));
-                                                   }
+                        try {
+                           if (error != null || chunkResult == null) {
+                              failBeforeFull(level, pos, state, previousSuppression, token);
+                              return;
+                           }
 
-                                                   var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var3, 0, Unit.INSTANCE);
-                                                   report(var0.getServer(),var2,true);
-                                                }
-                                             }));
-                                          }
-                                       }
-                                    }));
-                              } catch (Throwable var12) {
-                                 LOG.warn("Backfill failed for {}", new Object[]{var3, var12});
-                                 if(var9[0]==null)failBeforeFull(var0,var3,var2,var6,var4);
-                                 else fail(var0, var3, var2, var6, var4);
+                           ChunkResultBridge.ifSuccess(chunkResult, chunkAccess -> {
+                              if (chunkAccess instanceof LevelChunk levelChunk) {
+                                 fullChunk[0] = levelChunk;
                               }
+                           });
+                           if (fullChunk[0] == null) {
+                              failBeforeFull(level, pos, state, previousSuppression, token);
+                              return;
+                           }
+
+                           try {
+                              state.phase = "submitting-lod";
+                              LodSupport.offer(level, fullChunk[0]);
+                              state.lodOffersSubmitted++;
+                              state.phase = "waiting-lod-durable";
+                              report(level.getServer(), state, true);
+                           } catch (Throwable offerError) {
+                              LOG.warn("Could not refresh LOD for backfill {}; leaving it pending for retry", new Object[]{pos, offerError});
+                              fail(level, pos, state, previousSuppression, token);
+                              return;
+                           }
+
+                           if (!MillenaireBridge.rememberPending(level, pos)) {
+                              LOG.warn("Could not preserve Millenaire pending state for backfill {}; leaving it pending for retry", new Object[]{pos});
+                              fail(level, pos, state, previousSuppression, token);
+                              return;
+                           }
+
+                           MillenaireBridge.restore(previousSuppression);
+                           state.previousSuppression = null;
+                           LevelChunk completedChunk = fullChunk[0];
+                           CompletableFuture.<Boolean>supplyAsync(() -> waitForLodRefresh(target), SCAN)
+                              .whenComplete((refreshed, refreshError) -> level.getServer().execute(() -> {
+                                 if (active(state, token, level, pos)) {
+                                    if (!Boolean.TRUE.equals(refreshed)) {
+                                       LOG.warn("Backfill LOD refresh was not durably observed for {}; leaving it pending for retry", new Object[]{pos});
+                                       fail(level, pos, state, previousSuppression, token);
+                                    } else {
+                                       state.lodRefreshCompleted++;
+                                       state.phase = "writing-cache";
+                                       report(level.getServer(), state, true);
+                                       CacheManager.capture(level, completedChunk, true).whenComplete((captured, captureError) -> level.getServer().execute(() -> {
+                                          if (active(state, token, level, pos)) {
+                                             if (!Boolean.TRUE.equals(captured)) {
+                                                state.backfillsFailed++;
+                                                state.phase = "cache-write-failed-awaiting-unload";
+                                                LOG.warn(
+                                                   "Backfill cache write failed for {}; releasing without treating it as complete", new Object[]{pos}
+                                                );
+                                             } else {
+                                                state.backfillsCompleted++;
+                                                state.phase = "completed-awaiting-unload";
+                                                advanceCursor(level, state.cursor.get(CacheManager.dimensionKey(level)));
+                                             }
+
+                                             removeBackfillTicket(level, pos, state);
+                                             report(level.getServer(), state, true);
+                                          }
+                                       }));
+                                    }
+                                 }
+                              }));
+                        } catch (Throwable backfillError) {
+                           LOG.warn("Backfill failed for {}", new Object[]{pos, backfillError});
+                           if (fullChunk[0] == null) {
+                              failBeforeFull(level, pos, state, previousSuppression, token);
+                           } else {
+                              fail(level, pos, state, previousSuppression, token);
                            }
                         }
-                     )
-               );
+                     }
+                  }
+               )
+         );
+   }
+
+   private static CompletableFuture<ChunkResult<ChunkAccess>> requestChunkFuture(
+      ServerLevel level,
+      ChunkPos pos,
+      BackfillController.State state,
+      long token,
+      long queuedAt
+   ) {
+      MinecraftServer server = level.getServer();
+      CompletableFuture<ChunkResult<ChunkAccess>> requested = new CompletableFuture<>();
+
+      try {
+         ((MinecraftServerExtension)server).chunksmith$atTicketSafePoint(() -> {
+            if (!active(state, token, level, pos)) {
+               requested.cancel(false);
+               return;
+            }
+
+            ServerChunkCache chunkSource = level.getChunkSource();
+            long setupStartedAt = System.nanoTime();
+            long cpuStartedAt = currentThreadCpuNanos();
+            state.lastTicketSafePointDelayMs = elapsedMillis(queuedAt);
+            state.lastLoadedBeforeRequest = chunkSource.hasChunk(pos.x, pos.z);
+            state.lastPendingChunkTasksBefore = chunkSource.getPendingTasksCount();
+            state.lastPendingChunkWritesBefore = pendingChunkWrites(level);
+
+            try {
+               chunkSource.addRegionTicket(BACKFILL_TICKET, pos, 0, Unit.INSTANCE);
+               state.backfillTicketAdded = true;
+
+               long distanceManagerStartedAt = System.nanoTime();
+               if (!PlatformCompat.ENABLE_C2ME_TICKET_COMPAT) {
+                  ((ServerChunkCacheMixin)chunkSource).invokeRunDistanceManagerUpdates();
+               }
+               state.lastDistanceManagerUpdateWallMs = elapsedMillis(distanceManagerStartedAt);
+
+               boolean createMissingChunk = PlatformCompat.ENABLE_MOONRISE_WORKAROUNDS || PlatformCompat.ENABLE_C2ME_TICKET_COMPAT;
+               state.lastCreateMissingChunk = createMissingChunk;
+               long futureCallStartedAt = System.nanoTime();
+               CompletableFuture<ChunkResult<ChunkAccess>> nativeFuture = ((ServerChunkCacheMixin)chunkSource)
+                  .invokeGetChunkFutureMainThread(pos.x, pos.z, ChunkStatus.FULL, createMissingChunk);
+               state.lastGetChunkFutureCallWallMs = elapsedMillis(futureCallStartedAt);
+               state.lastRequestSetupWallMs = elapsedMillis(setupStartedAt);
+               state.lastRequestSetupCpuMs = elapsedCpuMillis(cpuStartedAt);
+               state.lastPendingChunkTasksAfter = chunkSource.getPendingTasksCount();
+               state.lastPendingChunkWritesAfter = pendingChunkWrites(level);
+               state.phase = "waiting-chunk-future";
+
+               nativeFuture.whenComplete((result, error) -> {
+                  ((MinecraftServerExtension)server).chunksmith$markChunkSystemHousekeeping();
+                  if (error != null) {
+                     requested.completeExceptionally(error);
+                  } else {
+                     requested.complete(result);
+                  }
+               });
+            } catch (Throwable error) {
+               state.lastRequestSetupWallMs = elapsedMillis(setupStartedAt);
+               state.lastRequestSetupCpuMs = elapsedCpuMillis(cpuStartedAt);
+               state.lastPendingChunkTasksAfter = chunkSource.getPendingTasksCount();
+               state.lastPendingChunkWritesAfter = pendingChunkWrites(level);
+               requested.completeExceptionally(error);
+            }
+         });
+      } catch (Throwable error) {
+         requested.completeExceptionally(error);
+      }
+
+      return requested;
+   }
+
+   private static long pendingChunkWrites(ServerLevel level) {
+      try {
+         IOWorker worker = ((ChunkStorageAccessor)level.getChunkSource().chunkMap).chunksmith$getWorker();
+         if (worker == null) {
+            return -1L;
          }
+
+         Map<?, ?> pending = ((IOWorkerAccessor)worker).chunksmith$getPendingWrites();
+         return pending == null ? -1L : pending.size();
+      } catch (Throwable ignored) {
+         return -1L;
+      }
+   }
+
+   private static long currentThreadCpuNanos() {
+      try {
+         return THREAD_CPU.isCurrentThreadCpuTimeSupported() && THREAD_CPU.isThreadCpuTimeEnabled()
+            ? THREAD_CPU.getCurrentThreadCpuTime()
+            : -1L;
+      } catch (UnsupportedOperationException | SecurityException ignored) {
+         return -1L;
+      }
+   }
+
+   private static double elapsedCpuMillis(long startedAt) {
+      if (startedAt < 0L) {
+         return -1.0;
+      }
+
+      long endedAt = currentThreadCpuNanos();
+      return endedAt < startedAt ? -1.0 : (endedAt - startedAt) / 1_000_000.0;
+   }
+
+   private static double elapsedMillis(long startedAt) {
+      return (System.nanoTime() - startedAt) / 1_000_000.0;
+   }
+
+   private static void removeBackfillTicket(ServerLevel level, ChunkPos pos, BackfillController.State state) {
+      if (state.backfillTicketAdded) {
+         level.getChunkSource().removeRegionTicket(BACKFILL_TICKET, pos, 0, Unit.INSTANCE);
+         state.backfillTicketAdded = false;
       }
    }
 
@@ -304,7 +451,7 @@ public final class BackfillController {
       if (active(var2, var4, var0, var1)) {
          MillenaireBridge.restore(var3);
          var2.previousSuppression = null;
-         var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var1, 0, Unit.INSTANCE);
+         removeBackfillTicket(var0, var1, var2);
          BackfillGuard.clear(var0,var1);
          var2.backfillsFailed++;
          var2.phase="failed-before-full";
@@ -318,7 +465,7 @@ public final class BackfillController {
       if (active(var2, var4, var0, var1)) {
          MillenaireBridge.restore(var3);
          var2.previousSuppression = null;
-         var0.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var1, 0, Unit.INSTANCE);
+         removeBackfillTicket(var0, var1, var2);
          var2.token++;
          var2.backfillsFailed++;
          var2.phase="failed-awaiting-unload";
@@ -354,7 +501,7 @@ public final class BackfillController {
             LOG.warn("Could not pre-mark Millenaire pending state while handing backfill {} to a player", new Object[]{var2});
          }
 
-         var1.getChunkSource().removeRegionTicket(BACKFILL_TICKET, var2, 0, Unit.INSTANCE);
+         removeBackfillTicket(var1, var2, var0);
          BackfillGuard.clear(var1, var2);
          var0.backfillsHandedOff++;
          var0.phase="handed-to-player";
@@ -403,6 +550,20 @@ public final class BackfillController {
          data.put("backfillsHandedOff",state.backfillsHandedOff);
          data.put("lodOffersSubmitted",state.lodOffersSubmitted);
          data.put("lodRefreshCompleted",state.lodRefreshCompleted);
+         data.put("backfillTicketAdded",state.backfillTicketAdded);
+         data.put("lastRequestQueuedAt",state.lastRequestQueuedAt==0L?null:java.time.Instant.ofEpochMilli(state.lastRequestQueuedAt).toString());
+         data.put("lastTicketSafePointDelayMs",metric(state.lastTicketSafePointDelayMs));
+         data.put("lastDistanceManagerUpdateWallMs",metric(state.lastDistanceManagerUpdateWallMs));
+         data.put("lastGetChunkFutureCallWallMs",metric(state.lastGetChunkFutureCallWallMs));
+         data.put("lastRequestSetupWallMs",metric(state.lastRequestSetupWallMs));
+         data.put("lastRequestSetupCpuMs",metric(state.lastRequestSetupCpuMs));
+         data.put("lastChunkFutureWaitWallMs",metric(state.lastChunkFutureWaitWallMs));
+         data.put("lastLoadedBeforeRequest",state.lastLoadedBeforeRequest);
+         data.put("lastCreateMissingChunk",state.lastCreateMissingChunk);
+         data.put("lastPendingChunkTasksBefore",state.lastPendingChunkTasksBefore<0?null:state.lastPendingChunkTasksBefore);
+         data.put("lastPendingChunkTasksAfter",state.lastPendingChunkTasksAfter<0?null:state.lastPendingChunkTasksAfter);
+         data.put("lastPendingChunkWritesBefore",state.lastPendingChunkWritesBefore<0L?null:state.lastPendingChunkWritesBefore);
+         data.put("lastPendingChunkWritesAfter",state.lastPendingChunkWritesAfter<0L?null:state.lastPendingChunkWritesAfter);
          Path tmp=Path.of("logs/maki-chunk-cache-backfill-status.json.tmp");
          Path dest=Path.of("logs/maki-chunk-cache-backfill-status.json");
          Files.writeString(tmp,JSON.toJson(data)+"\n");
@@ -411,6 +572,10 @@ public final class BackfillController {
       } catch(Exception e) {
          LOG.debug("Could not report chunk-cache backfill status",e);
       }
+   }
+
+   private static Double metric(double value) {
+      return value < 0.0 || !Double.isFinite(value) ? null : Math.round(value * 1000.0) / 1000.0;
    }
 
    private static BackfillController.Target nextCandidate(ServerLevel var0, BackfillController.Cursor var1, String var2) {
@@ -674,6 +839,20 @@ public final class BackfillController {
       long lodOffersSubmitted;
       long lodRefreshCompleted;
       boolean idlePregenClaimed;
+      boolean backfillTicketAdded;
+      long lastRequestQueuedAt;
+      double lastTicketSafePointDelayMs = -1.0;
+      double lastDistanceManagerUpdateWallMs = -1.0;
+      double lastGetChunkFutureCallWallMs = -1.0;
+      double lastRequestSetupWallMs = -1.0;
+      double lastRequestSetupCpuMs = -1.0;
+      double lastChunkFutureWaitWallMs = -1.0;
+      int lastPendingChunkTasksBefore = -1;
+      int lastPendingChunkTasksAfter = -1;
+      long lastPendingChunkWritesBefore = -1L;
+      long lastPendingChunkWritesAfter = -1L;
+      Boolean lastLoadedBeforeRequest;
+      Boolean lastCreateMissingChunk;
       String phase="idle";
       ServerLevel activeLevel;
       ChunkPos activePos;
