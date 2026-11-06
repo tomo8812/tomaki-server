@@ -14,7 +14,7 @@ public final class Settings {
     public double minimumGainPercent=5,memoryReserveMb=512,gcPressurePercent=20;
     public double backfillIoPressurePercent=25;
     public int backfillLodQueueHigh=64,backfillWriteQueueHigh=32;
-    public int backfillMinSpacingSeconds=2,backfillMaxSafeWaitSeconds=30,backfillSampleMaxAgeSeconds=10;
+    public int backfillExclusiveMaxSeconds=60,backfillExclusiveMaxChunks=16,backfillFollowMinSliceSeconds=30,backfillDrainWaitSeconds=30,backfillSampleMaxAgeSeconds=10;
 
     public static Settings parse(Properties p) {
         Settings s = new Settings();
@@ -43,8 +43,10 @@ public final class Settings {
         s.backfillIoPressurePercent=number(p,"backfill-io-pressure-percent",25,1,100);
         s.backfillLodQueueHigh=integer(p,"backfill-lod-queue-high",64,1,100000);
         s.backfillWriteQueueHigh=integer(p,"backfill-write-queue-high",32,1,100000);
-        s.backfillMinSpacingSeconds=integer(p,"backfill-min-spacing-seconds",2,0,60);
-        s.backfillMaxSafeWaitSeconds=integer(p,"backfill-max-safe-wait-seconds",30,5,300);
+        s.backfillExclusiveMaxSeconds=integer(p,"backfill-exclusive-max-seconds",60,5,600);
+        s.backfillExclusiveMaxChunks=integer(p,"backfill-exclusive-max-chunks",16,1,1024);
+        s.backfillFollowMinSliceSeconds=integer(p,"backfill-follow-min-slice-seconds",30,5,600);
+        s.backfillDrainWaitSeconds=integer(p,"backfill-drain-wait-seconds",30,5,300);
         s.backfillSampleMaxAgeSeconds=integer(p,"backfill-sample-max-age-seconds",10,4,60);
         s.onlineMax=integer(p,"online-max-concurrent",2,1,2);
         s.followRadius=integer(p,"follow-radius-blocks",4096,128,8192);
