@@ -157,25 +157,25 @@ final class SharedWorkBudget {
 
     private int dynamicChunkLimit(Settings settings) {
         int limit=settings.backfillExclusiveMaxChunks;
-        if(abundant())limit=Math.min(1024,limit*2);
+        if(abundant(settings))limit=Math.min(1024,limit*2);
         return limit;
     }
 
     private long dynamicTimeLimitMillis(Settings settings) {
         long limit=settings.backfillExclusiveMaxSeconds*1000L;
-        if(abundant())limit=Math.min(3_600_000L,limit*2L);
+        if(abundant(settings))limit=Math.min(3_600_000L,limit*2L);
         return limit;
     }
 
-    private boolean abundant() {
+    private boolean abundant(Settings settings) {
         Sample current=sample;
         return current!=null
             &&Double.isFinite(current.cpu())&&current.cpu()<60
             &&Double.isFinite(current.mspt())&&current.mspt()<25
-            &&current.memoryHeadroomMb()>=CpuGovernor.settings().memoryReserveMb*2
-            &&(current.ioPsi()<0||current.ioPsi()<CpuGovernor.settings().backfillIoPressurePercent*.5)
-            &&current.lodQueue()<Math.max(1,CpuGovernor.settings().backfillLodQueueHigh/2)
-            &&current.worldWriteQueue()<Math.max(1,CpuGovernor.settings().backfillWriteQueueHigh/2);
+            &&current.memoryHeadroomMb()>=settings.memoryReserveMb*2
+            &&(current.ioPsi()<0||current.ioPsi()<settings.backfillIoPressurePercent*.5)
+            &&current.lodQueue()<Math.max(1,settings.backfillLodQueueHigh/2)
+            &&current.worldWriteQueue()<Math.max(1,settings.backfillWriteQueueHigh/2);
     }
 
     private void releaseInternal(long nowNanos,Settings settings,boolean giveFollowSlice) {
