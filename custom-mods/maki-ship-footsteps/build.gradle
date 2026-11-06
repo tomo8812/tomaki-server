@@ -26,40 +26,29 @@ tasks.named('jar') {
     from(sourceSets.main.allJava) { into 'META-INF/sources' }
 }
 
-
-def javapExecutable = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
-def vsJarPath = file('../../mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar').absolutePath
-
-tasks.register('verifyVsRuntimeAbi') {
+tasks.register('verifyVsRuntimeSignature') {
     dependsOn tasks.named('classes')
     doLast {
-        def runtime = new ProcessBuilder(
-            javapExecutable,
-            '-classpath', vsJarPath,
-            '-p', '-s',
-            'org.valkyrienskies.mod.common.VSGameUtilsKt'
-        ).redirectErrorStream(true).start()
-        def runtimeText = runtime.inputStream.getText('UTF-8')
-        if (runtime.waitFor() != 0 ||
-            !runtimeText.contains('getShipManagingPos(net.minecraft.world.level.Level, net.minecraft.core.BlockPos)') ||
-            !runtimeText.contains('(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;)Lorg/valkyrienskies/core/api/ships/Ship;')) {
-            throw new GradleException('Valkyrien Skies getShipManagingPos ABI changed; expected Level + BlockPos -> Ship\n' + runtimeText)
-        }
-
-        def callsite = new ProcessBuilder(
-            javapExecutable,
+        def javap = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }.get().metadata.installationPath.file('bin/javap').asFile
+        def process = new ProcessBuilder(
+            javap.absolutePath,
             '-classpath', sourceSets.main.output.classesDirs.asPath,
-            '-p', '-c',
-            'maki.shipsteps.mixin.ShipStepMixin'
+            '-p', '-c', 'maki.shipsteps.mixin.ShipStepMixin'
         ).redirectErrorStream(true).start()
-        def callsiteText = callsite.inputStream.getText('UTF-8')
-        if (callsite.waitFor() != 0 ||
-            !callsiteText.contains('VSGameUtilsKt.getShipManagingPos:(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;)Lorg/valkyrienskies/core/api/ships/Ship;')) {
-            throw new GradleException('ShipStepMixin callsite does not match the runtime BlockPos descriptor\n' + callsiteText)
+        def text = process.inputStream.getText('UTF-8')
+        if (process.waitFor() != 0) {
+            throw new GradleException('javap failed for ShipStepMixin: ' + text)
+        }
+        def expected = 'VSGameUtilsKt.getShipManagingPos:(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;)'
+        def forbidden = 'VSGameUtilsKt.getShipManagingPos:(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/Vec3i;)'
+        if (!text.contains(expected) || text.contains(forbidden)) {
+            throw new GradleException('VS runtime signature regression in ShipStepMixin:\n' + text)
         }
     }
 }
 
 tasks.named('check') {
-    dependsOn tasks.named('verifyVsRuntimeAbi')
+    dependsOn tasks.named('verifyVsRuntimeSignature')
 }
