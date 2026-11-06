@@ -23,7 +23,7 @@ import java.util.logging.Logger;
 final class TaskMigrationStore {
     static final int SCHEMA_VERSION=1;
     private static final Logger LOG=Logger.getLogger("MakiLodFollow");
-    private static final DateTimeFormatter ID_TIME=DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX").withZone(ZoneOffset.UTC);
+    private static final DateTimeFormatter ID_TIME=DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSSSSSSSX").withZone(ZoneOffset.UTC);
     private TaskMigrationStore(){}
 
     record Backup(String id,Path directory,Path payload,String sha256,long sourceModifiedAt,String action,String actor,String createdAt){}
