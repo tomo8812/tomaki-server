@@ -47,7 +47,8 @@ public final class Settings {
         s.backfillMinSpacingSeconds=integer(p,"backfill-min-spacing-seconds",2,0,60);
         int cleanFollowWindowSeconds=(int)Math.ceil(s.interval*2.0);
         s.backfillMaxSafeWaitSeconds=integer(
-            p,"backfill-max-safe-wait-seconds",30,cleanFollowWindowSeconds,300);
+            p,"backfill-max-safe-wait-seconds",Math.max(30,cleanFollowWindowSeconds),
+            cleanFollowWindowSeconds,300);
         s.backfillDrainWaitSeconds=integer(p,"backfill-drain-wait-seconds",30,5,300);
         s.backfillSampleMaxAgeSeconds=integer(p,"backfill-sample-max-age-seconds",10,4,60);
         int cleanFollowSeconds=(int)Math.ceil(s.interval*2.0);
