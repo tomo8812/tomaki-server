@@ -145,6 +145,9 @@ final class GenerationStore {
             }
             Path active = dimensionRoot(level).resolve(snapshot.fingerprint());
             FingerprintManifest.Manifest activeManifest = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
+            List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
+                manifest, current, Set.of("policy:compatibility"), 12, source
+            );
             CacheDirectoryMerge.MergeStats merge = mergeDirectory(source, active);
             Set<String> accepted = new LinkedHashSet<>(manifest.storedFingerprints());
             accepted.add(manifest.fingerprint());
@@ -152,9 +155,6 @@ final class GenerationStore {
             if (activeManifest != null) accepted.addAll(activeManifest.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
             String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
-            List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
-                manifest, current, Set.of("policy:compatibility"), 12, source
-            );
             long activeEntries = stats(active).entries();
             LOG.info(
                 "Restored quarantined chunk-cache generation {} for {} after {}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} proofDetails={}",
@@ -294,6 +294,7 @@ final class GenerationStore {
                     + "sourcePreserved=true\n"
                     + "trigger=" + trigger + "\n"
             );
+            Files.setLastModifiedTime(candidate, FileTime.fromMillis(System.currentTimeMillis()));
             LOG.info(
                 "Re-adopted quarantined chunk-cache generation {} as {} for {}; proof={}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} bytes={} proofDetails={}; quarantine source preserved until retention/capacity pruning; trigger={}",
                 old.fingerprint(), snapshot.fingerprint(), root.getFileName(), proof, merge.sourceEntries(),
