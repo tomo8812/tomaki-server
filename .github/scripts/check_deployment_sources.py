@@ -56,7 +56,10 @@ for jar in sorted(mods_dir.glob("maki-*.jar")):
 
     with zipfile.ZipFile(jar) as archive:
         assert archive.testzip() is None, f"Corrupt archive: {jar.name}"
-        metadata = tomllib.loads(archive.read("META-INF/neoforge.mods.toml").decode())
+        metadata_text = archive.read("META-INF/neoforge.mods.toml").decode()
+        assert "maki_status_io" not in metadata_text, f"Retired status-io dependency in deployed metadata: {jar.name}"
+        assert "maki_lag_observer" not in metadata_text, f"Retired observer MOD ID in deployed metadata: {jar.name}"
+        metadata = tomllib.loads(metadata_text)
         for mod in metadata["mods"]:
             mod_id = mod["modId"]
             assert mod_id not in seen_ids, f"Duplicate {mod_id}: {seen_ids.get(mod_id)} / {jar.name}"
