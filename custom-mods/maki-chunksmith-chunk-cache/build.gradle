@@ -81,8 +81,9 @@ tasks.register('verifyMixinAnnotationRetention') {
 }
 
 tasks.register('verifyIssue41BackfillTicketLifecycle') {
+    inputs.file(layout.projectDirectory.file('src/main/java/maki/chunksmithcache/BackfillController.java'))
     doLast {
-        def source = file('src/main/java/maki/chunksmithcache/BackfillController.java').getText('UTF-8')
+        def source = inputs.files.singleFile.getText('UTF-8')
         if (source =~ /getChunkFuture\([^;]*ChunkStatus\.FULL,\s*true\)/) {
             throw new GradleException('Issue #41 regression: backfill must not create vanilla UNKNOWN tickets via getChunkFuture(..., FULL, true)')
         }
