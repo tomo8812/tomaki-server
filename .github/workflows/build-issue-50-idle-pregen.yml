@@ -1,0 +1,50 @@
+name: Build Issue 50 idle pregen JAR
+
+on:
+  push:
+    branches: [fix/issue-50]
+    paths:
+      - 'custom-mods/maki-idle-pregen/**'
+      - '.github/workflows/build-issue-50-idle-pregen.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-50
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build and verify
+        run: gradle -p custom-mods/maki-idle-pregen clean check jar
+
+      - name: Publish verified JAR to branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -f mods/maki-idle-pregen-1.0.1.jar
+          cp custom-mods/maki-idle-pregen/build/libs/maki-idle-pregen-1.0.2.jar mods/
+          git add mods/maki-idle-pregen-1.0.2.jar
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build: ship maki-idle-pregen 1.0.2"
+          git push origin HEAD:fix/issue-50
