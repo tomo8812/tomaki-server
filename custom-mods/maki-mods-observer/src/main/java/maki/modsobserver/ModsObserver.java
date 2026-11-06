@@ -705,7 +705,10 @@ public final class ModsObserver {
         return start >= 0L && end >= start ? end - start : -1L;
     }
 
-    private static void reloadSettings() {
+    private static void reloadSettingsIfDue() {
+        long now = System.nanoTime();
+        if (now < nextConfigCheckNanos) return;
+        nextConfigCheckNanos = now + CONFIG_RELOAD_INTERVAL_NANOS;
         try {
             long stamp = Files.exists(CONFIG) ? Files.getLastModifiedTime(CONFIG).toMillis() : -1L;
             if (stamp == configStamp) return;
