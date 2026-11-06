@@ -55,7 +55,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rebuilt-mixin-audit
-          path: reports/rebuilt-mixin-audit.json
+          path: |
+            reports/rebuilt-mixin-audit.json
+            custom-mods/maki-chunksmith-chunk-cache/build/libs/maki-chunksmith-chunk-cache-1.0.3.jar
           retention-days: 14
 
   jar-audit:
