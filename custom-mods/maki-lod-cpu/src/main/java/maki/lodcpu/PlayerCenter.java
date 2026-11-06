@@ -275,7 +275,7 @@ public final class PlayerCenter {
             data.put("followEnabled",enabled());data.put("followRequested",requested);data.put("manualPause",manualPause);data.put("loadPause",loadPause);data.put("lodSaveProtectionArmed",LodHorizon.isArmed(WORLD));data.put("canStartOrContinueFollow",canRun);
             data.put("activeTaskOwner",current==null?"none":TaskOwnership.isOwned(current)?"follow":"external");
             data.put("activeTaskChunks",current==null?null:current.getCount());data.put("activeTaskTotalChunks",current==null?null:current.getChunkIterator().total());data.put("activeTaskStopping",current==null?null:current.isStopping());
-            data.put("persistedTaskOwner",TaskOwnership.status(persistedOwner));data.put("persistedTask",persisted);data.put("latestTaskBackup",ExternalTaskMigration.latestBackupId(chunky));
+            data.put("persistedTaskOwner",TaskOwnership.status(persistedOwner));data.put("persistedTask",persisted);data.put("latestTaskBackup",ExternalTaskMigration.latestBackupId(chunky,server));
             data.put("activeCenterX",current==null?null:current.getSelection().centerX());data.put("activeCenterZ",current==null?null:current.getSelection().centerZ());
             Path tmp=Path.of("logs/maki-lod-follow-status.json.tmp"),dest=Path.of("logs/maki-lod-follow-status.json");
             Files.writeString(tmp,JSON.toJson(data)+"\n");
@@ -318,7 +318,7 @@ public final class PlayerCenter {
                 +", modifiedAt="+modified+", sha256="+snapshot.sha256();
             source.sendSuccess(()->Component.literal(details),false);
         }
-        String latest=ExternalTaskMigration.latestBackupId(chunky);
+        String latest=ExternalTaskMigration.latestBackupId(chunky,server);
         if(latest!=null)source.sendSuccess(()->Component.literal("latest migration backup: "+latest),false);
         if(current!=null&&!TaskOwnership.isOwned(current)){
             source.sendSuccess(()->Component.literal("External active task is protected. Let it finish or pause it with Chunksmith first; maki-lod will not stop or replace it."),false);
@@ -357,13 +357,13 @@ public final class PlayerCenter {
     }
     private static int commandBackup(net.minecraft.commands.CommandSourceStack source){
         Chunksmith chunky=commandChunksmith(source);if(chunky==null)return 0;
-        var result=ExternalTaskMigration.backup(chunky,actor(source));
+        var result=ExternalTaskMigration.backup(chunky,source.getServer(),actor(source));
         if(!result.ok()){source.sendFailure(Component.literal(result.message()));return 0;}
         source.sendSuccess(()->Component.literal(result.message()),false);return 1;
     }
     private static int commandResumeExternal(net.minecraft.commands.CommandSourceStack source){
         Chunksmith chunky=commandChunksmith(source);if(chunky==null)return 0;
-        var result=ExternalTaskMigration.resumeExternal(chunky,actor(source));
+        var result=ExternalTaskMigration.resumeExternal(chunky,source.getServer(),actor(source));
         if(!result.ok()){source.sendFailure(Component.literal(result.message()));return 0;}
         reason="external-task-active";
         source.sendSuccess(()->Component.literal(result.message()),false);return 1;
@@ -371,7 +371,7 @@ public final class PlayerCenter {
     private static int commandStash(net.minecraft.commands.CommandSourceStack source){
         if(saved==null){source.sendFailure(Component.literal("LOD follow controller is not initialized yet."));return 0;}
         Chunksmith chunky=commandChunksmith(source);if(chunky==null)return 0;
-        var result=ExternalTaskMigration.stash(chunky,actor(source),"stash");
+        var result=ExternalTaskMigration.stash(chunky,source.getServer(),actor(source),"stash");
         if(!result.ok()){source.sendFailure(Component.literal(result.message()));return 0;}
         manualPause=true;requested=false;reason="external-task-stashed";save(System.currentTimeMillis());
         source.sendSuccess(()->Component.literal(result.message()+" Follow remains paused; use /makilod resume when ready."),false);return 1;
@@ -379,7 +379,7 @@ public final class PlayerCenter {
     private static int commandSwitchFollow(net.minecraft.commands.CommandSourceStack source){
         if(saved==null){source.sendFailure(Component.literal("LOD follow controller is not initialized yet."));return 0;}
         Chunksmith chunky=commandChunksmith(source);if(chunky==null)return 0;
-        var result=ExternalTaskMigration.stash(chunky,actor(source),"switch-follow");
+        var result=ExternalTaskMigration.stash(chunky,source.getServer(),actor(source),"switch-follow");
         if(!result.ok()){source.sendFailure(Component.literal(result.message()));return 0;}
         saved.disabled=false;manualPause=false;requested=true;emptySince=0;reason="follow-switch-requested";save(System.currentTimeMillis());
         source.sendSuccess(()->Component.literal(result.message()+" Follow is now requested, not assumed started. Confirm /makilod status shows activeTaskOwner=follow and runtime progress."),false);return 1;
@@ -387,7 +387,7 @@ public final class PlayerCenter {
     private static int commandRestoreLatest(net.minecraft.commands.CommandSourceStack source){
         if(saved==null){source.sendFailure(Component.literal("LOD follow controller is not initialized yet."));return 0;}
         Chunksmith chunky=commandChunksmith(source);if(chunky==null)return 0;
-        var result=ExternalTaskMigration.restoreLatest(chunky,actor(source));
+        var result=ExternalTaskMigration.restoreLatest(chunky,source.getServer(),actor(source));
         if(!result.ok()){source.sendFailure(Component.literal(result.message()));return 0;}
         manualPause=true;requested=false;reason="external-task-restored";save(System.currentTimeMillis());
         source.sendSuccess(()->Component.literal(result.message()+" Follow is paused so the restored external state cannot be overwritten."),false);return 1;
