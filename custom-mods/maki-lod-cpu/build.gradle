@@ -40,26 +40,29 @@ tasks.named('jar') {
 
 def issue66BudgetSource = file('src/main/java/maki/lodcpu/SharedWorkBudget.java')
 def issue66ApiSource = file('src/main/java/maki/lodcpu/ResourceBudgetApi.java')
-def issue66PlayerCenterSource = file('src/main/java/maki/lodcpu/PlayerCenter.java')
+def issue66MixinSource = file('src/main/java/maki/lodcpu/mixin/GenerationTaskMixin.java')
 
-tasks.register('verifyIssue66ExclusiveScheduling') {
-    inputs.files(issue66BudgetSource, issue66ApiSource, issue66PlayerCenterSource)
+tasks.register('verifyIssue66SharedScheduling') {
+    inputs.files(issue66BudgetSource, issue66ApiSource, issue66MixinSource)
     doLast {
         def budget = issue66BudgetSource.getText('UTF-8')
         def api = issue66ApiSource.getText('UTF-8')
-        def follow = issue66PlayerCenterSource.getText('UTF-8')
-        ['pausing-follow', 'follow-min-slice', 'backfillExclusiveMaxChunks', 'backfillExclusiveMaxSeconds'].each { token ->
-            if (!budget.contains(token)) throw new GradleException('Issue #66 regression: exclusive scheduler missing ' + token)
+        def mixin = issue66MixinSource.getText('UTF-8')
+        ['draining-follow-dispatch', 'dynamic-cooldown', 'blockFollowDispatch', 'backfillStarted'].each { token ->
+            if (!budget.contains(token)) throw new GradleException('Issue #66 regression: shared scheduler missing ' + token)
         }
-        ['requestBackfillExclusivePause', 'releaseBackfillExclusivePause', 'external-task-active'].each { token ->
-            if (!follow.contains(token)) throw new GradleException('Issue #66 regression: follow pause ownership missing ' + token)
+        ['activeTaskMode', 'TaskOwnership.isOwned', 'noteFollowInFlight'].each { token ->
+            if (!api.contains(token)) throw new GradleException('Issue #66 regression: resource API ownership/drain handshake missing ' + token)
         }
-        ['completeBackfill', 'activeTaskMode', 'TaskOwnership.isOwned'].each { token ->
-            if (!api.contains(token)) throw new GradleException('Issue #66 regression: resource API ownership/fairness missing ' + token)
+        ['maki$sharedBackfillBarrier', 'ResourceBudgetApi.blockFollowDispatch', 'LockSupport.parkNanos'].each { token ->
+            if (!mixin.contains(token)) throw new GradleException('Issue #66 regression: non-stopping follow dispatch barrier missing ' + token)
+        }
+        if (api.contains('requestBackfillExclusivePause') || api.contains('PlayerCenter.')) {
+            throw new GradleException('Issue #66 regression: Backfill must not stop/restart the follow task lifecycle')
         }
     }
 }
 
 tasks.named('check') {
-    dependsOn tasks.named('verifyIssue66ExclusiveScheduling')
+    dependsOn tasks.named('verifyIssue66SharedScheduling')
 }
