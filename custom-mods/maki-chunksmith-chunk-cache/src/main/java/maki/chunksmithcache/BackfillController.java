@@ -250,7 +250,7 @@ public final class BackfillController {
       ServerLevel level=state.activeLevel;
       BackfillController.Target target=state.activeTarget;
       ChunkPos pos=state.activePos;
-      if(level==null||target==null||pos==null||state.loadFuturePending||!state.backfillTicketHeld)return;
+      if(level==null||target==null||pos==null||!state.backfillTicketHeld)return;
 
       long now=System.currentTimeMillis();
       long elapsed=now-state.activeSince;
@@ -267,6 +267,7 @@ public final class BackfillController {
             new Object[]{pos,level.dimension().location(),elapsed});
          report(level.getServer(),state,true);
       }
+      if(state.loadFuturePending)return;
 
       long token=state.token;
       var future=level.getChunkSource().getChunkFuture(pos.x,pos.z,ChunkStatus.FULL,false);
