@@ -145,6 +145,30 @@ final class SharedWorkBudgetTest {
     }
 
     @Test
+    void completedBackfillLeavesOneWholeGovernorMeasurementWindow() {
+        SharedWorkBudget budget=new SharedWorkBudget();
+        Settings s=settings();
+        s.interval=5;
+        s.backfillMinSpacingSeconds=2;
+        s.backfillMaxSafeWaitSeconds=30;
+        long now=100_000_000_000L;
+        budget.observe(safe(now,0,40));
+        assertTrue(budget.request(now,"none",s).ready());
+        budget.backfillStarted(now+100_000_000L);
+        budget.release(now+1_100_000_000L,"completed",s);
+
+        long beforeCleanWindow=now+11_000_000_000L;
+        budget.observe(safe(beforeCleanWindow,0,40));
+        SharedWorkBudget.Decision blocked=budget.request(beforeCleanWindow,"none",s);
+        assertFalse(blocked.reserved());
+        assertEquals("dynamic-cooldown",blocked.reason());
+
+        long afterCleanWindow=now+11_200_000_000L;
+        budget.observe(safe(afterCleanWindow,0,40));
+        assertTrue(budget.request(afterCleanWindow,"none",s).ready());
+    }
+
+    @Test
     void stalledDrainTimesOutAndRestoresFollowDispatch() {
         SharedWorkBudget budget=new SharedWorkBudget();
         Settings s=settings();
