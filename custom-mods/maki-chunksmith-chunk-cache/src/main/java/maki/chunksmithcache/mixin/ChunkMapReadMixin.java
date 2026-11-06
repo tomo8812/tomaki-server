@@ -26,9 +26,7 @@ public abstract class ChunkMapReadMixin {
    private void maki$readCacheOnMiss(ChunkPos var1, CallbackInfoReturnable<CompletableFuture<Optional<CompoundTag>>> var2) {
       CompletableFuture<Optional<CompoundTag>> var3 = var2.getReturnValue();
       if (var3 != null) {
-         var2.setReturnValue(
-            var3.thenCompose(var2x -> var2x.isPresent() ? CompletableFuture.completedFuture(var2x) : CacheManager.loadIfPresent(this.level, var1))
-         );
+         var2.setReturnValue(var3.thenCompose(var2x -> CacheManager.preferCacheOverIncompleteNormal(this.level, var1, var2x)));
       }
    }
 

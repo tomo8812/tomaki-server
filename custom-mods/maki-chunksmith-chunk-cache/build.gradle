@@ -45,12 +45,38 @@ tasks.named('jar') {
 def registeredMixins = [
     'maki.chunksmithcache.mixin.LodSupportMixin',
     'maki.chunksmithcache.mixin.ChunkMapReadMixin',
+    'maki.chunksmithcache.mixin.ChunkMapLifecycleAccessor',
     'maki.chunksmithcache.mixin.ChunkMapSaveMixin',
     'maki.chunksmithcache.mixin.SectionStorageMixin',
     'maki.chunksmithcache.mixin.EntityStorageMixin',
     'maki.chunksmithcache.mixin.ServerLevelUnloadMixin',
     'maki.chunksmithcache.mixin.MinecraftServerMixin'
 ]
+
+def issue47ControllerSource = file('src/main/java/maki/chunksmithcache/BackfillController.java')
+def issue47GuardSource = file('src/main/java/maki/chunksmithcache/BackfillGuard.java')
+def issue47StorageSource = file('src/main/java/maki/chunksmithcache/NormalChunkStorage.java')
+
+tasks.register('verifyIssue47BackfillOwnership') {
+    inputs.files(issue47ControllerSource, issue47GuardSource, issue47StorageSource)
+    doLast {
+        def controller = issue47ControllerSource.getText('UTF-8')
+        def guard = issue47GuardSource.getText('UTF-8')
+        def storage = issue47StorageSource.getText('UTF-8')
+        if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('waiting-dependency-scope-loaded')
+                || !controller.contains('candidateDeferredUntil') || !controller.contains('snapshotBackfillOwnership')
+                || !controller.contains('releaseIdlePregenClaim')) {
+            throw new GradleException('Issue #47 regression: status-aware scan / deferred candidate visibility / drain claim release is missing')
+        }
+        if (!guard.contains('scopeAvailable') || !guard.contains('scopeDrained')
+                || !guard.contains('releasePlayerOwnedDependencies') || !guard.contains('ChunkMapLifecycleAccessor')) {
+            throw new GradleException('Issue #47 regression: dependency ownership / player handoff / holder drain guard is missing')
+        }
+        if (!storage.contains('ChunkPyramid.GENERATION_PYRAMID') || !storage.contains('State.PROTO')) {
+            throw new GradleException('Issue #47 regression: vanilla dependency radius / ProtoChunk classification is missing')
+        }
+    }
+}
 
 def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
 def javapExecutable = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
@@ -110,6 +136,7 @@ tasks.register('issue40RegressionTest', JavaExec) {
 
 tasks.named('check') {
     dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('verifyIssue47BackfillOwnership')
     dependsOn tasks.named('issue40RegressionTest')
     dependsOn tasks.named('verifyIssue41BackfillTicketLifecycle')
 }

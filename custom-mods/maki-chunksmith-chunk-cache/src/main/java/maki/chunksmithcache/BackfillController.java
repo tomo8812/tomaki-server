@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -86,7 +87,12 @@ public final class BackfillController {
          if (state.activeLevel != null && state.activePos != null && playerNear(state.activeLevel, state.activePos)) {
             handoffToPlayer(state);
          } else if (state.busy) {
-            if (("waiting-owned-ticket".equals(state.phase) || "waiting-full-chunk".equals(state.phase)) && state.backfillTicketHeld) {
+            state.playerOwnedDependenciesReleased += BackfillGuard.releasePlayerOwnedDependencies(state.activeLevel, state.activePos);
+            if (state.awaitingScopeDrain && BackfillGuard.scopeDrained(state.activeLevel,state.activePos)) {
+               BackfillGuard.clear(state.activeLevel,state.activePos);
+               clearActive(state);
+            }
+            if (state.busy && ("waiting-owned-ticket".equals(state.phase) || "waiting-full-chunk".equals(state.phase) || "waiting-chunk-future".equals(state.phase) || "pre-full-timeout-awaiting-future".equals(state.phase))) {
                requestOwnedTicketChunk(state);
             }
             if (state.busy && state.ticketRemovedAt != 0L) {
@@ -144,6 +150,7 @@ public final class BackfillController {
 
       state.scanning=true;
       state.phase="scanning";
+      state.normalStateUnknown=0L;
       state.scansStarted++;
       report(server,state,true);
       CompletableFuture.<BackfillController.Candidate>supplyAsync(() -> findCandidate(levels,state),SCAN)
@@ -157,7 +164,10 @@ public final class BackfillController {
                return;
             }
             if (candidate == null) {
-               state.phase="waiting-no-candidate";
+               long now=System.currentTimeMillis();
+               state.phase=state.normalStateUnknown != 0L
+                  ? "waiting-normal-state-unknown"
+                  : state.candidateDeferredUntil > now ? "waiting-dependency-scope-loaded" : "waiting-no-candidate";
                report(server,state,true);
                return;
             }
@@ -188,10 +198,16 @@ public final class BackfillController {
             ChunkPos pos=target.pos();
             if (level.getChunkSource().hasChunk(pos.x,pos.z)) {
                state.phase="candidate-already-loaded";
+               state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
+               advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
+               report(server,state,true);
+            } else if (!BackfillGuard.scopeAvailable(level,candidate.suppressed())) {
+               state.phase="candidate-dependency-scope-loaded";
+               state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
                advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
                report(server,state,true);
             } else {
-               start(level,target,state);
+               start(level,target,state,candidate.suppressed());
             }
          }));
    }
@@ -206,38 +222,28 @@ public final class BackfillController {
       }
    }
 
-   public static void onUnload(ServerLevel var0, LevelChunk var1) {
-      if (BackfillGuard.active(var0, var1.getPos())) {
-         BackfillGuard.clear(var0, var1.getPos());
-         MinecraftServer var2 = var0.getServer();
-         synchronized (STATES) {
-            BackfillController.State var4 = STATES.get(var2);
-            if (var4 != null && var0 == var4.activeLevel && var4.activePos != null && var1.getPos().toLong() == var4.activePos.toLong()) {
-               var4.lastUnloadAt=System.currentTimeMillis();
-               var4.lastOutcome=var4.completionOutcome;
-               markProgress(var4);
-               clearActive(var4);
-            } else if (var4 != null) {
-               BackfillController.RetiredGuard retired=var4.retiredGuards.remove(retiredKey(var0,var1.getPos()));
-               if(retired!=null) {
-                  var4.retiredGuardsUnloaded++;
-                  var4.lastUnloadAt=System.currentTimeMillis();
-                  var4.lastOutcome=retired.outcome;
-                  markProgress(var4);
-                  report(var2,var4,true);
-               }
-            }
+   public static void onUnload(ServerLevel level, LevelChunk chunk) {
+      synchronized (STATES) {
+         State state=STATES.get(level.getServer());
+         if(state==null)return;
+         if(state.activeLevel==level && state.activePos!=null && state.activePos.equals(chunk.getPos())) {
+            state.lastUnloadAt=System.currentTimeMillis();
+            // Holder maps can still contain the chunk inside its unload callback.
+            // The server tick clears the scope only after every holder has drained.
+            if(!state.loadFuturePending && !state.backfillTicketHeld)state.awaitingScopeDrain=true;
+            markProgress(state);
          }
       }
    }
 
-   private static void start(ServerLevel var0, BackfillController.Target var1, BackfillController.State var2) {
+   private static void start(ServerLevel var0, BackfillController.Target var1, BackfillController.State var2, Set<Long> suppressed) {
       ChunkPos var3 = var1.pos();
       if (MillenaireBridge.canBackfillSafely()) {
          var2.busy = true;
          var2.activeLevel = var0;
          var2.activePos = var3;
          var2.activeTarget = var1;
+         var2.awaitingScopeDrain=false;
          var2.activeSince=System.currentTimeMillis();
          var2.phaseEnteredAt=var2.activeSince;
          var2.lastProgressAt=var2.activeSince;
@@ -254,7 +260,7 @@ public final class BackfillController {
          enterPhase(var2,"loading-chunk");
          var2.backfillsStarted++;
          long var4 = ++var2.token;
-         BackfillGuard.arm(var0, var3);
+         BackfillGuard.arm(var0, var3, suppressed);
          Boolean var6 = MillenaireBridge.suppressNaturalSpawns(true);
          var2.previousSuppression = var6;
          if (MillenaireBridge.isLoaded() && var6 == null) {
@@ -560,10 +566,12 @@ public final class BackfillController {
             changed=true;
             continue;
          }
-         if(playerNear(retired.level,retired.pos)) {
+         state.playerOwnedDependenciesReleased += BackfillGuard.releasePlayerOwnedDependencies(retired.level,retired.pos);
+         if(playerNear(retired.level,retired.pos)) BackfillGuard.releasePlayerTarget(retired.level,retired.pos);
+         if(BackfillGuard.scopeDrained(retired.level,retired.pos)) {
             BackfillGuard.clear(retired.level,retired.pos);
             state.retiredGuards.remove(retiredKey(retired.level,retired.pos));
-            state.retiredGuardsHandedOff++;
+            state.retiredGuardsUnloaded++;
             state.lastOutcome="retired-handed-to-player";
             markProgress(state);
             LOG.info("Released retired backfill guard {} in {} to normal player loading",
@@ -635,15 +643,18 @@ public final class BackfillController {
          MillenaireBridge.restore(var3);
          var2.previousSuppression = null;
          releaseOwnedTicket(var0,var1,var2);
-         BackfillGuard.clear(var0,var1);
+         var2.awaitingScopeDrain=true;
          var2.backfillsFailed++;
          var2.completionOutcome="failed-before-full";
          var2.lastOutcome="failed-before-full";
          markProgress(var2);
          enterPhase(var2,"failed-before-full");
          report(var0.getServer(),var2,true);
-         LOG.warn("Chunk-cache backfill for {} failed before reaching FULL; releasing guard and idle-work claim immediately",new Object[]{var1});
-         clearActive(var2);
+         LOG.warn("Chunk-cache backfill for {} failed before reaching FULL; ticket and idle claim are released while the dependency save guard drains",new Object[]{var1});
+         if (BackfillGuard.scopeDrained(var0,var1)) {
+            BackfillGuard.clear(var0,var1);
+            clearActive(var2);
+         }
       }
    }
 
@@ -662,6 +673,13 @@ public final class BackfillController {
          enterPhase(var2,"failed-ticket-released-awaiting-unload");
          report(var0.getServer(),var2,true);
          LOG.warn("Chunk-cache backfill for {} failed after reaching FULL; its ticket and idle claim were released while the guard waits for natural unload or player ownership", new Object[]{var1});
+      }
+   }
+
+   private static void releaseIdlePregenClaim(BackfillController.State state) {
+      if (state.idlePregenClaimed) {
+         IdlePregenBridge.setBackfillActive(false);
+         state.idlePregenClaimed=false;
       }
    }
 
@@ -693,7 +711,11 @@ public final class BackfillController {
          }
 
          releaseOwnedTicket(var1,var2,var0);
-         BackfillGuard.clear(var1, var2);
+         BackfillGuard.releasePlayerTarget(var1,var2);
+         BackfillGuard.releasePlayerOwnedDependencies(var1,var2);
+         if(!BackfillGuard.scopeDrained(var1,var2)) {
+            var0.retiredGuards.put(retiredKey(var1,var2),new RetiredGuard(var1,var2,"handed-to-player",System.currentTimeMillis(),System.currentTimeMillis()));
+         } else BackfillGuard.clear(var1,var2);
          var0.backfillsHandedOff++;
          var0.lastOutcome="handed-to-player";
          enterPhase(var0,"handed-to-player");
@@ -711,6 +733,7 @@ public final class BackfillController {
       var0.activePos=null;
       var0.activeTarget=null;
       var0.previousSuppression=null;
+      var0.awaitingScopeDrain=false;
       var0.activeSince=0L;
       var0.phaseEnteredAt=System.currentTimeMillis();
       var0.ticketAddedAt=0L;
@@ -741,6 +764,7 @@ public final class BackfillController {
          data.put("busy",state.busy);
          data.put("scanning",state.scanning);
          data.put("idlePregenClaimed",state.idlePregenClaimed);
+         data.put("awaitingDependencyScopeDrain",state.awaitingScopeDrain);
          data.put("guardActive",state.activeLevel!=null&&state.activePos!=null&&BackfillGuard.active(state.activeLevel,state.activePos));
          data.put("serverFrozen",server.tickRateManager().isFrozen());
          data.put("backfillTicketHeld",state.backfillTicketHeld);
@@ -791,11 +815,14 @@ public final class BackfillController {
          data.put("activeChunkLoaded",state.activeLevel!=null&&state.activePos!=null&&state.activeLevel.getChunkSource().hasChunk(state.activePos.x,state.activePos.z));
          data.put("scansStarted",state.scansStarted);
          data.put("scanFailures",state.scanFailures);
+         data.put("normalStateUnknown",state.normalStateUnknown);
+         data.put("candidateDeferredUntil",state.candidateDeferredUntil==0L?null:java.time.Instant.ofEpochMilli(state.candidateDeferredUntil).toString());
          data.put("candidatesFound",state.candidatesFound);
          data.put("backfillsStarted",state.backfillsStarted);
          data.put("backfillsCompleted",state.backfillsCompleted);
          data.put("backfillsFailed",state.backfillsFailed);
          data.put("backfillsHandedOff",state.backfillsHandedOff);
+         data.put("playerOwnedDependenciesReleased",state.playerOwnedDependenciesReleased);
          data.put("lodOffersSubmitted",state.lodOffersSubmitted);
          data.put("lodRefreshCompleted",state.lodRefreshCompleted);
          data.put("lastRequestQueuedAt",state.lastRequestQueuedAt==0L?null:java.time.Instant.ofEpochMilli(state.lastRequestQueuedAt).toString());
@@ -825,7 +852,7 @@ public final class BackfillController {
       return millis==0L?null:java.time.Instant.ofEpochMilli(millis).toString();
    }
 
-   private static BackfillController.Target nextCandidate(ServerLevel var0, BackfillController.Cursor var1, String var2) {
+   private static BackfillController.Target nextCandidate(ServerLevel var0, BackfillController.Cursor var1, String var2, BackfillController.State state) {
       Path var3 = CacheManager.lodRoot(var0);
       if (!Files.isDirectory(var3)) {
          return null;
@@ -875,9 +902,14 @@ public final class BackfillController {
                      int var13 = var7[0] * 32 + var10 % 32;
                      int var14 = var7[1] * 32 + var10 / 32;
                      ChunkPos var15 = new ChunkPos(var13, var14);
-                     if (!normalRegionContains(var0, var15) && !CacheManager.cacheExists(var0, var15, var2)) {
-                        var1.exhaustedAt = 0L;
-                        return new BackfillController.Target(var15, (Path)var4.get(var20), var10, var11, var12);
+                     NormalChunkStorage.State normal = NormalChunkStorage.inspect(var0, var15);
+                     if (normal != NormalChunkStorage.State.FULL && !CacheManager.cacheExists(var0, var15, var2)) {
+                        if (normal == NormalChunkStorage.State.UNKNOWN) {
+                           state.normalStateUnknown++;
+                        } else {
+                           var1.exhaustedAt = 0L;
+                           return new BackfillController.Target(var15, (Path)var4.get(var20), var10, var11, var12);
+                        }
                      }
                   }
                }
@@ -904,9 +936,25 @@ public final class BackfillController {
             var5 = var1.cursor.computeIfAbsent(CacheManager.dimensionKey(var4), var0x -> new BackfillController.Cursor());
          }
 
-         BackfillController.Target var9 = nextCandidate(var4, var5, var3.fingerprint());
-         if (var9 != null) {
-            return new BackfillController.Candidate(var4, var9);
+         BackfillController.Target var9;
+         while ((var9 = nextCandidate(var4, var5, var3.fingerprint(), var1)) != null) {
+            if (CacheManager.cacheExists(var4, var9.pos(), var3.fingerprint())) {
+               advanceCursor(var4, var5);
+               continue;
+            }
+
+            NormalChunkStorage.Scope scope = NormalChunkStorage.snapshotBackfillOwnership(var4, var9.pos());
+            if (scope.unknown() != 0) {
+               var1.normalStateUnknown += scope.unknown();
+               advanceCursor(var4, var5);
+               continue;
+            }
+            if (!scope.suppressed().contains(var9.pos().toLong())) {
+               advanceCursor(var4, var5);
+               continue;
+            }
+
+            return new BackfillController.Candidate(var4, var9, scope.suppressed());
          }
       }
 
@@ -944,26 +992,6 @@ public final class BackfillController {
          return new int[]{var2.readInt(), var2.readInt()};
       } catch (IOException var8) {
          return null;
-      }
-   }
-
-   private static boolean normalRegionContains(ServerLevel var0, ChunkPos var1) {
-      Path var2 = CacheManager.worldRegionRoot(var0).resolve("r." + Math.floorDiv(var1.x, 32) + "." + Math.floorDiv(var1.z, 32) + ".mca");
-      if (!Files.isRegularFile(var2)) {
-         return false;
-      }
-
-      int var3 = Math.floorMod(var1.x, 32) + Math.floorMod(var1.z, 32) * 32;
-
-      try (RandomAccessFile var4 = new RandomAccessFile(var2.toFile(), "r")) {
-         if (var4.length() < var3 * 4L + 4L) {
-            return false;
-         }
-
-         var4.seek(var3 * 4L);
-         return var4.readInt() != 0;
-      } catch (IOException var9) {
-         return true;
       }
    }
 
@@ -1056,7 +1084,7 @@ public final class BackfillController {
       return List.copyOf(var1);
    }
 
-   private record Candidate(ServerLevel level, BackfillController.Target target) {
+   private record Candidate(ServerLevel level, BackfillController.Target target, Set<Long> suppressed) {
    }
 
    private static final class Cursor {
@@ -1085,11 +1113,14 @@ public final class BackfillController {
       long lastUnloadAt;
       long scansStarted;
       long scanFailures;
+      long normalStateUnknown;
+      long candidateDeferredUntil;
       long candidatesFound;
       long backfillsStarted;
       long backfillsCompleted;
       long backfillsFailed;
       long backfillsHandedOff;
+      long playerOwnedDependenciesReleased;
       long lodOffersSubmitted;
       long lodRefreshCompleted;
       long retiredGuardsCreated;
@@ -1098,6 +1129,7 @@ public final class BackfillController {
       long retiredGuardsReleasedExternally;
       long retiredGuardWarnings;
       boolean idlePregenClaimed;
+      boolean awaitingScopeDrain;
       long lastRequestQueuedAt;
       double lastTicketSafePointDelayMs = -1.0;
       double lastDistanceManagerUpdateWallMs = -1.0;

@@ -64,3 +64,17 @@ Version 1.0.3 removes the public `ServerChunkCache.getChunkFuture(...)` call fro
 - Ticket installation is tracked explicitly so a player handoff that happens before the queued safe-point request runs cannot leave or later create an orphan backfill ticket.
 - Backfill status records safe-point delay, distance-manager update wall time, private future-call wall time, setup CPU/wall time, future wait time, pending chunk tasks and pending chunk writes.
 - The separate post-success unload lifecycle from Issue #41 and synchronous status-file I/O from Issue #45 are intentionally not changed here.
+## Issue #47 dependency-safe legacy backfill
+
+Version 1.0.4 makes legacy CSLOD backfill distinguish the state of normal chunk storage instead of treating every non-zero region header entry as explored/full.
+
+- candidate scans classify normal storage as absent, incomplete ProtoChunk, FULL, or unknown by reading only the saved `Status` through the vanilla chunk scanner;
+- incomplete ProtoChunks remain eligible for backfill, while existing FULL chunks remain authoritative and unknown/corrupt storage fails closed;
+- a cache file counts as complete only when its envelope is valid for the current fingerprint and its serialized chunk is FULL;
+- before FULL generation starts, the vanilla generation pyramid supplies the exact dependency radius; the guard snapshots only absent/incomplete positions and starts only when that owned scope has no existing updating/visible/pending-unload holders;
+- chunk, entity, and POI persistence is vetoed for that owned dependency scope, while existing FULL positions are never owned by backfill;
+- the own loading ticket and idle-pregen claim are released before waiting for dependency holders to drain, while the save guard remains until updating, visible, and pending-unload holders in the owned scope disappear; this avoids turning the broader #47 guard into the freeze/unload cycle handled by #41;
+- when a real player acquires a dependency chunk, that coordinate is permanently removed from the backfill-owned save scope before player changes can later unload; for incomplete normal storage a valid FULL cold-cache entry is preferred, otherwise the saved ProtoChunk continues through vanilla generation;
+- `waiting-no-candidate` is not reported when an LOD entry remains unresolved because normal storage could not be classified.
+
+This change does not patch Chunksmith itself. It keeps ownership in the existing cache/backfill compatibility MOD and uses Vanilla/NeoForge chunk lifecycle boundaries plus the installed Chunksmith 4.6.0 API.

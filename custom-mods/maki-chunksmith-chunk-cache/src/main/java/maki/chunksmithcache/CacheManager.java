@@ -112,8 +112,18 @@ public final class CacheManager {
       return var7;
    }
 
+   public static CompletableFuture<Optional<CompoundTag>> preferCacheOverIncompleteNormal(
+      ServerLevel level, ChunkPos pos, Optional<CompoundTag> normal
+   ) {
+      if (normal.isPresent() && NormalChunkStorage.fromTag(normal.get()) != NormalChunkStorage.State.PROTO) {
+         return CompletableFuture.completedFuture(normal);
+      }
+
+      return loadIfPresent(level, pos).thenApply(cached -> cached.isPresent() ? cached : normal);
+   }
+
    public static CompletableFuture<Optional<CompoundTag>> loadIfPresent(ServerLevel var0, ChunkPos var1) {
-      if (!BackfillGuard.active(var0, var1) && promotionAllowed(var0, var1)) {
+      if (!BackfillGuard.suppress(var0, var1) && promotionAllowed(var0, var1)) {
          Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
          if (snapshot == null) {
             return CompletableFuture.completedFuture(Optional.empty());
@@ -138,7 +148,8 @@ public final class CacheManager {
                         && var0.dimension().location().toString().equals(var4.getString("dimension"))
                         && var4.getInt("x") == var1.x
                         && var4.getInt("z") == var1.z
-                        && var4.contains("chunk")) {
+                        && var4.contains("chunk")
+                        && NormalChunkStorage.fromTag(var4.getCompound("chunk")) == NormalChunkStorage.State.FULL) {
                         CompoundTag var5x = var4.getCompound("chunk");
                         PromotionLedger.mark(var0, var1);
                         return Optional.of(var5x);
@@ -182,7 +193,7 @@ public final class CacheManager {
    }
 
    public static void onNormalSave(ServerLevel var0, ChunkAccess var1, boolean var2) {
-      if (var2 && var0 != null && var1 != null && !BackfillGuard.active(var0, var1.getPos())) {
+      if (var2 && var0 != null && var1 != null && !BackfillGuard.suppress(var0, var1.getPos())) {
          String var3 = Fingerprint.forLevel(var0);
          if (var3 != null) {
             Path var4 = path(var0, var1.getPos(), var3);
@@ -209,7 +220,34 @@ public final class CacheManager {
       if (snapshot != null && snapshot.fingerprint().equals(var2)) {
          rotateGenerations(var0, snapshot, "scan");
       }
-      return Files.isRegularFile(path(var0, var1, var2));
+      Path file = path(var0, var1, var2);
+      if (!Files.isRegularFile(file)) {
+         return false;
+      }
+
+      try {
+         CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
+         if (validEnvelope(root, var0, var1, var2)) {
+            return true;
+         }
+         quarantine(file);
+         return false;
+      } catch (Throwable error) {
+         quarantine(file);
+         LOG.warn("Ignoring invalid chunk cache {}; it remains eligible for backfill", new Object[]{file, error});
+         return false;
+      }
+   }
+
+   private static boolean validEnvelope(CompoundTag root, ServerLevel level, ChunkPos pos, String fingerprint) {
+      return root != null
+         && root.getInt("schema") == 1
+         && GenerationStore.acceptsStoredFingerprint(path(level,pos,fingerprint).getParent().getParent(), fingerprint, root.getString("fingerprint"))
+         && level.dimension().location().toString().equals(root.getString("dimension"))
+         && root.getInt("x") == pos.x
+         && root.getInt("z") == pos.z
+         && root.contains("chunk")
+         && NormalChunkStorage.fromTag(root.getCompound("chunk")) == NormalChunkStorage.State.FULL;
    }
 
    static Path lodRoot(ServerLevel var0) {
