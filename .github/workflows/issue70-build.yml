@@ -1,0 +1,44 @@
+name: Issue 70 branch build
+
+on:
+  push:
+    branches: [fix/issue-70]
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-stage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build and run all chunk-cache checks
+        run: gradle --build-cache -p custom-mods/maki-chunksmith-chunk-cache check jar
+
+      - name: Replace deployable JAR and verify source ownership
+        run: |
+          rm mods/maki-chunksmith-chunk-cache-1.2.1.jar
+          cp custom-mods/maki-chunksmith-chunk-cache/build/libs/maki-chunksmith-chunk-cache-1.2.2.jar mods/
+          python3 .github/scripts/check_deployment_sources.py
+
+      - name: Commit verified deployment artifact and remove helper workflow
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git rm .github/workflows/issue70-build.yml
+          git add mods/maki-chunksmith-chunk-cache-1.2.1.jar mods/maki-chunksmith-chunk-cache-1.2.2.jar
+          git commit -m "build(cache): rebuild chunk cache 1.2.2"
+          git push origin HEAD:fix/issue-70
