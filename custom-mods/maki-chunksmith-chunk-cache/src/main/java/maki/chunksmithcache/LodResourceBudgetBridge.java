@@ -9,7 +9,7 @@ final class LodResourceBudgetBridge {
     private static final Logger LOG=LoggerFactory.getLogger("MakiChunkCache");
     private static Method reserve;
     private static Method held;
-    private static Method complete;
+    private static Method started;
     private static Method release;
     private static Method status;
     private static boolean initialized;
@@ -37,13 +37,12 @@ final class LodResourceBudgetBridge {
         }
     }
 
-    static boolean complete(String outcome) {
+    static void started() {
         try {
             initialize();
-            return Boolean.TRUE.equals(complete.invoke(null,outcome));
+            started.invoke(null);
         } catch (ReflectiveOperationException | LinkageError | RuntimeException error) {
             warn(error);
-            return false;
         }
     }
 
@@ -71,7 +70,7 @@ final class LodResourceBudgetBridge {
         Class<?> api=Class.forName("maki.lodcpu.ResourceBudgetApi",true,LodResourceBudgetBridge.class.getClassLoader());
         reserve=api.getMethod("reserveBackfill");
         held=api.getMethod("backfillReservationHeld");
-        complete=api.getMethod("completeBackfill",String.class);
+        started=api.getMethod("backfillStarted");
         release=api.getMethod("releaseBackfill",String.class);
         status=api.getMethod("status");
         initialized=true;
