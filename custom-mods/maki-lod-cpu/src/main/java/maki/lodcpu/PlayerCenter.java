@@ -318,7 +318,7 @@ public final class PlayerCenter {
                 +", modifiedAt="+modified+", sha256="+snapshot.sha256();
             source.sendSuccess(()->Component.literal(details),false);
         }
-        String latest=ExternalTaskMigration.latestBackupId(chunky,server);
+        String latest=ExternalTaskMigration.latestBackupId(chunky,source.getServer());
         if(latest!=null)source.sendSuccess(()->Component.literal("latest migration backup: "+latest),false);
         if(current!=null&&!TaskOwnership.isOwned(current)){
             source.sendSuccess(()->Component.literal("External active task is protected. Let it finish or pause it with Chunksmith first; maki-lod will not stop or replace it."),false);
