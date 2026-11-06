@@ -201,4 +201,38 @@ final class SharedWorkBudgetTest {
         assertTrue(budget.transitionSerial()>reserved);
         assertFalse(budget.reserved());
     }
+
+    @Test
+    void cleanFollowMeasurementWindowOverridesShortConfiguredSpacing() {
+        SharedWorkBudget budget=new SharedWorkBudget();
+        Settings s=settings();
+        s.interval=2;
+        s.backfillMinSpacingSeconds=2;
+        s.backfillMaxSafeWaitSeconds=30;
+        long now=100_000_000_000L;
+        budget.observe(safe(now,0,40));
+        assertTrue(budget.request(now,"none",s).ready());
+        budget.backfillStarted(now+100_000_000L);
+        long releasedAt=now+500_000_000L;
+        budget.release(releasedAt,"completed",s);
+
+        long beforeCleanWindow=releasedAt+3_900_000_000L;
+        budget.observe(safe(beforeCleanWindow,0,40));
+        SharedWorkBudget.Decision blocked=budget.request(beforeCleanWindow,"none",s);
+        assertFalse(blocked.reserved());
+        assertEquals("dynamic-cooldown",blocked.reason());
+
+        long afterCleanWindow=releasedAt+4_100_000_000L;
+        budget.observe(safe(afterCleanWindow,0,40));
+        assertTrue(budget.request(afterCleanWindow,"none",s).ready());
+    }
+
+    @Test
+    void settingsRejectMaxWaitShorterThanCleanMeasurementWindow() {
+        java.util.Properties properties=new java.util.Properties();
+        properties.setProperty("sample-seconds","10");
+        properties.setProperty("backfill-max-safe-wait-seconds","10");
+
+        assertThrows(IllegalArgumentException.class,()->Settings.parse(properties));
+    }
 }
