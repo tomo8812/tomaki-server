@@ -140,12 +140,29 @@ jobs:
             exit 1
           fi
 
-          # "Done" is logged before the first normal server-loop tick can run.
-          # Give the observer's MinecraftServer tick hook a few ticks to load its
-          # opt-in settings before asserting the default-disabled state.
-          sleep 3
-
+          # "Done" can precede lengthy post-start initialization (notably
+          # Millénaire content loading). Wait boundedly for the first normal
+          # server-loop tick to reach both observer hooks before asserting defaults.
           log=logs/latest.log
+          observer_ready=0
+          for _ in $(seq 1 180); do
+            if grep -F 'Maki Mods Observer stall diagnostics enabled=false' "$log" >/dev/null \
+              && grep -F 'Maki Mods Observer slow-NBT diagnostics enabled=false' "$log" >/dev/null; then
+              observer_ready=1
+              break
+            fi
+            if ! kill -0 "$MCSERVER_PID" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$observer_ready" != 1 ]]; then
+            echo 'Observer did not reach its first default-disabled tick within 180 seconds after Done'
+            cat "$log"
+            kill "$MCSERVER_PID" 2>/dev/null || true
+            exit 1
+          fi
+
           required=(
             'Maki Airship Compatibility initialized'
             'Maki Airship Foundation Compatibility initialized'
