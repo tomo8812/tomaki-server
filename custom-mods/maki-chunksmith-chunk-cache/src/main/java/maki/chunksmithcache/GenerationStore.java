@@ -72,11 +72,7 @@ final class GenerationStore {
     }
 
     static boolean acceptsStoredFingerprint(Path generationDirectory, String expectedFingerprint, String storedFingerprint) {
-        if (expectedFingerprint.equals(storedFingerprint)) return true;
-        FingerprintManifest.Manifest manifest = FingerprintManifest.readIfValid(generationDirectory.resolve(FingerprintManifest.FILE_NAME));
-        return manifest != null
-            && expectedFingerprint.equals(manifest.fingerprint())
-            && manifest.storedFingerprints().contains(storedFingerprint);
+        return StoredFingerprintAcceptance.accepts(generationDirectory, expectedFingerprint, storedFingerprint);
     }
 
     static Path quarantineCorrupt(Path cacheFile) {
