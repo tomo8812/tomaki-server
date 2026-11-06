@@ -92,8 +92,10 @@ public final class CpuGovernor {
             writes/seconds,batch.completions()/seconds,stateFresh?state.width():0,stateFresh?state.inFlight():0,
             lod.queue(),stateFresh?state.worldWrites():-1,sync,stateFresh&&state.held()));
 
+        boolean sharedBackfillPause=SHARED_BUDGET.reserved();
         if(!configGood)cap=POLICY.unavailable(settings,"invalid-config");
         else if(players>0)cap=POLICY.update(sample,players,settings);
+        else if(sharedBackfillPause)cap=POLICY.updateSafetyOnly(sample,players,settings);
         else if(!active)cap=POLICY.reset(settings,"generation-idle");
         else cap=POLICY.update(sample,players,settings);
 
