@@ -173,8 +173,18 @@ final class FingerprintManifest {
     }
 
     static boolean sameCompatibilityInputsExcept(Manifest oldManifest, Manifest newManifest, Set<String> excludedKeys) {
-        Map<String, Entry> oldEntries = compatibilityByKey(oldManifest.entries(), excludedKeys);
-        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys);
+        Entry currentRawZfastnoise = findEntry(
+            newManifest.entries(),
+            CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
+        );
+        Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
+        Map<String, Entry> oldEntries = compatibilityByKey(
+            oldManifest.entries(),
+            excludedKeys,
+            currentRawZfastnoise,
+            currentEffectiveZfastnoise
+        );
+        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null);
         if (oldEntries == null || newEntries == null || !oldEntries.keySet().equals(newEntries.keySet())) return false;
         for (String key : oldEntries.keySet()) {
             if (!equivalent(oldEntries.get(key), newEntries.get(key))) return false;
@@ -182,11 +192,32 @@ final class FingerprintManifest {
         return true;
     }
 
-    private static Map<String, Entry> compatibilityByKey(List<Entry> entries, Set<String> excludedKeys) {
+    private static Entry findEntry(List<Entry> entries, String key) {
+        for (Entry entry : entries) {
+            if (entry.key().equals(key)) return entry;
+        }
+        return null;
+    }
+
+    private static Map<String, Entry> compatibilityByKey(
+        List<Entry> entries,
+        Set<String> excludedKeys,
+        Entry currentRawZfastnoise,
+        Entry currentEffectiveZfastnoise
+    ) {
         Map<String, Entry> result = new LinkedHashMap<>();
         for (Entry original : entries) {
             if (excludedKeys.contains(original.key())) continue;
-            Entry entry = CompatibilityInput.normalizeHistoricalEntry(original);
+            Entry entry;
+            if (original.key().equals(CompatibilityInput.ZFASTNOISE_PATH)
+                && currentRawZfastnoise != null
+                && currentEffectiveZfastnoise != null
+                && original.size() == currentRawZfastnoise.size()
+                && original.sha256().equals(currentRawZfastnoise.sha256())) {
+                entry = currentEffectiveZfastnoise;
+            } else {
+                entry = CompatibilityInput.normalizeHistoricalEntry(original);
+            }
             if (entry == null || entry.impact() != Impact.RELEVANT) continue;
             Entry previous = result.putIfAbsent(entry.key(), entry);
             if (previous != null && !equivalent(previous, entry)) return null;
