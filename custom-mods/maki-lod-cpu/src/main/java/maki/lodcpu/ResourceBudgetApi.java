@@ -4,53 +4,40 @@ import com.kishku7.chunksmith.ChunksmithProvider;
 import com.kishku7.chunksmith.GenerationTask;
 
 /**
- * Stable server-side coordination boundary between the follow governor and
- * low-priority real-chunk backfill. Only follow-owned work may be paused.
+ * Coordination boundary between follow-owned Chunksmith dispatch and
+ * low-priority real-chunk backfill. It never stops, resumes, recenters,
+ * adopts, or mutates an external Chunksmith task.
  */
 public final class ResourceBudgetApi {
     private ResourceBudgetApi() {}
 
     public static String reserveBackfill() {
-        String mode=activeTaskMode();
-        SharedWorkBudget.Decision decision=CpuGovernor.reserveBackfill(mode);
-        if(!decision.reserved()) {
-            PlayerCenter.releaseBackfillExclusivePause();
-            return decision.reason();
-        }
-
-        String pause=PlayerCenter.requestBackfillExclusivePause();
-        if(!"paused".equals(pause)&&!"draining-follow".equals(pause)) {
-            CpuGovernor.releaseBackfill(pause,false);
-            PlayerCenter.releaseBackfillExclusivePause();
-            return pause;
-        }
-
-        // stop(false) is asynchronous: the Chunksmith task remains registered
-        // until its in-flight requests drain and its persisted progress is saved.
-        mode=activeTaskMode();
-        decision=CpuGovernor.reserveBackfill(mode);
-        if(decision.reserved()&&decision.ready()&&"none".equals(mode))return "granted";
-        return "draining-follow".equals(pause)&&"pausing-follow".equals(decision.reason())
-            ?"draining-follow":decision.reason();
+        SharedWorkBudget.Decision decision=CpuGovernor.reserveBackfill(activeTaskMode());
+        return decision.reserved()&&decision.ready()?"granted":decision.reason();
     }
 
     public static boolean backfillReservationHeld() {
         return CpuGovernor.backfillReservationHeld();
     }
 
-    public static boolean completeBackfill(String outcome) {
-        boolean keep=CpuGovernor.completeBackfill(outcome==null?"completed":outcome);
-        if(!keep)PlayerCenter.releaseBackfillExclusivePause();
-        return keep;
+    public static boolean blockFollowDispatch() {
+        return CpuGovernor.blockFollowDispatch();
+    }
+
+    public static void noteFollowInFlight(int count) {
+        CpuGovernor.noteFollowInFlight(Math.max(0,count));
+    }
+
+    public static void backfillStarted() {
+        CpuGovernor.backfillStarted();
     }
 
     public static void releaseBackfill(String outcome) {
-        CpuGovernor.releaseBackfill(outcome==null?"released":outcome,true);
-        PlayerCenter.releaseBackfillExclusivePause();
+        CpuGovernor.releaseBackfill(outcome==null?"released":outcome);
     }
 
     public static String status() {
-        return CpuGovernor.sharedBudgetStatus()+"; followPause="+PlayerCenter.backfillExclusivePauseActive();
+        return CpuGovernor.sharedBudgetStatus();
     }
 
     private static String activeTaskMode() {
