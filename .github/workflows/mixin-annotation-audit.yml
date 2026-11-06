@@ -241,6 +241,10 @@ jobs:
             echo "Skipping stale artifact publication: run head=$EXPECTED_HEAD current branch head=$current_head"
             exit 0
           fi
+          if python3 .github/scripts/check_deployment_sources.py; then
+            echo 'Checked-in custom MOD JARs already match the maintained sources; keeping the audited deployment bytes unchanged.'
+            exit 0
+          fi
           rm -f mods/maki-*.jar
           cp /tmp/maki-rebuilt/maki-*.jar mods/
           python3 .github/scripts/check_deployment_sources.py
