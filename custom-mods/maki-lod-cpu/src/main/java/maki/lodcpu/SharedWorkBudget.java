@@ -30,6 +30,7 @@ final class SharedWorkBudget {
     private long workStartedAtNanos;
     private long demandSinceNanos;
     private long nextEligibleAtNanos;
+    private long transitionSerial;
     private double averageBackfillMillis=-1.0;
     private String lastReason="warming-up";
 
@@ -58,6 +59,7 @@ final class SharedWorkBudget {
                 return decision(nowNanos,false,false,lastReason);
             }
             reserved=true;
+            transitionSerial++;
             reservationAtNanos=nowNanos;
             workStartedAtNanos=0L;
             followDrained="none".equals(taskMode);
@@ -84,6 +86,10 @@ final class SharedWorkBudget {
             followDrained=true;
             lastReason="follow-drained";
         }
+    }
+
+    synchronized long transitionSerial() {
+        return transitionSerial;
     }
 
     synchronized boolean blockFollowDispatch() {
@@ -132,6 +138,7 @@ final class SharedWorkBudget {
         long cooldown=Math.max(min,Math.min(max,Math.round(measured*factor)));
         nextEligibleAtNanos=nowNanos+cooldown*1_000_000L;
 
+        transitionSerial++;
         reserved=false;
         followDrained=false;
         reservationAtNanos=0L;
@@ -187,6 +194,7 @@ final class SharedWorkBudget {
 
     private void cancelPending() {
         if(reserved&&workStartedAtNanos==0L) {
+            transitionSerial++;
             reserved=false;
             followDrained=false;
             reservationAtNanos=0L;
