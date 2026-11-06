@@ -1,0 +1,59 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'maki.mapshare'
+version = '1.0.1'
+
+base {
+    archivesName = 'maki-diorama-share'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+repositories {
+    mavenCentral()
+    maven {
+        url = uri('https://api.modrinth.com/maven')
+    }
+}
+
+neoForge {
+    version = '21.1.262'
+}
+
+dependencies {
+    compileOnly files('../../mods/maki-diorama-share-1.0.0.jar')
+    compileOnly 'maven.modrinth:kwpTgbCk:0.5.0+neoforge-1.21.1'
+
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.named('jar') {
+    from(zipTree(file('../../mods/maki-diorama-share-1.0.0.jar'))) {
+        exclude 'maki/mapshare/ClientSharing.class'
+        exclude 'META-INF/neoforge.mods.toml'
+        exclude 'META-INF/MANIFEST.MF'
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes(
+            'Implementation-Title': 'Maki Diorama Sharing',
+            'Implementation-Version': project.version
+        )
+    }
+    from(sourceSets.main.allJava) {
+        into 'META-INF/sources'
+    }
+}
