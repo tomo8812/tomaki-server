@@ -109,8 +109,12 @@ tasks.register('verifyDormantDiagnostics') {
             !stall.contains('diagnostic-max-file-mb') ||
             !stall.contains('diagnostic-max-duration-minutes') ||
             !stall.contains('diagnostic-max-events') ||
-            !stall.contains('WRITE_QUEUE.offer') ||
+            !stall.contains('BlockingQueue<Map<String, Object>> WRITE_QUEUE') ||
+            !stall.contains('WRITE_QUEUE.offer(sample)') ||
             !stall.contains('new Thread(ModsObserver::writerLoop') ||
+            !stall.contains('Map<String, Object> root = WRITE_QUEUE.take()') ||
+            !stall.contains('root.put("linux", linuxMetrics())') ||
+            !stall.contains('String line = Json.encode(root) + System.lineSeparator()') ||
             !stall.contains('diagnosticSessionActive()') ||
             !stall.contains('reserveDiagnosticEvent()') ||
             !stall.contains('Files.size(LOG_FILE) >= settings.maxFileBytes') ||

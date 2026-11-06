@@ -32,7 +32,7 @@ No custom MOD should emit INFO every tick, every chunk, every entity or every pa
 
 ## Diagnostics owner
 
-`maki-mods-observer` replaces `maki-lag-observer` without a compatibility alias. It retains the bounded server-stall/CPU/JVM/Linux sampler and slow NBT-copy caller/structure tracing knowledge from Issue #36. Detailed file output is opt-in in `config/maki-mods-observer.properties`; both `enabled` and `nbt-copy-observer-enabled` default to `false`. The NBT writer remains bounded and asynchronous. The observer does not become the authoritative owner of LOD, cache, ship, village or player state.
+`maki-mods-observer` replaces `maki-lag-observer` without a compatibility alias. It retains the bounded server-stall/CPU/JVM/Linux sampler and slow NBT-copy caller/structure tracing knowledge from Issue #36. Detailed file output is opt-in in `config/maki-mods-observer.properties`; both `enabled` and `nbt-copy-observer-enabled` default to `false`. Both diagnostic streams use bounded asynchronous writers. The default unchanged-config session limit is 30 minutes and 5000 events per stream, with a 16 MiB cap per file; rewriting the config explicitly starts a new session. Stall diagnostics defer `/proc`/cgroup reads, JSON encoding and file I/O to the writer thread instead of the Minecraft server thread. The observer does not become the authoritative owner of LOD, cache, ship, village or player state.
 
 ## Removed status I/O
 

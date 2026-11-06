@@ -34,7 +34,7 @@ public final class ModsObserver {
     private static final Path LOG_FILE = Path.of("logs/maki-mods-observer.jsonl");
     private static final long THREAD_CPU_BASELINE_INTERVAL_NANOS = 1_000_000_000L;
     private static final long CONFIG_RELOAD_INTERVAL_NANOS = 5_000_000_000L;
-    private static final BlockingQueue<String> WRITE_QUEUE = new ArrayBlockingQueue<>(64);
+    private static final BlockingQueue<Map<String, Object>> WRITE_QUEUE = new ArrayBlockingQueue<>(64);
     private static final AtomicBoolean WRITER_STARTED = new AtomicBoolean();
     private static final AtomicBoolean WRITE_WARNING_LOGGED = new AtomicBoolean();
     private static final AtomicBoolean CAPTURE_WARNING_LOGGED = new AtomicBoolean();
@@ -299,13 +299,11 @@ public final class ModsObserver {
             root.put("hotThreadWindowMs", hotThreadSample.windowNanos() < 0L
                     ? null : nanosToMillis(hotThreadSample.windowNanos()));
             root.put("hotThreads", hotThreadSample.threads().stream().map(HotThread::asMap).toList());
-            root.put("process", processMetrics());
-            root.put("jvm", jvmMetrics());
-            root.put("linux", linuxMetrics());
+            // Minecraft/MOD state is sampled before handoff. Filesystem/JMX diagnostics and
+            // JSON encoding are deliberately deferred to the bounded writer thread.
             root.put("modState", modState());
-            root.put("droppedEventsTotal", DROPPED_EVENTS.get());
 
-            enqueue(Json.encode(root) + System.lineSeparator());
+            enqueue(root);
             CAPTURE_WARNING_LOGGED.set(false);
         } catch (Throwable error) {
             if (CAPTURE_WARNING_LOGGED.compareAndSet(false, true)) {
@@ -357,9 +355,9 @@ public final class ModsObserver {
         QUEUE_WARNING_LOGGED.set(false);
     }
 
-    private static void enqueue(String line) {
+    private static void enqueue(Map<String, Object> sample) {
         ensureWriter();
-        if (!WRITE_QUEUE.offer(line)) {
+        if (!WRITE_QUEUE.offer(sample)) {
             long dropped = DROPPED_EVENTS.incrementAndGet();
             if (QUEUE_WARNING_LOGGED.compareAndSet(false, true)) {
                 LOG.warn("Maki Mods Observer diagnostic writer queue is full; dropping samples (dropped={})", dropped);
@@ -378,7 +376,15 @@ public final class ModsObserver {
     private static void writerLoop() {
         while (true) {
             try {
-                String line = WRITE_QUEUE.take();
+                Map<String, Object> root = WRITE_QUEUE.take();
+                // Potentially blocking /proc, cgroup and file-size reads stay off the
+                // Minecraft server thread, as does the relatively large JSON encoding.
+                root.put("process", processMetrics());
+                root.put("jvm", jvmMetrics());
+                root.put("linux", linuxMetrics());
+                root.put("droppedEventsTotal", DROPPED_EVENTS.get());
+                String line = Json.encode(root) + System.lineSeparator();
+
                 Files.createDirectories(LOG_FILE.getParent());
                 if (Files.isRegularFile(LOG_FILE) && Files.size(LOG_FILE) >= settings.maxFileBytes) {
                     DROPPED_EVENTS.incrementAndGet();
