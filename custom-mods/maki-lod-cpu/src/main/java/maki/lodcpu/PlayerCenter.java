@@ -28,7 +28,7 @@ public final class PlayerCenter {
     private static Path stateFile;
     private static long boot,emptySince,lastCheck,lastSave,lastReport,lastCenterChange,healthySince,lastStateSummary;
     private static String lastLoggedState;
-    private static boolean hadPlayers,manualPause,loadPause,requested,wasEnabled;
+    private static boolean hadPlayers,manualPause,loadPause,requested,wasEnabled,backfillExclusivePause;
     private static String reason="starting";
     private static MethodHandle toWorld,isShipyard;
     private static boolean checkedVs,positionError;
@@ -44,7 +44,7 @@ public final class PlayerCenter {
     private static void initialize(MinecraftServer server,long now){
         owner=server;boot=now;lastCheck=lastSave=lastReport=lastCenterChange=healthySince=lastStateSummary=0;lastLoggedState=null;
         emptySince=server.getPlayerCount()==0?now:0;hadPlayers=server.getPlayerCount()>0;
-        manualPause=loadPause=false;requested=true;positionError=false;reason="startup-wait";
+        manualPause=loadPause=backfillExclusivePause=false;requested=true;positionError=false;reason="startup-wait";
         appliedX=appliedZ=null;lastTask=null;nativeTaskLifecycle.clear();controllerStopTask=null;
         stateFile=server.getWorldPath(LevelResource.ROOT).resolve("data/maki_lod_follow.json");
         saved=new Saved();saved.player=settings().followPlayer;saved.uuid=settings().followUuid;
@@ -108,7 +108,7 @@ public final class PlayerCenter {
             save(System.currentTimeMillis());
         }
     }
-    public static void shutdown(MinecraftServer server){if(owner==server&&saved!=null)save(System.currentTimeMillis());owner=null;nativeTaskLifecycle.clear();controllerStopTask=null;}
+    public static void shutdown(MinecraftServer server){if(owner==server&&saved!=null)save(System.currentTimeMillis());owner=null;backfillExclusivePause=false;nativeTaskLifecycle.clear();controllerStopTask=null;}
     private static void save(long now){
         if(stateFile==null)return;
         try{
@@ -133,6 +133,33 @@ public final class PlayerCenter {
         }
         return true;
     }
+    static String requestBackfillExclusivePause(){
+        if(owner==null||saved==null)return "follow-controller-unavailable";
+        if(owner.getPlayerCount()!=0)return "players-online";
+        if(!ChunksmithProvider.isLoaded()||ChunksmithProvider.get()==null){
+            backfillExclusivePause=true;
+            reason="backfill-exclusive";
+            return "paused";
+        }
+        Chunksmith chunky=ChunksmithProvider.get();
+        GenerationTask current=chunky.getGenerationTasks().get(WORLD);
+        if(current!=null&&!TaskOwnership.isOwned(current))return "external-task-active";
+        backfillExclusivePause=true;
+        if(current!=null&&!current.isStopping())pause(chunky);
+        current=chunky.getGenerationTasks().get(WORLD);
+        reason=current==null?"backfill-exclusive":"backfill-exclusive-draining";
+        return current==null?"paused":"draining-follow";
+    }
+
+    static void releaseBackfillExclusivePause(){
+        if(!backfillExclusivePause)return;
+        backfillExclusivePause=false;
+        requested=true;
+        reason="backfill-exclusive-released";
+    }
+
+    static boolean backfillExclusivePauseActive(){return backfillExclusivePause;}
+
     public static void nativeTaskStarted(GenerationTask task){
         if(task!=null&&TaskOwnership.isOwned(task))nativeTaskLifecycle.add(new NativeTaskLifecycle(task,true,false));
     }
@@ -184,6 +211,12 @@ public final class PlayerCenter {
         if(observedTask!=null&&!TaskOwnership.isOwned(observedTask)){
             TaskOwnership.noteExternalActive();
             reason="external-task-active";
+            report(server,chunky,now);
+            return;
+        }
+        if(backfillExclusivePause){
+            if(observedTask!=null&&!observedTask.isStopping())pause(chunky);
+            reason=observedTask==null?"backfill-exclusive":"backfill-exclusive-draining";
             report(server,chunky,now);
             return;
         }
@@ -270,15 +303,15 @@ public final class PlayerCenter {
                 current!=null&&TaskOwnership.isOwned(current)&&!current.isStopping()
                 ||current==null&&requested&&persistedOwner!=TaskOwnership.PersistedOwner.EXTERNAL&&!LodHorizon.isArmed(WORLD));
             String activeOwner=current==null?"none":TaskOwnership.isOwned(current)?"follow":"external";
-            String state=reason+"|"+activeOwner+"|"+TaskOwnership.status(persistedOwner)+"|"+requested+"|"+manualPause+"|"+loadPause+"|"+canRun+"|"+players+"|"+saved.x+"|"+saved.z;
+            String state=reason+"|"+activeOwner+"|"+TaskOwnership.status(persistedOwner)+"|"+requested+"|"+manualPause+"|"+loadPause+"|"+backfillExclusivePause+"|"+canRun+"|"+players+"|"+saved.x+"|"+saved.z;
             if(!state.equals(lastLoggedState)){
-                LOG.info("LOD follow state changed: reason={}, activeOwner={}, persistedOwner={}, requested={}, manualPause={}, loadPause={}, canRun={}, players={}, center={},{}",
-                    reason,activeOwner,TaskOwnership.status(persistedOwner),requested,manualPause,loadPause,canRun,players,saved.x,saved.z);
+                LOG.info("LOD follow state changed: reason={}, activeOwner={}, persistedOwner={}, requested={}, manualPause={}, loadPause={}, backfillExclusivePause={}, canRun={}, players={}, center={},{}",
+                    reason,activeOwner,TaskOwnership.status(persistedOwner),requested,manualPause,loadPause,backfillExclusivePause,canRun,players,saved.x,saved.z);
                 lastLoggedState=state;
                 lastStateSummary=now;
             }else if(now-lastStateSummary>=60_000L){
-                LOG.info("LOD follow summary: reason={}, activeOwner={}, persistedOwner={}, canRun={}, players={}, center={},{}",
-                    reason,activeOwner,TaskOwnership.status(persistedOwner),canRun,players,saved.x,saved.z);
+                LOG.info("LOD follow summary: reason={}, activeOwner={}, persistedOwner={}, backfillExclusivePause={}, canRun={}, players={}, center={},{}",
+                    reason,activeOwner,TaskOwnership.status(persistedOwner),backfillExclusivePause,canRun,players,saved.x,saved.z);
                 lastStateSummary=now;
             }
         }catch(Exception e){LOG.warn("Could not summarize LOD follow state; controller continues with the last valid state",e);}
@@ -300,7 +333,7 @@ public final class PlayerCenter {
             source.sendFailure(Component.literal("LOD follow controller is not initialized yet."));
             return 0;
         }
-        source.sendSuccess(()->Component.literal("LOD follows "+settings().followPlayer+"; center "+(saved.x==null?"pending":saved.x+","+saved.z)+"; reason="+reason+"; requested="+requested+"; manualPause="+manualPause+"; loadPause="+loadPause),false);
+        source.sendSuccess(()->Component.literal("LOD follows "+settings().followPlayer+"; center "+(saved.x==null?"pending":saved.x+","+saved.z)+"; reason="+reason+"; requested="+requested+"; manualPause="+manualPause+"; loadPause="+loadPause+"; backfillExclusivePause="+backfillExclusivePause),false);
         return commandTaskStatus(source);
     }
     private static int commandTaskStatus(net.minecraft.commands.CommandSourceStack source){
