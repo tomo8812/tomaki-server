@@ -8,6 +8,7 @@ import java.nio.file.*;
 import java.lang.invoke.MethodHandle;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import maki.statusio.StatusIo;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.nbt.*;
@@ -277,10 +278,7 @@ public final class PlayerCenter {
             data.put("activeTaskChunks",current==null?null:current.getCount());data.put("activeTaskTotalChunks",current==null?null:current.getChunkIterator().total());data.put("activeTaskStopping",current==null?null:current.isStopping());
             data.put("persistedTaskOwner",TaskOwnership.status(persistedOwner));data.put("persistedTask",persisted);
             data.put("activeCenterX",current==null?null:current.getSelection().centerX());data.put("activeCenterZ",current==null?null:current.getSelection().centerZ());
-            Path tmp=Path.of("logs/maki-lod-follow-status.json.tmp"),dest=Path.of("logs/maki-lod-follow-status.json");
-            Files.writeString(tmp,JSON.toJson(data)+"\n");
-            try{Files.move(tmp,dest,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}
-            catch(AtomicMoveNotSupportedException e){Files.move(tmp,dest,StandardCopyOption.REPLACE_EXISTING);}
+            StatusIo.publish(Path.of("logs/maki-lod-follow-status.json"),JSON.toJson(data)+"\n");
         }catch(Exception e){LOG.debug("Could not report LOD follow status",e);}
     }
     public static void register(com.mojang.brigadier.CommandDispatcher<net.minecraft.commands.CommandSourceStack> dispatcher){

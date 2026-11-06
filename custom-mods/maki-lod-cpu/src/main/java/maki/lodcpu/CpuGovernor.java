@@ -6,6 +6,7 @@ import java.lang.management.ManagementFactory;
 import java.nio.file.*;
 import java.io.Reader;
 import java.util.*;
+import maki.statusio.StatusIo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,7 +40,7 @@ public final class CpuGovernor {
         reload();long cpu=cpuTime(),gc=gcMillis();
         if(lastTime==0){
             lastTime=now;lastCpu=cpu;lastGc=gc;
-            LOG.info("Throughput governor 1.3.2 ready: allocated {} cores, ceiling {}..{}; CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);return;
+            LOG.info("Throughput governor 1.3.3 ready: allocated {} cores, ceiling {}..{}; CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);return;
         }
         double seconds=(now-lastTime)/1e9;
         double used=cpu>=lastCpu&&lastCpu>=0?100.0*(cpu-lastCpu)/(now-lastTime)/capacity:Double.NaN;
@@ -117,7 +118,7 @@ public final class CpuGovernor {
     private static void report(AdaptiveSample x,WorkTelemetry.NativeState state,MemoryBudget memory,long bytes,long throttled,int players,boolean active){
         try{
             Map<String,Object> m=new LinkedHashMap<>();
-            m.put("time",java.time.Instant.now().toString());m.put("statusSchemaVersion",2);m.put("controllerVersion","1.3.2");
+            m.put("time",java.time.Instant.now().toString());m.put("statusSchemaVersion",2);m.put("controllerVersion","1.3.3");
             m.put("cpuBudgetCores",capacity);m.put("cpuBudgetUsedPercent",finite(x.cpu()));
             m.put("mspt",finite(x.mspt()));m.put("heapUsedPercent",finite(x.heap()));m.put("players",players);
             m.put("cpuConcurrencyCeiling",cap);m.put("reason",POLICY.reason);m.put("reasonScope","follow-owned-generation-task");m.put("active",active);
@@ -140,9 +141,7 @@ public final class CpuGovernor {
             m.put("lastExperiment",POLICY.lastExperiment);
             m.put("experimentNumber",POLICY.experimentNumber);
             m.put("experimentRetryRemainingSeconds",POLICY.retryRemainingSeconds());
-            Path tmp=Path.of("logs/maki-lod-cpu-status.json.tmp"),dest=Path.of("logs/maki-lod-cpu-status.json");
-            Files.writeString(tmp,JSON.toJson(m)+"\n");
-            try{Files.move(tmp,dest,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}catch(AtomicMoveNotSupportedException e){Files.move(tmp,dest,StandardCopyOption.REPLACE_EXISTING);}
+            StatusIo.publish(Path.of("logs/maki-lod-cpu-status.json"),JSON.toJson(m)+"\n");
         }catch(Exception e){LOG.debug("Cannot write throughput status",e);}
     }
 }
