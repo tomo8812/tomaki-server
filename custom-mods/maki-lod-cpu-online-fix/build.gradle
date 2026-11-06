@@ -13,7 +13,7 @@ neoForge {
 }
 
 def builtLodCpu = file('../maki-lod-cpu/build/libs/maki-lod-cpu-1.4.0.jar')
-def shippedLodCpu = file('../../mods/maki-lod-cpu-1.3.4.jar')
+def shippedLodCpu = file('../../mods/maki-lod-cpu-1.4.0.jar')
 
 dependencies {
     compileOnly files(builtLodCpu.exists() ? builtLodCpu : shippedLodCpu)
