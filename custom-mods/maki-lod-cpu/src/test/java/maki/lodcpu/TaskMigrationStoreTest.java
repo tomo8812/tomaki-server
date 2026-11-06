@@ -105,4 +105,31 @@ final class TaskMigrationStoreTest {
         assertFalse(Files.exists(source));
     }
 
+    @Test
+    void restoreRejectsSnapshotThatNoLongerMatchesSavedHash() throws Exception {
+        Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
+        Path root=temp.resolve("world/data/maki_lod_task_backups/v1/minecraft/overworld");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source,TASK,StandardCharsets.UTF_8);
+        var backup=TaskMigrationStore.backup(source,root,"backup","test-admin");
+        Files.delete(source);
+        Files.writeString(backup.payload(),TASK.replace("chunks=5660","chunks=0"),StandardCharsets.UTF_8);
+
+        var error=assertThrows(Exception.class,()->TaskMigrationStore.restore(source,root,backup.id(),"test-admin"));
+        assertTrue(error.getMessage().contains("hash mismatch"));
+        assertFalse(Files.exists(source));
+    }
+
+    @Test
+    void conditionalDeleteNeverRemovesUnexpectedLiveState() throws Exception {
+        Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source,TASK,StandardCharsets.UTF_8);
+        assertFalse(TaskMigrationStore.deleteIfMatches(source,"0".repeat(64)));
+        assertTrue(Files.exists(source));
+        String expected=TaskMigrationStore.sha256(source);
+        assertTrue(TaskMigrationStore.deleteIfMatches(source,expected));
+        assertFalse(Files.exists(source));
+    }
+
 }
