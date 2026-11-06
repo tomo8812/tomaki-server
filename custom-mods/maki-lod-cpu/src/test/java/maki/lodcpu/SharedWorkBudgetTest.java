@@ -235,4 +235,32 @@ final class SharedWorkBudgetTest {
 
         assertThrows(IllegalArgumentException.class,()->Settings.parse(properties));
     }
+
+    @Test
+    void followBackfillRequiresAnExplicitCleanGovernorSampleBeforeAnotherSlice() {
+        SharedWorkBudget budget=new SharedWorkBudget();
+        Settings s=settings();
+        s.interval=2;
+        long now=100_000_000_000L;
+        budget.observe(safe(now,0,40));
+
+        SharedWorkBudget.Decision drain=budget.request(now,"follow",s);
+        assertTrue(drain.reserved());
+        budget.noteFollowInFlight(0);
+        assertTrue(budget.request(now+100_000_000L,"follow",s).ready());
+        budget.backfillStarted(now+200_000_000L);
+        long releasedAt=now+500_000_000L;
+        budget.release(releasedAt,"completed",s);
+
+        long afterCooldown=releasedAt+5_000_000_000L;
+        budget.observe(safe(afterCooldown,0,40));
+        SharedWorkBudget.Decision waiting=budget.request(afterCooldown,"follow",s);
+        assertFalse(waiting.reserved());
+        assertEquals("waiting-clean-follow-sample",waiting.reason());
+
+        budget.noteCleanFollowSample();
+        SharedWorkBudget.Decision next=budget.request(afterCooldown+100_000_000L,"follow",s);
+        assertTrue(next.reserved());
+        assertEquals("draining-follow-dispatch",next.reason());
+    }
 }
