@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.idlepregen'
-version = '1.0.1'
+version = '1.1.0'
 
 base {
     archivesName = 'maki-idle-pregen'
@@ -47,7 +47,14 @@ tasks.register('verifyMixinAnnotationRetention') {
         [
             'maki.idlepregen.mixin.MinecraftServerMixin',
             'maki.idlepregen.mixin.VillageManagerMixin',
-            'maki.idlepregen.mixin.VillageSpawnQueueMixin'
+            'maki.idlepregen.mixin.VillageSpawnQueueMixin',
+            'maki.idlepregen.mixin.VillageMixin',
+            'maki.idlepregen.mixin.BuildingInstanceMixin',
+            'maki.idlepregen.mixin.VillageWaypointGraphMixin',
+            'maki.idlepregen.mixin.WaypointTraversalTesterMixin',
+            'maki.idlepregen.mixin.MillWalkNodeEvaluatorMixin',
+            'maki.idlepregen.mixin.PathNavigationRegionMixin',
+            'maki.idlepregen.mixin.ServerChunkCacheMixin'
         ].each { className ->
             def output = new ByteArrayOutputStream()
             exec {
@@ -58,11 +65,11 @@ tasks.register('verifyMixinAnnotationRetention') {
             def classAnnotationIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
             def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', classAnnotationIndex)
             if (classAnnotationIndex < 0 || invisibleIndex < 0 || invisibleIndex > classAnnotationIndex) {
-                throw new GradleException("${className}: @Mixin is not RuntimeInvisibleAnnotations")
+                throw new GradleException(className + ': @Mixin is not RuntimeInvisibleAnnotations')
             }
             if (!text.contains('RuntimeVisibleAnnotations:') ||
                 !text.contains('org.spongepowered.asm.mixin.injection.Inject(')) {
-                throw new GradleException("${className}: injector annotations are not runtime-visible")
+                throw new GradleException(className + ': injector annotations are not runtime-visible')
             }
         }
     }

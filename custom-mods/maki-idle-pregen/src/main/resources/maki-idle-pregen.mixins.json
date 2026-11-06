@@ -3,6 +3,17 @@
   "minVersion": "0.8.7",
   "package": "maki.idlepregen.mixin",
   "compatibilityLevel": "JAVA_21",
-  "server": ["MinecraftServerMixin", "VillageManagerMixin", "VillageSpawnQueueMixin"],
+  "server": [
+    "MinecraftServerMixin",
+    "VillageManagerMixin",
+    "VillageSpawnQueueMixin",
+    "VillageMixin",
+    "BuildingInstanceMixin",
+    "VillageWaypointGraphMixin",
+    "WaypointTraversalTesterMixin",
+    "MillWalkNodeEvaluatorMixin",
+    "PathNavigationRegionMixin",
+    "ServerChunkCacheMixin"
+  ],
   "injectors": {"defaultRequire": 1}
 }
