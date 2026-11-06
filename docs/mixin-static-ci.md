@@ -1,43 +1,62 @@
-# Mixin static checks for future PRs
+# Mixin static checks
 
-The `Mixin static checks` workflow runs on every pull request (including later
-commits), pushes to `main`, and manual dispatch. There is no changed-path filter,
-so the check also runs on dependency updates and documentation-only PRs. It does
-not start Minecraft or require a world, player account, or server credentials.
+Every PR, update to `main`, and manual dispatch receives a `Mixin static checks`
+workflow. The job summary lists the selected builds and checks. A new commit
+cancels older queued or running executions for the same PR or branch.
 
-## Checks shown on a PR
+## Change selection
 
-- `jar-audit` inspects every `mods/maki-*.jar`, including newly added custom mods.
-  It validates registered classes, TOML/JSON registration, reserved Mixin package
-  boundaries, annotation retention, and annotation element ABI against the pinned
-  runtime Sponge API. It rejects bundled Mixin API/stub classes.
-- `source-build` builds the three currently configured projects (chunk-cache,
-  ship-anchor, online-fix), then performs the same API-backed static audit on their
-  output JARs. Adding a new buildable source project requires a build step; its
-  shipped `maki-*` JAR is already covered automatically by `jar-audit`.
-- Errors return a nonzero exit status and appear as GitHub error annotations.
-  Each audit writes a job summary with JAR counts and failures, and a JSON artifact
-  containing all registered-class results. Reports are uploaded even when the
-  audit fails and are retained for 14 days. Setup/build failures before an audit
-  still fail the check but cannot produce an audit report.
-- Regression tests run even when the shipped-JAR audit fails. They include a
-  missing registered class, empty inventory, corrupt JAR, reserved package collision,
-  nested/Unicode annotation parsing and incorrect annotation element encoding.
+| Change | Shipped JAR audit | Source builds | CI regression tests |
+| --- | --- | --- | --- |
+| Root/project documentation only | Skip | Skip | Skip |
+| Project source, resources, tests or Gradle settings | All custom JARs | Changed project and consumers of its built JAR | Skip |
+| Deployed JAR | All custom JARs | Consumers referencing that JAR | Skip |
+| Audit scripts/tests | All custom JARs | Skip | Run |
+| Workflow, build selector or shared Gradle settings | All custom JARs | All projects | Run |
+| Manual dispatch or unavailable diff | All custom JARs | All projects | Run |
 
-## Required checks
+Projects are discovered from `custom-mods/*/build.gradle*`; there is no fixed MOD
+count or build list. Local JAR input paths are read from literal paths in each
+project's Gradle files, including bootstrap JARs and JARs used by verification
+tasks. References to another project's `build/` directory define build ordering
+and transitive consumers. New computed paths or external build inputs must be
+covered by the selector when introducing them. Deployment JARs without maintained
+Gradle projects still receive the full static audit when JARs change.
 
-After this workflow is merged, future PRs receive these Checks automatically.
-To also prevent merging a failing PR, make `jar-audit` and `source-build` required
-status checks in the repository's ruleset/branch protection for `main`. Workflow
-execution and merge enforcement are separate settings; this change does not alter
-the repository's rulesets.
+The selector compares the complete PR merge commit against the event's base SHA,
+or the complete push against its before SHA. Added and deleted paths are both
+included in renames. An unavailable/invalid base selects full validation. A cyclic
+local build dependency fails the check.
 
-## What static validation cannot establish
+Documentation-only changes fetch the workflow and maintained sources with sparse
+checkout. Deployed JARs, Python setup, the annotation API download, Java setup,
+test execution and the build runner are omitted. Other changes audit all shipped
+custom JARs together so duplicate MOD IDs and cross-file deployment checks remain
+covered. Check names remain present on PRs even when the heavier work is skipped.
 
-Passing these checks does not prove every runtime target, injection point, optional
-dependency combination, or Mixin interaction works. In particular, it does not
-load client-only targets such as Diorama. The checks catch the package and annotation
-errors from Issue #32 without launching a server. The pinned Sponge artifact must
-be updated with the runtime when changing NeoForge/Mixin versions; additional
-annotation APIs such as MixinExtras must be supplied with `--annotation-api` if
-custom mods begin using them.
+## Builds and caching
+
+`source-build` starts only when selected projects exist and the shipped audit
+succeeds. Selected projects run in dependency order on one runner, sharing the
+NeoForge artifacts and Gradle dependency cache. Each invokes `check jar` with
+`--build-cache`. The Gradle action restores/saves reusable state; trusted branches
+and same-repository PRs may write caches, while fork PRs consume them read-only.
+Only JARs produced by the selected projects enter the rebuilt-JAR audit.
+
+## Results
+
+The static audit validates annotation retention and element ABI against the pinned
+runtime Sponge API, config/TOML registration, registered-class presence, reserved
+Mixin packages, and bundled API stubs. Deployment checks also verify unique custom
+MOD IDs and maintained embedded Java sources. A failure produces a failed Check,
+error annotations, a job summary and a detailed JSON report. Audit reports are
+uploaded even after an audit failure and retained for 14 days. Setup/build failures
+before an audit appear in the failed step and cannot produce that audit's report.
+
+To enforce a merge gate, require `jar-audit` and `source-build` in the `main`
+ruleset. Workflow execution and merge enforcement are separate repository settings.
+
+Static validation does not establish runtime target/injection compatibility,
+optional-dependency combinations or client behavior. Update the pinned annotation
+API together with runtime changes and supply additional APIs through
+`--annotation-api` when introducing their annotations.
