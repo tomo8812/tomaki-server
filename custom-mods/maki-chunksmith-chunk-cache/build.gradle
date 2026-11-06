@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.2.1'
+version = '1.2.2'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -209,7 +209,14 @@ tasks.register('issue68CompatibilityTest', JavaExec) {
     systemProperty 'issue68.modsDir', file('../../mods').absolutePath
 }
 
+tasks.register('issue70CompatibilityTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.Issue70CompatibilitySelfTest'
+}
+
 tasks.named('check') {
+    dependsOn tasks.named('issue70CompatibilityTest')
     dependsOn tasks.named('issue68CompatibilityTest')
     dependsOn tasks.named('verifyIssue66CacheVisibility')
     dependsOn tasks.named('backfillScopesTest')

@@ -12,30 +12,46 @@ import java.util.stream.Stream;
 final class CacheDirectoryMerge {
     private CacheDirectoryMerge() {}
 
-    static void merge(Path source, Path target) throws IOException {
+    static MergeStats merge(Path source, Path target) throws IOException {
+        return transferCacheEntries(source, target, false);
+    }
+
+    static MergeStats copyCacheEntriesPreservingSource(Path source, Path target) throws IOException {
+        return transferCacheEntries(source, target, true);
+    }
+
+    private static MergeStats transferCacheEntries(Path source, Path target, boolean preserveSource) throws IOException {
         Files.createDirectories(target);
-        List<Path> paths;
+        List<Path> files;
         try (Stream<Path> stream = Files.walk(source)) {
-            paths = stream.sorted(Comparator.comparingInt(Path::getNameCount)).toList();
+            files = stream
+                .filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().endsWith(".nbt.gz"))
+                .sorted(Comparator.comparing(Path::toString))
+                .toList();
         }
-        for (Path path : paths) {
-            if (path.equals(source)) continue;
-            Path relative = source.relativize(path);
-            Path destination = target.resolve(relative);
-            if (Files.isDirectory(path)) {
-                Files.createDirectories(destination);
-            } else if (Files.isRegularFile(path)) {
-                Files.createDirectories(destination.getParent());
-                if (Files.exists(destination)) {
-                    Files.delete(path);
-                } else {
-                    move(path, destination);
-                }
+
+        long adopted = 0L;
+        long duplicates = 0L;
+        for (Path path : files) {
+            Path destination = target.resolve(source.relativize(path));
+            Files.createDirectories(destination.getParent());
+            if (Files.exists(destination)) {
+                duplicates++;
+                continue;
             }
+            if (preserveSource) {
+                Files.copy(path, destination, StandardCopyOption.COPY_ATTRIBUTES);
+            } else {
+                move(path, destination);
+            }
+            adopted++;
         }
-        try (Stream<Path> stream = Files.walk(source)) {
-            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+
+        if (!preserveSource) {
+            deleteTree(source);
         }
+        return new MergeStats(files.size(), adopted, duplicates);
     }
 
     private static void move(Path source, Path target) throws IOException {
@@ -46,4 +62,13 @@ final class CacheDirectoryMerge {
             Files.move(source, target);
         }
     }
+
+    private static void deleteTree(Path root) throws IOException {
+        if (!Files.exists(root)) return;
+        try (Stream<Path> stream = Files.walk(root)) {
+            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+        }
+    }
+
+    record MergeStats(long sourceEntries, long adoptedEntries, long duplicateEntries) {}
 }

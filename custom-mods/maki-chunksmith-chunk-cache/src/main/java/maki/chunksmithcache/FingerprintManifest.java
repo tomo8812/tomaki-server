@@ -173,6 +173,15 @@ final class FingerprintManifest {
     }
 
     static boolean sameCompatibilityInputsExcept(Manifest oldManifest, Manifest newManifest, Set<String> excludedKeys) {
+        return sameCompatibilityInputsExcept(oldManifest, newManifest, excludedKeys, null);
+    }
+
+    static boolean sameCompatibilityInputsExcept(
+        Manifest oldManifest,
+        Manifest newManifest,
+        Set<String> excludedKeys,
+        Path historicalGeneration
+    ) {
         Entry currentRawZfastnoise = findEntry(
             newManifest.entries(),
             CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
@@ -182,14 +191,88 @@ final class FingerprintManifest {
             oldManifest.entries(),
             excludedKeys,
             currentRawZfastnoise,
-            currentEffectiveZfastnoise
+            currentEffectiveZfastnoise,
+            historicalGeneration
         );
-        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null);
+        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
         if (oldEntries == null || newEntries == null || !oldEntries.keySet().equals(newEntries.keySet())) return false;
         for (String key : oldEntries.keySet()) {
             if (!equivalent(oldEntries.get(key), newEntries.get(key))) return false;
         }
         return true;
+    }
+
+    static List<String> changedCompatibilityInputs(
+        Manifest oldManifest,
+        Manifest newManifest,
+        Set<String> excludedKeys,
+        int limit,
+        Path historicalGeneration
+    ) {
+        Entry currentRawZfastnoise = findEntry(
+            newManifest.entries(),
+            CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
+        );
+        Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
+        Map<String, Entry> oldEntries = compatibilityByKey(
+            oldManifest.entries(), excludedKeys, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
+        );
+        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
+        if (oldEntries == null || newEntries == null) {
+            return List.of("manifest normalization conflict; migration proof is ambiguous");
+        }
+
+        Set<String> keys = new LinkedHashSet<>();
+        keys.addAll(oldEntries.keySet());
+        keys.addAll(newEntries.keySet());
+        List<String> changed = new ArrayList<>();
+        for (String key : keys.stream().sorted().toList()) {
+            Entry oldEntry = oldEntries.get(key);
+            Entry newEntry = newEntries.get(key);
+            if (equivalent(oldEntry, newEntry)) continue;
+
+            if (CompatibilityInput.ZFASTNOISE_PATH.equals(key)) {
+                Entry historical = findEntry(oldManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
+                changed.add(key + CompatibilityInput.zfastnoiseDifferenceReason(
+                    historical, currentEffectiveZfastnoise, historicalGeneration
+                ));
+            } else if (oldEntry == null) {
+                changed.add(key + "(added)");
+            } else if (newEntry == null) {
+                changed.add(key + "(removed or unproven historical representation)");
+            } else if (oldEntry.impact() != newEntry.impact()) {
+                changed.add(key + "(classification " + oldEntry.impact() + "->" + newEntry.impact() + ")");
+            } else {
+                changed.add(key + "(changed; compatibility-relevant)");
+            }
+            if (changed.size() >= limit) break;
+        }
+        return List.copyOf(changed);
+    }
+
+    static List<String> compatibilityProofs(
+        Manifest oldManifest,
+        Manifest newManifest,
+        Set<String> excludedKeys,
+        int limit,
+        Path historicalGeneration
+    ) {
+        Map<String, Entry> current = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
+        if (current == null) return List.of();
+        List<String> proofs = new ArrayList<>();
+        for (Entry original : oldManifest.entries()) {
+            if (excludedKeys.contains(original.key())) continue;
+            Entry normalized = CompatibilityInput.normalizeHistoricalEntry(original, historicalGeneration);
+            if (normalized == original || normalized == null || normalized.impact() != Impact.RELEVANT) continue;
+            Entry currentEntry = current.get(normalized.key());
+            if (!equivalent(normalized, currentEntry)) continue;
+            String note = CompatibilityInput.historicalNormalizationNote(original, historicalGeneration);
+            if (note != null) {
+                proofs.add(note);
+                if (proofs.size() >= limit) break;
+            }
+        }
+        return List.copyOf(proofs);
     }
 
     private static Entry findEntry(List<Entry> entries, String key) {
@@ -203,7 +286,8 @@ final class FingerprintManifest {
         List<Entry> entries,
         Set<String> excludedKeys,
         Entry currentRawZfastnoise,
-        Entry currentEffectiveZfastnoise
+        Entry currentEffectiveZfastnoise,
+        Path historicalGeneration
     ) {
         Map<String, Entry> result = new LinkedHashMap<>();
         for (Entry original : entries) {
@@ -216,7 +300,7 @@ final class FingerprintManifest {
                 && original.sha256().equals(currentRawZfastnoise.sha256())) {
                 entry = currentEffectiveZfastnoise;
             } else {
-                entry = CompatibilityInput.normalizeHistoricalEntry(original);
+                entry = CompatibilityInput.normalizeHistoricalEntry(original, historicalGeneration);
             }
             if (entry == null || entry.impact() != Impact.RELEVANT) continue;
             Entry previous = result.putIfAbsent(entry.key(), entry);
