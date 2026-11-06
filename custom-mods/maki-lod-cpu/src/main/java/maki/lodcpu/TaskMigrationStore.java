@@ -16,10 +16,13 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Durable, versioned preservation of runtime Chunksmith task files. */
 final class TaskMigrationStore {
     static final int SCHEMA_VERSION=1;
+    private static final Logger LOG=LoggerFactory.getLogger("MakiLodFollow");
     private static final DateTimeFormatter ID_TIME=DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss.SSSX").withZone(ZoneOffset.UTC);
     private TaskMigrationStore(){}
 
@@ -62,7 +65,7 @@ final class TaskMigrationStore {
         if(modified!=backup.sourceModifiedAt()||!currentHash.equals(backup.sha256()))
             throw new IOException("Task file changed while it was being backed up; refusing to stash it");
         Files.delete(source);
-        appendAudit(root,action,actor,backup.sha256(),backup.sourceModifiedAt(),"source-stashed",backup.id());
+        appendAuditAfterStateChange(root,action,actor,backup.sha256(),backup.sourceModifiedAt(),"source-stashed",backup.id());
         return backup;
     }
 
@@ -87,7 +90,7 @@ final class TaskMigrationStore {
         String restoredHash=sha256(Files.readAllBytes(source));
         if(!hash.equals(restoredHash))throw new IOException("Restored task hash verification failed");
         long modified=Files.getLastModifiedTime(source).toMillis();
-        appendAudit(root,"restore",actor,hash,modified,"restored",backupId);
+        appendAuditAfterStateChange(root,"restore",actor,hash,modified,"restored",backupId);
         return new Backup(backupId,directory,payload,hash,modified,"restore",actor,Instant.now().toString());
     }
 
@@ -112,6 +115,10 @@ final class TaskMigrationStore {
         Files.createDirectories(root);
         String line=Instant.now()+"\t"+oneLine(action)+"\t"+oneLine(actor)+"\t"+hash+"\t"+modified+"\t"+oneLine(result)+"\t"+oneLine(backupId)+"\n";
         Files.writeString(root.resolve("audit.log"),line,StandardCharsets.UTF_8,StandardOpenOption.CREATE,StandardOpenOption.APPEND);
+    }
+    private static void appendAuditAfterStateChange(Path root,String action,String actor,String hash,long modified,String result,String backupId){
+        try{appendAudit(root,action,actor,hash,modified,result,backupId);}
+        catch(IOException e){LOG.warn("Task migration completed but its final audit record could not be appended: action={} backup={}",action,backupId,e);}
     }
 
     private static void writeAtomic(Path destination,byte[] bytes)throws IOException {
