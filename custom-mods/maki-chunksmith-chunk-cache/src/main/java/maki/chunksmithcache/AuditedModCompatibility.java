@@ -166,7 +166,7 @@ final class AuditedModCompatibility {
                 try (InputStream input = jar.getInputStream(entry)) {
                     payload = input.readAllBytes();
                 }
-                updateLength(digest, name.length);
+                updateInt(digest, name.length);
                 digest.update(name);
                 updateLength(digest, payload.length);
                 digest.update(payload);
@@ -202,6 +202,10 @@ final class AuditedModCompatibility {
         String upper = name.toUpperCase(Locale.ROOT);
         return upper.startsWith("META-INF/")
             && (upper.endsWith(".SF") || upper.endsWith(".RSA") || upper.endsWith(".DSA") || upper.endsWith(".EC"));
+    }
+
+    private static void updateInt(java.security.MessageDigest digest, int value) {
+        for (int shift = 24; shift >= 0; shift -= 8) digest.update((byte) (value >>> shift));
     }
 
     private static void updateLength(java.security.MessageDigest digest, long value) {
