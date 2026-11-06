@@ -101,7 +101,21 @@ public final class MillenaireInitGuard {
         }
 
         RETRY_AFTER.remove(key);
-        return acquirePermit("waypoint graph", String.valueOf(village.getId()));
+        return hasPermit("waypoint graph", String.valueOf(village.getId()));
+    }
+
+    public static void consumeWaypointGraphPermit(ServerLevel level) {
+        if (!level.getServer().isDedicatedServer()) {
+            return;
+        }
+
+        // This is called immediately before Village.rebuildWaypointGraph, after
+        // WaypointRebuildThrottle.tryAcquire has returned true. Server ticks are
+        // single-threaded, so the permit observed by allowWaypointGraph cannot be
+        // consumed between the preflight and this point.
+        if (permits > 0) {
+            permits--;
+        }
     }
 
     public static boolean allowBedBackfill(ServerLevel level, BuildingInstance building, BuildingPlan plan) {
@@ -140,13 +154,21 @@ public final class MillenaireInitGuard {
         return acquirePermit("bed backfill", String.valueOf(building.getId()));
     }
 
+    private static boolean hasPermit(String operation, String id) {
+        if (permits > 0) {
+            return true;
+        }
+
+        budgetDeferrals++;
+        if (budgetDeferrals == 1L || budgetDeferrals % 500L == 0L) {
+            LOG.log(Level.INFO, "Deferred Millenaire " + operation + " " + id
+                    + " because the per-server-tick initialization budget is exhausted");
+        }
+        return false;
+    }
+
     private static boolean acquirePermit(String operation, String id) {
-        if (permits <= 0) {
-            budgetDeferrals++;
-            if (budgetDeferrals == 1L || budgetDeferrals % 500L == 0L) {
-                LOG.log(Level.INFO, "Deferred Millenaire " + operation + " " + id
-                        + " because the per-server-tick initialization budget is exhausted");
-            }
+        if (!hasPermit(operation, id)) {
             return false;
         }
         permits--;
