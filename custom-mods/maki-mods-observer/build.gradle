@@ -122,6 +122,15 @@ tasks.register('verifyDormantDiagnostics') {
             !stall.contains('if (!diagnosticSessionActive() || server == null || thread == null)')) {
             throw new GradleException('Issue #62 regression: disabled stall diagnostics must avoid per-tick sampling/I/O')
         }
+        def writeEventStart = stall.indexOf('private static void writeEvent(')
+        def sessionStart = stall.indexOf('private static boolean diagnosticSessionActive()', writeEventStart)
+        if (writeEventStart < 0 || sessionStart < 0) {
+            throw new GradleException('Issue #62 regression: could not locate stall diagnostic capture boundaries')
+        }
+        def serverThreadCapture = stall.substring(writeEventStart, sessionStart)
+        if (serverThreadCapture.contains('Files.') || serverThreadCapture.contains('Json.encode(')) {
+            throw new GradleException('Issue #62 regression: stall diagnostic file I/O/JSON encoding returned to the capture path')
+        }
         if (!nbt.contains('reloadSettingsIfDue();\n        if (!diagnosticSessionActive())') ||
             !nbt.contains('SESSION_LIMIT_REACHED.get() || tag == null') ||
             !nbt.contains('diagnostic-max-duration-minutes') ||
