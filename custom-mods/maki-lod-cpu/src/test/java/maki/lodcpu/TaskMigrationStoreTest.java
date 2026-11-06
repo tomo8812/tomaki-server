@@ -27,7 +27,7 @@ final class TaskMigrationStoreTest {
     @Test
     void backupPreservesExactRuntimeStateAndAuditMetadata() throws Exception {
         Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
-        Path root=temp.resolve("config/chunksmith/tasks/.maki-lod-cpu-backups/v1/minecraft/overworld");
+        Path root=temp.resolve("world/data/maki_lod_task_backups/v1/minecraft/overworld");
         Files.createDirectories(source.getParent());
         Files.writeString(source,TASK,StandardCharsets.UTF_8);
 
@@ -48,7 +48,7 @@ final class TaskMigrationStoreTest {
     @Test
     void stashAndRestoreLatestAreLossless() throws Exception {
         Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
-        Path root=temp.resolve("config/chunksmith/tasks/.maki-lod-cpu-backups/v1/minecraft/overworld");
+        Path root=temp.resolve("world/data/maki_lod_task_backups/v1/minecraft/overworld");
         Files.createDirectories(source.getParent());
         Files.writeString(source,TASK,StandardCharsets.UTF_8);
 
@@ -68,7 +68,7 @@ final class TaskMigrationStoreTest {
     @Test
     void restoreNeverOverwritesLiveTask() throws Exception {
         Path source=temp.resolve("config/chunksmith/tasks/minecraft/overworld.properties");
-        Path root=temp.resolve("config/chunksmith/tasks/.maki-lod-cpu-backups/v1/minecraft/overworld");
+        Path root=temp.resolve("world/data/maki_lod_task_backups/v1/minecraft/overworld");
         Files.createDirectories(source.getParent());
         Files.writeString(source,TASK,StandardCharsets.UTF_8);
         TaskMigrationStore.backup(source,root,"backup","test-admin");
