@@ -67,10 +67,19 @@ final class TaskMigrationStore {
     }
 
     static Backup restoreLatest(Path source,Path root,String actor)throws IOException {
+        String id=latestBackupId(root);
+        if(id==null)throw new IOException("No task backup is available");
+        return restore(source,root,id,actor);
+    }
+
+    static Backup restore(Path source,Path root,String backupId,String actor)throws IOException {
         if(Files.exists(source))throw new IOException("A live persisted task already exists; refusing to overwrite it");
-        Path directory=latestDirectory(root);
-        if(directory==null)throw new IOException("No task backup is available");
+        if(backupId==null||backupId.isBlank()||backupId.contains("/")||backupId.contains("\\"))
+            throw new IOException("Invalid backup id");
+        Path directory=root.resolve(backupId).normalize();
+        if(!directory.getParent().equals(root.normalize()))throw new IOException("Backup id escapes migration root");
         Path payload=directory.resolve("task.snapshot");
+        if(!Files.isRegularFile(payload))throw new IOException("Task backup does not exist: "+backupId);
         byte[] input=Files.readAllBytes(payload);
         String hash=sha256(input);
         Files.createDirectories(source.getParent());
@@ -78,9 +87,8 @@ final class TaskMigrationStore {
         String restoredHash=sha256(Files.readAllBytes(source));
         if(!hash.equals(restoredHash))throw new IOException("Restored task hash verification failed");
         long modified=Files.getLastModifiedTime(source).toMillis();
-        String id=directory.getFileName().toString();
-        appendAudit(root,"restore-latest",actor,hash,modified,"restored",id);
-        return new Backup(id,directory,payload,hash,modified,"restore-latest",actor,Instant.now().toString());
+        appendAudit(root,"restore",actor,hash,modified,"restored",backupId);
+        return new Backup(backupId,directory,payload,hash,modified,"restore",actor,Instant.now().toString());
     }
 
     static String latestBackupId(Path root)throws IOException {
