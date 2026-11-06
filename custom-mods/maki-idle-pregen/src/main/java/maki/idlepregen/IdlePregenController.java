@@ -54,10 +54,6 @@ final class IdlePregenController {
         return active;
     }
 
-    static boolean ownsVsPhysicsPause() {
-        return active && VsPhysicsPauseController.ownsPause();
-    }
-
     private static boolean idleWorkRunning() {
         if (IdlePregenApi.hasExternalIdleWork()) {
             return true;
@@ -84,7 +80,7 @@ final class IdlePregenController {
         VsPhysicsPauseController.tick(server);
         LOG.log(Level.INFO,
                 "Entered idle pregen mode; freezeOwned=" + freezeOwned
-                        + ", vsPhysicsOwned=" + VsPhysicsPauseController.ownsPause());
+                        + ", vsAsyncPauseOwned=" + VsPhysicsPauseController.ownsAsyncPause());
     }
 
     private static void observeFreezeOwnership(MinecraftServer server) {
