@@ -172,7 +172,7 @@ jobs:
             }
           done
 
-          ! grep -E 'maki_status_io|maki_lag_observer|NoClassDefFoundError|NoSuchMethodError|NoSuchFieldError|MixinApplyError' "$log"
+          ! grep -E 'maki_(status_io|lag_observer)|NoClassDefFoundError|NoSuchMethodError|NoSuchFieldError|MixinApplyError' "$log"
           [[ ! -e logs/maki-mods-observer.jsonl ]]
           [[ ! -e logs/maki-mods-observer-nbt.jsonl ]]
           [[ ! -e logs/maki-lod-cpu-status.json ]]
