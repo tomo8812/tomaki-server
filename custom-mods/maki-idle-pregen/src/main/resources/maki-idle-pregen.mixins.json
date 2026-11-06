@@ -3,6 +3,6 @@
   "minVersion": "0.8.7",
   "package": "maki.idlepregen.mixin",
   "compatibilityLevel": "JAVA_21",
-  "server": ["MinecraftServerMixin", "VillageManagerMixin", "VillageSpawnQueueMixin"],
+  "server": ["MinecraftServerMixin", "VillageManagerMixin", "VillageSpawnQueueMixin", "VsPipelineMixin"],
   "injectors": {"defaultRequire": 1}
 }
