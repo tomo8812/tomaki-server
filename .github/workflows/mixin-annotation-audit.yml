@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   source-build:
@@ -59,6 +59,24 @@ jobs:
             reports/rebuilt-mixin-audit.json
             custom-mods/maki-chunksmith-chunk-cache/build/libs/maki-chunksmith-chunk-cache-1.0.3.jar
           retention-days: 14
+
+      - name: Ship Issue 44 rebuilt JAR
+        if: github.event_name == 'pull_request' && github.head_ref == 'fix/issue-44'
+        run: |
+          JAR='custom-mods/maki-chunksmith-chunk-cache/build/libs/maki-chunksmith-chunk-cache-1.0.3.jar'
+          cp "$JAR" /tmp/maki-chunksmith-chunk-cache-1.0.3.jar
+          git fetch origin "$GITHUB_HEAD_REF"
+          git checkout -B issue-44-head "origin/$GITHUB_HEAD_REF"
+          git rm -f --ignore-unmatch mods/maki-chunksmith-chunk-cache-1.0.2.jar
+          cp /tmp/maki-chunksmith-chunk-cache-1.0.3.jar mods/maki-chunksmith-chunk-cache-1.0.3.jar
+          git add mods/maki-chunksmith-chunk-cache-1.0.3.jar
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'build: ship chunk-cache 1.0.3'
+          git push origin HEAD:"$GITHUB_HEAD_REF"
 
   jar-audit:
     runs-on: ubuntu-latest
