@@ -63,6 +63,26 @@ tasks.register('verifyIssue66SharedScheduling') {
     }
 }
 
+def chunksmithIssue66Jar = file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+
+tasks.register('verifyIssue66ChunksmithBytecode') {
+    inputs.file(chunksmithIssue66Jar)
+    doLast {
+        def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
+        def process = new ProcessBuilder(
+            javap, '-classpath', chunksmithIssue66Jar.absolutePath,
+            '-p', '-c', 'com.kishku7.chunksmith.GenerationTask'
+        ).redirectErrorStream(true).start()
+        def text = process.inputStream.getText('UTF-8')
+        def exit = process.waitFor()
+        if (exit != 0) throw new GradleException('Issue #66: javap GenerationTask failed\n' + text)
+        if (!text.contains('ChunkIterator.next:()Ljava/lang/Object;')) {
+            throw new GradleException('Issue #66: Chunksmith iterator bytecode no longer matches the dispatch-barrier Mixin target')
+        }
+    }
+}
+
 tasks.named('check') {
     dependsOn tasks.named('verifyIssue66SharedScheduling')
+    dependsOn tasks.named('verifyIssue66ChunksmithBytecode')
 }
