@@ -45,7 +45,10 @@ seen_ids = {}
 checked_sources = 0
 matched_projects = set()
 for jar in sorted(mods_dir.glob("maki-*.jar")):
-    project_name = next((name for name in expected_projects if jar.name.startswith(name + "-")), None)
+    project_name = next(
+        (name for name in sorted(expected_projects, key=len, reverse=True) if jar.name.startswith(name + "-")),
+        None,
+    )
     assert project_name is not None, f"No maintained source project owns {jar.name}"
     assert project_name not in matched_projects, f"Multiple deployed JARs for {project_name}"
     matched_projects.add(project_name)
@@ -81,9 +84,16 @@ assert matched_projects == expected_projects, (
 )
 
 for path in projects_dir.rglob("*"):
-    if path.is_file() and path.suffix in {".java", ".gradle", ".toml", ".json", ".properties", ".md"}:
+    if not path.is_file():
+        continue
+    # StatusIo must disappear from both runtime code and build dependencies.
+    if path.suffix in {".java", ".gradle", ".toml", ".json", ".properties"}:
         text = path.read_text(encoding="utf-8", errors="ignore")
         assert "maki.statusio" not in text, f"Retired status-io reference in {path.relative_to(root)}"
+    # Old status-file names are allowed only in build/test regression assertions and docs,
+    # never in runtime Java/resources/config where they could be emitted again.
+    if path.suffix in {".java", ".toml", ".json", ".properties"}:
+        text = path.read_text(encoding="utf-8", errors="ignore")
         assert "maki-lod-cpu-status.json" not in text, f"Retired status JSON reference in {path.relative_to(root)}"
         assert "maki-lod-follow-status.json" not in text, f"Retired status JSON reference in {path.relative_to(root)}"
         assert "maki-chunk-cache-backfill-status.json" not in text, f"Retired status JSON reference in {path.relative_to(root)}"
