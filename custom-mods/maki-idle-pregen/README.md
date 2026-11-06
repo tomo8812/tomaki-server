@@ -13,18 +13,18 @@ Version 1.0.2 extends the existing idle coordinator instead of adding ship-state
 - if physics was already paused, do not claim it and do not resume it later;
 - if another owner resumes physics during the idle session, release ownership and do not immediately pause it again;
 - on player return, idle-work completion, or server shutdown, resume only a pause owned by this MOD;
-- while this MOD owns the pause, cancel only VS `postTickGame()` frame creation so the paused physics queue cannot accumulate hundreds of stale game frames.
+- while this MOD owns the pause, let VS `postTickGame()` perform its normal game-stage bookkeeping but redirect only the final `ConcurrentLinkedQueue.add(...)` physics-frame handoff so the paused physics queue cannot accumulate stale game frames.
 
 The bundled VS implementation's physics loop resets its timing-debt accumulator and recent TPS queue before waiting while `arePhysicsRunning=false`. That means the supported pause path does not convert wall-clock idle duration into a large physics catch-up step on resume.
 
-The `postTickGame` guard deliberately does not cancel VS chunk loading, ship activation management, terrain hooks, server saving, or Chunksmith generation. It exists only while the idle coordinator itself owns the physics pause.
+The `postTickGame` guard deliberately preserves VS game-stage bookkeeping and per-tick state reset; it suppresses only the final physics-frame enqueue. It also does not cancel VS chunk loading, ship activation management, terrain hooks, server saving, or Chunksmith generation. It exists only while the idle coordinator itself owns the physics pause.
 
 The current VS bridge is version-sensitive because the distributed JAR exposes the pause switch through an internal pipeline API. The build therefore verifies the exact bundled
 `ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar` for:
 
 - `IShipObjectWorldServerProvider.getVsPipeline()`;
 - `VsiPipeline.getArePhysicsRunning()/setArePhysicsRunning(boolean)`;
-- the concrete pipeline `postTickGame()` hook used to prevent queued-frame backlog.
+- the concrete pipeline `postTickGame()` method and its `ConcurrentLinkedQueue.add(Object)` physics-frame handoff used to prevent queued-frame backlog.
 
 The distributed Valkyrien Skies JAR is not modified.
 
