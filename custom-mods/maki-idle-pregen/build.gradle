@@ -64,7 +64,8 @@ tasks.register('verifyMixinAnnotationRetention') {
             }
             def hasRuntimeInjector =
                 text.contains('org.spongepowered.asm.mixin.injection.Inject(') ||
-                text.contains('org.spongepowered.asm.mixin.injection.Redirect(')
+                text.contains('org.spongepowered.asm.mixin.injection.Redirect(') ||
+                text.contains('org.spongepowered.asm.mixin.injection.ModifyVariable(')
             if (!text.contains('RuntimeVisibleAnnotations:') || !hasRuntimeInjector) {
                 throw new GradleException("${className}: injector annotations are not runtime-visible")
             }
@@ -109,9 +110,16 @@ tasks.register('verifyValkyrienSkiesPauseApi') {
         }
 
         def implementation = inspect('org.valkyrienskies.core.impl.shadow.FQ')
-        if (!implementation.contains('postTickGame();') ||
-            !implementation.contains('java/util/concurrent/ConcurrentLinkedQueue.add:(Ljava/lang/Object;)Z')) {
-            throw new GradleException('Bundled Valkyrien Skies postTickGame queue handoff changed')
+        if (!implementation.contains('volatile boolean c;') ||
+            !implementation.contains('public final void a(double);') ||
+            !implementation.contains('postTickGame();')) {
+            throw new GradleException('Bundled Valkyrien Skies physics-step ABI changed')
+        }
+
+        def physicsStage = inspect('org.valkyrienskies.core.impl.shadow.FN')
+        if (!physicsStage.contains('a(double, boolean)') ||
+            !physicsStage.contains('java/util/concurrent/ConcurrentLinkedQueue.remove:()Ljava/lang/Object;')) {
+            throw new GradleException('Bundled Valkyrien Skies game-frame drain path changed')
         }
     }
 }
