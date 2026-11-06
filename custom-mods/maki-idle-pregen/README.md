@@ -27,6 +27,7 @@ Each admitted operation reports its wall time and, while it runs:
 - waypoint traversal search count;
 - MillWalkNodeEvaluator.getPathType calls;
 - PathNavigationRegion accesses that returned EmptyLevelChunk;
+- actual EmptyLevelChunk constructor calls during the rebuild;
 - ServerChunkCache.getChunk calls;
 - calls that requested loading;
 - load-request calls whose chunk was not already loaded at method entry.
