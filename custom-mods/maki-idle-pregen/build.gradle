@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.idlepregen'
-version = '1.0.1'
+version = '1.0.2'
 
 base {
     archivesName = 'maki-idle-pregen'
@@ -47,7 +47,8 @@ tasks.register('verifyMixinAnnotationRetention') {
         [
             'maki.idlepregen.mixin.MinecraftServerMixin',
             'maki.idlepregen.mixin.VillageManagerMixin',
-            'maki.idlepregen.mixin.VillageSpawnQueueMixin'
+            'maki.idlepregen.mixin.VillageSpawnQueueMixin',
+            'maki.idlepregen.mixin.VsPipelineMixin'
         ].each { className ->
             def output = new ByteArrayOutputStream()
             exec {
@@ -68,6 +69,52 @@ tasks.register('verifyMixinAnnotationRetention') {
     }
 }
 
+tasks.register('verifyValkyrienSkiesPauseApi') {
+    doLast {
+        def vsJar = file('../../mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar')
+        if (!vsJar.isFile()) {
+            throw new GradleException("Missing bundled Valkyrien Skies JAR: ${vsJar}")
+        }
+
+        def javap = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }.get().metadata.installationPath.file('bin/javap').asFile
+
+        def inspect = { String className ->
+            def output = new ByteArrayOutputStream()
+            exec {
+                commandLine javap, '-classpath', vsJar.absolutePath, '-p', className
+                standardOutput = output
+            }
+            return output.toString('UTF-8')
+        }
+
+        def provider = inspect('org.valkyrienskies.mod.common.IShipObjectWorldServerProvider')
+        if (!provider.contains('getVsPipeline();')) {
+            throw new GradleException('Bundled Valkyrien Skies no longer exposes getVsPipeline()')
+        }
+
+        def pipeline = inspect('org.valkyrienskies.core.internal.world.VsiPipeline')
+        if (!pipeline.contains('getArePhysicsRunning();') ||
+            !pipeline.contains('setArePhysicsRunning(boolean);')) {
+            throw new GradleException('Bundled Valkyrien Skies physics pause ABI changed')
+        }
+
+        def implementation = inspect('org.valkyrienskies.core.impl.shadow.FQ')
+        if (!implementation.contains('postTickGame();')) {
+            throw new GradleException('Bundled Valkyrien Skies pipeline implementation changed')
+        }
+    }
+}
+
+tasks.register('verifyVsPhysicsPauseOwnership', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.idlepregen.VsPhysicsPauseControllerHarness'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('verifyValkyrienSkiesPauseApi')
+    dependsOn tasks.named('verifyVsPhysicsPauseOwnership')
 }
