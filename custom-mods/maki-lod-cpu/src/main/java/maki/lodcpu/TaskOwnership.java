@@ -81,7 +81,7 @@ public final class TaskOwnership {
     public static PersistedTaskSnapshot snapshot(Chunksmith chunky,String world){
         Path path=taskFile(chunky,world);
         if(!Files.isRegularFile(path))
-            return new PersistedTaskSnapshot(false,"none",-1,null,null,null,null,null,null,null,null,null,null,null,null);
+            return new PersistedTaskSnapshot(false,"none",-1,null,null,null,null,null,null,null,null,null,null,null);
         Properties props=new Properties();
         try(InputStream in=Files.newInputStream(path)){props.load(in);}
         catch(IOException|RuntimeException e){
