@@ -1,0 +1,141 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'maki.millenairelod'
+version = '1.0.5'
+
+base {
+    archivesName = 'maki-millenaire-lod-compat'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = '21.1.262'
+}
+
+def deployedCompatJar = file('../../mods/maki-millenaire-lod-compat-1.0.5.jar')
+def bootstrapCompatJar = file('../../mods/maki-millenaire-lod-compat-1.0.4.jar')
+def baseCompatJar = deployedCompatJar.exists() ? deployedCompatJar : bootstrapCompatJar
+
+dependencies {
+    compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+    compileOnly files('../../mods/millenaire-9.0.3.jar')
+    compileOnly files(baseCompatJar)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('jar') {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    from(zipTree(baseCompatJar)) {
+        exclude 'maki/millenairelod/Compat.class'
+        exclude 'maki/millenairelod/Compat$*.class'
+        exclude 'maki/millenairelod/LodRefreshQueue.class'
+        exclude 'maki/millenairelod/LodRefreshQueue$*.class'
+        exclude 'maki/millenairelod/mixin/LodSupportLifecycleMixin.class'
+        exclude 'maki/millenairelod/mixin/ExploredLodMixin.class'
+        exclude 'META-INF/neoforge.mods.toml'
+        exclude 'maki-millenaire-lod.mixins.json'
+        exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/*.SF'
+        exclude 'META-INF/*.RSA'
+        exclude 'META-INF/*.DSA'
+        exclude 'META-INF/sources/maki/millenairelod/Compat.java'
+        exclude 'META-INF/sources/maki/millenairelod/LodRefreshQueue.java'
+        exclude 'META-INF/sources/maki/millenairelod/mixin/LodSupportLifecycleMixin.java'
+        exclude 'META-INF/sources/maki/millenairelod/mixin/ExploredLodMixin.java'
+    }
+
+    manifest {
+        attributes(
+            'Implementation-Title': 'Maki Millenaire Chunksmith Compatibility',
+            'Implementation-Version': project.version
+        )
+    }
+
+    from(sourceSets.main.allJava) {
+        into 'META-INF/sources'
+    }
+}
+
+def registeredMixins = [
+    'maki.millenairelod.mixin.ExploredLodMixin',
+    'maki.millenairelod.mixin.LodSupportLifecycleMixin'
+]
+
+def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
+def javapExecutable = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
+def chunksmithJarPath = file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar').absolutePath
+
+tasks.register('verifyMixinAnnotationRetention') {
+    dependsOn tasks.named('classes')
+    doLast {
+        registeredMixins.each { className ->
+            def process = new ProcessBuilder(
+                javapExecutable,
+                '-classpath', mixinClassesPath,
+                '-p', '-v', className
+            ).redirectErrorStream(true).start()
+            def text = process.inputStream.getText('UTF-8')
+            def exitCode = process.waitFor()
+            if (exitCode != 0) {
+                throw new GradleException(className + ': javap failed (exit ' + exitCode + ')\n' + text)
+            }
+            def mixinIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
+            def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', mixinIndex)
+            def visibleIndex = text.lastIndexOf('RuntimeVisibleAnnotations:', mixinIndex)
+            if (mixinIndex < 0 || invisibleIndex < 0 || visibleIndex > invisibleIndex) {
+                throw new GradleException(className + ': @Mixin is not class-retained/invisible')
+            }
+            if ((text.contains('org.spongepowered.asm.mixin.injection.Inject(') ||
+                 text.contains('org.spongepowered.asm.mixin.injection.Redirect(')) &&
+                !text.contains('RuntimeVisibleAnnotations:')) {
+                throw new GradleException(className + ': injector annotations are not runtime-visible')
+            }
+        }
+    }
+}
+
+tasks.register('verifyChunksmithLodAbi') {
+    doLast {
+        def guard = new ProcessBuilder(
+            javapExecutable,
+            '-classpath', chunksmithJarPath,
+            '-p', '-c', '-s',
+            'com.kishku7.chunksmith.lod.ExploredLodGuard'
+        ).redirectErrorStream(true).start()
+        def guardText = guard.inputStream.getText('UTF-8')
+        def guardExit = guard.waitFor()
+        if (guardExit != 0 ||
+            !guardText.contains('take(net.minecraft.server.level.ServerLevel, net.minecraft.world.level.chunk.LevelChunk, boolean)') ||
+            !guardText.contains('com/kishku7/chunksmith/lod/LodSupport.offer:(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;)V')) {
+            throw new GradleException('Chunksmith ExploredLodGuard ABI/callsite changed; revalidate Issue #43 redirect\n' + guardText)
+        }
+
+        def support = new ProcessBuilder(
+            javapExecutable,
+            '-classpath', chunksmithJarPath,
+            '-p', '-s',
+            'com.kishku7.chunksmith.lod.LodSupport'
+        ).redirectErrorStream(true).start()
+        def supportText = support.inputStream.getText('UTF-8')
+        def supportExit = support.waitFor()
+        if (supportExit != 0 ||
+            !supportText.contains('install(net.minecraft.server.MinecraftServer)') ||
+            !supportText.contains('shutdown()')) {
+            throw new GradleException('Chunksmith LodSupport lifecycle ABI changed; revalidate Issue #43 lifecycle mixin\n' + supportText)
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('verifyChunksmithLodAbi')
+}
