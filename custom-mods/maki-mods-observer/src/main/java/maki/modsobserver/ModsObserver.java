@@ -20,9 +20,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import net.minecraft.server.MinecraftServer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class ModsObserver {
-    private static final System.Logger LOG = System.getLogger("MakiModsObserver");
+    private static final Logger LOG = LoggerFactory.getLogger("MakiModsObserver");
     private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
     private static final Path CONFIG = Path.of("config/maki-mods-observer.properties");
     private static final Path LOG_FILE = Path.of("logs/maki-mods-observer.jsonl");
@@ -59,7 +61,11 @@ public final class ModsObserver {
         serverThread = Thread.currentThread();
         ensureCpuTimeEnabled();
         reloadSettings();
-        ensureWatchdog();
+        if (settings.enabled) {
+            ensureWatchdog();
+        } else {
+            stopWatchdog();
+        }
 
         long now = System.nanoTime();
         long previous = lastTickStartNanos;
@@ -113,12 +119,7 @@ public final class ModsObserver {
         if (owner != server) {
             return;
         }
-        running = false;
-        Thread w = watchdog;
-        if (w != null) {
-            w.interrupt();
-        }
-        watchdog = null;
+        stopWatchdog();
         tickInProgress = false;
         lastTickEndCpuNanos = -1L;
         tickState = TickSnapshot.stopped(tickSequence);
@@ -127,6 +128,15 @@ public final class ModsObserver {
         synchronized (PREVIOUS_THREAD_CPU) {
             PREVIOUS_THREAD_CPU.clear();
             threadCpuBaselineNanos = 0L;
+        }
+    }
+
+    private static void stopWatchdog() {
+        running = false;
+        Thread thread = watchdog;
+        watchdog = null;
+        if (thread != null) {
+            thread.interrupt();
         }
     }
 
@@ -141,8 +151,7 @@ public final class ModsObserver {
         primeThreadCpuSnapshot();
         watchdog = thread;
         thread.start();
-        LOG.log(System.Logger.Level.INFO,
-                "Lag observer active; stall samples are written to " + LOG_FILE + " only when thresholds are exceeded");
+        LOG.info("Maki Mods Observer stall diagnostics enabled; thresholded samples use {}", LOG_FILE);
     }
 
     private static void watchLoop() {
@@ -267,7 +276,7 @@ public final class ModsObserver {
         } catch (Throwable error) {
             if (!writeWarningLogged) {
                 writeWarningLogged = true;
-                LOG.log(System.Logger.Level.WARNING, "Could not write lag diagnostic sample: " + error);
+                LOG.warn("Could not write MOD diagnostic sample", error);
             }
         }
     }
@@ -682,7 +691,7 @@ public final class ModsObserver {
             settings = Settings.parse(properties);
             configStamp = stamp;
         } catch (Exception error) {
-            LOG.log(System.Logger.Level.WARNING, "Invalid lag observer config; retaining previous settings: " + error);
+            LOG.warn("Invalid Maki Mods Observer config; retaining previous settings", error);
         }
     }
 

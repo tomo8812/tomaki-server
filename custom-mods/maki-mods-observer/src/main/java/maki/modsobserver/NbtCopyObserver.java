@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.server.MinecraftServer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Targeted, low-overhead tracing for expensive deep NBT copies.
@@ -30,7 +32,7 @@ import net.minecraft.server.MinecraftServer;
  * and disk I/O is delegated to a bounded daemon writer queue.</p>
  */
 public final class NbtCopyObserver {
-    private static final System.Logger LOG = System.getLogger("MakiModsObserverNbt");
+    private static final Logger LOG = LoggerFactory.getLogger("MakiModsObserverNbt");
     private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
     private static final Path CONFIG = Path.of("config/maki-mods-observer.properties");
     private static final Path LOG_FILE = Path.of("logs/maki-mods-observer-nbt.jsonl");
@@ -308,11 +310,11 @@ public final class NbtCopyObserver {
                 return;
             } catch (IOException error) {
                 if (WRITE_WARNING_LOGGED.compareAndSet(false, true)) {
-                    LOG.log(System.Logger.Level.WARNING, "Could not write NBT copy diagnostic sample: " + error);
+                    LOG.warn("Could not write NBT copy diagnostic sample", error);
                 }
             } catch (Throwable error) {
                 if (WRITE_WARNING_LOGGED.compareAndSet(false, true)) {
-                    LOG.log(System.Logger.Level.WARNING, "NBT copy diagnostic writer failed: " + error);
+                    LOG.warn("NBT copy diagnostic writer failed", error);
                 }
             }
         }
@@ -338,7 +340,7 @@ public final class NbtCopyObserver {
             settings = Settings.parse(properties);
             configStamp = stamp;
         } catch (Exception error) {
-            LOG.log(System.Logger.Level.WARNING, "Invalid NBT copy observer config; retaining previous settings: " + error);
+            LOG.warn("Invalid NBT copy observer config; retaining previous settings", error);
         }
     }
 
