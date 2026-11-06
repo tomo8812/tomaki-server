@@ -37,3 +37,29 @@ tasks.named('jar') {
         into 'META-INF/sources'
     }
 }
+
+def issue66BudgetSource = file('src/main/java/maki/lodcpu/SharedWorkBudget.java')
+def issue66ApiSource = file('src/main/java/maki/lodcpu/ResourceBudgetApi.java')
+def issue66PlayerCenterSource = file('src/main/java/maki/lodcpu/PlayerCenter.java')
+
+tasks.register('verifyIssue66ExclusiveScheduling') {
+    inputs.files(issue66BudgetSource, issue66ApiSource, issue66PlayerCenterSource)
+    doLast {
+        def budget = issue66BudgetSource.getText('UTF-8')
+        def api = issue66ApiSource.getText('UTF-8')
+        def follow = issue66PlayerCenterSource.getText('UTF-8')
+        ['pausing-follow', 'follow-min-slice', 'backfillExclusiveMaxChunks', 'backfillExclusiveMaxSeconds'].each { token ->
+            if (!budget.contains(token)) throw new GradleException('Issue #66 regression: exclusive scheduler missing ' + token)
+        }
+        ['requestBackfillExclusivePause', 'releaseBackfillExclusivePause', 'external-task-active'].each { token ->
+            if (!follow.contains(token)) throw new GradleException('Issue #66 regression: follow pause ownership missing ' + token)
+        }
+        ['completeBackfill', 'activeTaskMode', 'TaskOwnership.isOwned'].each { token ->
+            if (!api.contains(token)) throw new GradleException('Issue #66 regression: resource API ownership/fairness missing ' + token)
+        }
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyIssue66ExclusiveScheduling')
+}
