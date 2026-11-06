@@ -7,6 +7,7 @@
     "MinecraftServerMixin",
     "VillageManagerMixin",
     "VillageSpawnQueueMixin",
+<<<<<<< HEAD
     "VsPipelineMixin",
     "VsPhysShipMixin",
     "VsPhysLevelMixin"
@@ -14,4 +15,18 @@
   "injectors": {
     "defaultRequire": 1
   }
+=======
+    "VillageMixin",
+    "VillageRehydratorMixin",
+    "WaypointRebuildThrottleMixin",
+    "BuildingInstanceMixin",
+    "VillageWaypointGraphMixin",
+    "WaypointTraversalTesterMixin",
+    "MillWalkNodeEvaluatorMixin",
+    "PathNavigationRegionMixin",
+    "EmptyLevelChunkMixin",
+    "ServerChunkCacheMixin"
+  ],
+  "injectors": {"defaultRequire": 1}
+>>>>>>> origin/fix/issue-42
 }

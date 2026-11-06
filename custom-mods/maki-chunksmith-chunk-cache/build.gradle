@@ -18,7 +18,11 @@ neoForge {
 
 dependencies {
     compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+<<<<<<< HEAD
     compileOnly files('../../mods/maki-idle-pregen-1.0.2.jar')
+=======
+    compileOnly files('../../mods/maki-idle-pregen-1.1.0.jar')
+>>>>>>> origin/fix/issue-42
 }
 
 tasks.withType(JavaCompile).configureEach {
