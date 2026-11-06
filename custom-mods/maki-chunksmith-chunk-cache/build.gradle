@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.0.2'
+version = '1.0.3'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -16,9 +16,13 @@ neoForge {
     version = '21.1.262'
 }
 
+def builtStatusIo = file('../maki-status-io/build/libs/maki-status-io-1.0.0.jar')
+def shippedStatusIo = file('../../mods/maki-status-io-1.0.0.jar')
+
 dependencies {
     compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
     compileOnly files('../../mods/maki-idle-pregen-1.0.1.jar')
+    compileOnly files(builtStatusIo.exists() ? builtStatusIo : shippedStatusIo)
 }
 
 tasks.withType(JavaCompile).configureEach {
