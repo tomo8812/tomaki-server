@@ -1,8 +1,8 @@
 # maki-ship-anchor-fix-1.1.1.jar
 
 - Source: `mods/maki-ship-anchor-fix-1.1.1.jar`
-- Git blob OID: `b8de8637363e58e34ce9fd125155bf6b0e3b803d`
-- SHA-256: `96be6d6b107a49326a5ed3cfecbd0d85374e159c217f37c6ed521b6b6715dffe`
+- Git blob OID: `b24b7baaf039fc85542a44e43c65330d1b7eb48c`
+- SHA-256: `f12967fab4abc55671b742a72a2bf56c072c87a344e56c69610214a5257d0a26`
 - Decompiler: Vineflower `1.12.0`
 - Extracted text resources: `3`
 

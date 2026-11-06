@@ -111,79 +111,74 @@
       "sha256": "488f33216030c1cb0baa33e59de3d657d08d5795a6c2080c8c8bbbc133fc8757"
     },
     "mods/maki-airship-compat-1.0.13.jar": {
-      "blob_oid": "561934a6f040b7a36af7e7c0da3e9f60223dda05",
+      "blob_oid": "bd7a696747e59c953cce69baa924a555fd932b66",
       "output": "mods/maki-airship-compat-1.0.13",
-      "sha256": "862628a6634b42776fe1a8b926be6175846e383b1b1a2bcdfc90c6a0a97d8baf"
+      "sha256": "3d1b18d27ac9d42c4de495ebd73c9d238ab240d15a8c1eca5a4d05175a324597"
     },
     "mods/maki-airship-foundation-compat-1.0.0.jar": {
-      "blob_oid": "8683c25f781962386387e36d0894aaa3d121e895",
+      "blob_oid": "945f18d439927b72f799193cb7084fe54b952756",
       "output": "mods/maki-airship-foundation-compat-1.0.0",
-      "sha256": "20c9db310f2461f4d134bbf65b0aa5b44a8340ad153f2e594d9064478c0ff305"
+      "sha256": "8e09cce834a91e0840ff66969b18400f436a45ea49e5526d8e0965fc27b3d66e"
     },
     "mods/maki-assembly-tracking-1.0.0.jar": {
-      "blob_oid": "99ae05c723cee90b1f8e9c7aa05ac3becf4df91f",
+      "blob_oid": "058ec4ff408631c39fca6ea76fed1d6580d82b04",
       "output": "mods/maki-assembly-tracking-1.0.0",
-      "sha256": "134af4d11ee35c3884307ef110f349b2e78d95bf39b5cebd88a5e625ec5555ee"
+      "sha256": "3464fc7284bc684525086648c5c3668d3f1c20c14a2083d48f9686a2dbceca8c"
     },
     "mods/maki-chunksmith-chunk-cache-1.1.1.jar": {
-      "blob_oid": "0e3be9ab4e213033370fa654f8dc690e9164e276",
+      "blob_oid": "4d2218384df0e61a212ae380d35861aeeebc4586",
       "output": "mods/maki-chunksmith-chunk-cache-1.1.1",
-      "sha256": "4de9bd403c6383e299afe7c0faa93a1788d9371568781d2d4b65315cf4b7a051"
+      "sha256": "01a84f5aad4f2cfd388218947dd6bf178880fd567b3d8e3dfea8347e1264b78d"
     },
     "mods/maki-diorama-share-1.0.1.jar": {
-      "blob_oid": "ee57fd3d533bc688a2580af408c913cca07178e2",
+      "blob_oid": "c5bf0011c7a0f4ac2aa5e415338bb0fe4c67fb64",
       "output": "mods/maki-diorama-share-1.0.1",
-      "sha256": "80aa1d6a00b778bb534ceb90d72d34b848904de22dece20201f7bc8e3bd215e2"
+      "sha256": "856c638123c658cf3ece04e8dd83b0557aa80dab3463dbfd92bcc34b01971a3a"
     },
     "mods/maki-idle-pregen-1.1.1.jar": {
-      "blob_oid": "7bf4a17853c714471edc60c27259c80658f74d4b",
+      "blob_oid": "29fc5617afa924bf68da3f4f8056c2006dd2c534",
       "output": "mods/maki-idle-pregen-1.1.1",
-      "sha256": "d0dee5d517f4d791999488f47003593dc89772d4bf655fa8b52076715258bcc7"
-    },
-    "mods/maki-lag-observer-1.1.0.jar": {
-      "blob_oid": "f1be42ee1314068a0add88192232b44713c72d98",
-      "output": "mods/maki-lag-observer-1.1.0",
-      "sha256": "9b0be3d4ec41d85df231f4665ea6d0401cc94d03e40accf40b74e9e9f2b83820"
+      "sha256": "85edab9fbce7fd0a643aead86577e269037fc39fe84606c229f1d446441a5f12"
     },
     "mods/maki-lod-cpu-1.3.4.jar": {
-      "blob_oid": "334bcc9d8f433496886345b1e636c3770718d3dc",
+      "blob_oid": "a77039548eafb12f718234bcf99b3f7379e6400a",
       "output": "mods/maki-lod-cpu-1.3.4",
-      "sha256": "26bb878f8cac06e3b591b0b39d6a1b3df62e0b02f85831f0707af22c7e2d4585"
+      "sha256": "04c3a6f458550d15e4b8c736c597e376c1825cfb533a66181ff142c383fb7ed2"
     },
     "mods/maki-lod-cpu-online-fix-1.0.2.jar": {
-      "blob_oid": "e38c90e8e5f384be44596b6deb9ff7460d730ced",
+      "blob_oid": "47affa42e3300cef74daab4d514b0ce4344f1668",
       "output": "mods/maki-lod-cpu-online-fix-1.0.2",
-      "sha256": "7ff011e71149398c98a633b8a6e2c3ba94ccd1793b80ab7e9508d41c7746b911"
+      "sha256": "833defdc614826804dcbf8f818827e6baf0a6d69c5f4e9b0946b9a2609d413f1"
     },
     "mods/maki-millenaire-lod-compat-1.0.5.jar": {
-      "blob_oid": "60e83efc361be396150f30337e1137d4bc74b4d6",
+      "blob_oid": "8e4742591ef2415dd5e67809cca2f955d012fb49",
       "output": "mods/maki-millenaire-lod-compat-1.0.5",
-      "sha256": "ca7f1501cec1cae43fa29c3bd5e4f6816513ceff7648a62cb78542cdaa5c62a0"
+      "sha256": "3e53dec8f788940b7d4c41b57790736fed450cab0af3fbf0375a16ad201450f1"
+    },
+    "mods/maki-mods-observer-1.0.0.jar": {
+      "blob_oid": "33c1aa180cd453fd463b5f4687e1d660184f76d8",
+      "output": "mods/maki-mods-observer-1.0.0",
+      "sha256": "b80fa342b8b932843e6ad0cd1d338895b6b4300f7a78dd035ddfc1f71cede362"
     },
     "mods/maki-ship-anchor-fix-1.1.1.jar": {
-      "blob_oid": "b8de8637363e58e34ce9fd125155bf6b0e3b803d",
+      "blob_oid": "b24b7baaf039fc85542a44e43c65330d1b7eb48c",
       "output": "mods/maki-ship-anchor-fix-1.1.1",
-      "sha256": "96be6d6b107a49326a5ed3cfecbd0d85374e159c217f37c6ed521b6b6715dffe"
+      "sha256": "f12967fab4abc55671b742a72a2bf56c072c87a344e56c69610214a5257d0a26"
     },
     "mods/maki-ship-edge-1.0.0.jar": {
-      "blob_oid": "1395cf8114ad888e822009e5055cb1fa42436007",
+      "blob_oid": "3dc7c5b7bc17096d765f10feac767c342c63008d",
       "output": "mods/maki-ship-edge-1.0.0",
-      "sha256": "8117779ea276655a3a0079079f290a93faee3ba6404270b40649ea263e891c72"
+      "sha256": "af6c7e72f0fa587606cb028cf586876922261424e66d56623952204eb1a15105"
     },
     "mods/maki-ship-footsteps-1.0.1.jar": {
-      "blob_oid": "861d930d1cb789a2c1f7921640cd31ac865ba8aa",
+      "blob_oid": "8946c977807364ed3317a244ae3a7e09b60de6a9",
       "output": "mods/maki-ship-footsteps-1.0.1",
-      "sha256": "6a6b5151989d7ebf2dc3815aea319852b44f796a63e76f4fc395d05b89dcafbe"
+      "sha256": "a31119be7536383321233d1d3beccfe5c0f5b45fbbe2ec013463847086315e8e"
     },
     "mods/maki-ship-save-1.0.2.jar": {
-      "blob_oid": "ef0a5695a8e5c3ae5674a9935bc5801f9db540c4",
+      "blob_oid": "f98543dce85464f73eac3c36251aa8dcb24004a4",
       "output": "mods/maki-ship-save-1.0.2",
-      "sha256": "4c218f4d8ebcbb320854f6100bd1b26e8d2746021ba3ff5b56f9041f68bcf50d"
-    },
-    "mods/maki-status-io-1.0.0.jar": {
-      "blob_oid": "9b7165893475513f183b528fde069d3c579c405e",
-      "output": "mods/maki-status-io-1.0.0",
-      "sha256": "27ddde95e888d6acf42e39dc99dbaa85c17352f2536607820aae519332e60300"
+      "sha256": "a62a206c33995e141e8e365c0766867b98be6e636001007f30591b05d196eb32"
     },
     "mods/millenaire-9.0.3.jar": {
       "blob_oid": "f6d20e23e076014077670a344218478e9911014d",

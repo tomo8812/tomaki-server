@@ -6,6 +6,8 @@ import java.util.Map;
 import java.util.WeakHashMap;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.ItemInteractionResult;
@@ -16,7 +18,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-import net.satisfy.foundation.registry.FoundationEntities;
 import net.satisfy.foundation.seat.ChairEntity;
 import org.joml.Vector3d;
 import org.slf4j.Logger;
@@ -30,55 +31,70 @@ public final class ShipFurnitureSeats {
    private static final Map<Level, Map<BlockPos, WeakReference<ShipMountingEntity>>> OCCUPIED = new WeakHashMap<>();
    private static final Logger LOG = LoggerFactory.getLogger("MakiFurnitureSeat");
 
-   public static ItemInteractionResult use(Level var0, Player var1, InteractionHand var2, BlockHitResult var3, double var4) {
-      LoadedShip var6 = VSGameUtilsKt.getLoadedShipManagingPos(var0, var3.getBlockPos());
-      if (var6 == null) {
+   private ShipFurnitureSeats() {
+   }
+
+   public static ItemInteractionResult use(Level level, Player player, InteractionHand hand, BlockHitResult hit, double height) {
+      LoadedShip ship = VSGameUtilsKt.getLoadedShipManagingPos(level, hit.getBlockPos());
+      if (ship == null) {
          return null;
       }
 
-      if (var1.isShiftKeyDown() || var3.getDirection() == Direction.DOWN || !var1.getItemInHand(var2).isEmpty()) {
+      if (player.isShiftKeyDown() || hit.getDirection() == Direction.DOWN || !player.getItemInHand(hand).isEmpty()) {
          return null;
       }
 
-      if (var0.isClientSide()) {
+      if (level.isClientSide()) {
          return ItemInteractionResult.SUCCESS;
       }
 
-      if (var0 instanceof ServerLevel var7) {
-         BlockPos var8 = var3.getBlockPos().immutable();
-         Map var9 = OCCUPIED.computeIfAbsent(var0, var0x -> new HashMap<>());
-         var9.entrySet().removeIf(var0x -> {
-            ShipMountingEntity var1x = (ShipMountingEntity)((WeakReference)var0x.getValue()).get();
-            return var1x == null || var1x.isRemoved() || var1x.getPassengers().isEmpty();
+      if (level instanceof ServerLevel serverLevel) {
+         BlockPos block = hit.getBlockPos().immutable();
+         Map<BlockPos, WeakReference<ShipMountingEntity>> occupied = OCCUPIED.computeIfAbsent(level, ignored -> new HashMap<>());
+         occupied.entrySet().removeIf(entry -> {
+            ShipMountingEntity seatx = entry.getValue().get();
+            return seatx == null || seatx.isRemoved() || seatx.getPassengers().isEmpty();
          });
-         WeakReference var10 = (WeakReference)var9.get(var8);
-         if (var10 != null) {
+         if (occupied.get(block) != null) {
             return ItemInteractionResult.FAIL;
          }
 
-         Vec3 var11 = var1.position();
-         Vector3d var12 = FurnitureCoordinates.localPrevious(var11.x, var11.y, var11.z, VSGameUtilsKt.isBlockInShipyard(var0, var11), var6.getWorldToShip());
-         ChairEntity var13 = new ChairEntity((EntityType)FoundationEntities.CHAIR.get(), var0);
-         var13.moveTo(var8.getX() + 0.5, var8.getY() + 0.25 + var4, var8.getZ() + 0.5, 0.0F, 0.0F);
-         Vec3 var14 = var13.getPassengerRidingPosition(var1).subtract(var1.getVehicleAttachmentPoint(var13));
-         Vector3d var15 = new Vector3d(var14.x, var14.y + 0.5, var14.z);
-         Vector3d var16 = var6.getShipToWorld().transformPosition(new Vector3d(var15));
-         if (var16.isFinite() && var12.isFinite()) {
-            ShipMountingEntity var17 = ShipMountingEntity.spawnPassengerSeat(
-               var7, var16.x, var16.y, var16.z, var1.getYRot(), var1.getXRot(), var6.getId(), var15.x, var15.y, var15.z, true
+         Vec3 previous = player.position();
+         Vector3d localPrevious = FurnitureCoordinates.localPrevious(
+            previous.x, previous.y, previous.z, VSGameUtilsKt.isBlockInShipyard(level, previous), ship.getWorldToShip()
+         );
+         EntityType<?> chairType = (EntityType<?>)BuiltInRegistries.ENTITY_TYPE.get(ResourceLocation.fromNamespaceAndPath("foundation", "chair"));
+         ChairEntity chair = new ChairEntity(chairType, level);
+         chair.moveTo(block.getX() + 0.5, block.getY() + 0.25 + height, block.getZ() + 0.5, 0.0F, 0.0F);
+         Vec3 riding = chair.getPassengerRidingPosition(player).subtract(player.getVehicleAttachmentPoint(chair));
+         Vector3d localSeat = new Vector3d(riding.x, riding.y + 0.5, riding.z);
+         Vector3d worldSeat = ship.getShipToWorld().transformPosition(new Vector3d(localSeat));
+         if (worldSeat.isFinite() && localPrevious.isFinite()) {
+            ShipMountingEntity seat = ShipMountingEntity.spawnPassengerSeat(
+               serverLevel,
+               worldSeat.x,
+               worldSeat.y,
+               worldSeat.z,
+               player.getYRot(),
+               player.getXRot(),
+               ship.getId(),
+               localSeat.x,
+               localSeat.y,
+               localSeat.z,
+               true
             );
-            if (var17 == null) {
+            if (seat == null) {
                return ItemInteractionResult.FAIL;
             } else {
-               ANCHORS.put(var17, new ShipFurnitureSeats.Anchor(var8, var0.getBlockState(var8).getBlock(), var6.getId(), var12));
-               var9.put(var8, new WeakReference<>(var17));
-               if (!var1.startRiding(var17, true)) {
-                  remove(var17);
-                  var17.discard();
-                  LOG.warn("Furniture mount cancelled; released seat at {}", var8);
+               ANCHORS.put(seat, new ShipFurnitureSeats.Anchor(block, level.getBlockState(block).getBlock(), ship.getId(), localPrevious));
+               occupied.put(block, new WeakReference<>(seat));
+               if (!player.startRiding(seat, true)) {
+                  remove(seat);
+                  seat.discard();
+                  LOG.warn("Furniture mount cancelled; released seat at {}", block);
                   return ItemInteractionResult.FAIL;
                } else {
-                  LOG.info("Mounted ship furniture via X-seat vehicle: ship={} block={} seat={}", new Object[]{var6.getId(), var8, var17.getId()});
+                  LOG.info("Mounted ship furniture: ship={} block={} seat={}", new Object[]{ship.getId(), block, seat.getId()});
                   return ItemInteractionResult.SUCCESS;
                }
             }
@@ -90,36 +106,36 @@ public final class ShipFurnitureSeats {
       }
    }
 
-   public static void tick(ShipMountingEntity var0) {
-      ShipFurnitureSeats.Anchor var1 = ANCHORS.get(var0);
-      if (var1 != null && !var0.level().isClientSide()) {
-         LoadedShip var2 = VSGameUtilsKt.getLoadedShipManagingPos(var0.level(), var1.block());
-         if (var2 == null || var2.getId() != var1.shipId() || var0.level().getBlockState(var1.block()).getBlock() != var1.type()) {
-            var0.ejectPassengers();
-            var0.discard();
-            remove(var0);
+   public static void tick(ShipMountingEntity seat) {
+      ShipFurnitureSeats.Anchor anchor = ANCHORS.get(seat);
+      if (anchor != null && !seat.level().isClientSide()) {
+         LoadedShip ship = VSGameUtilsKt.getLoadedShipManagingPos(seat.level(), anchor.block());
+         if (ship == null || ship.getId() != anchor.shipId() || seat.level().getBlockState(anchor.block()).getBlock() != anchor.type()) {
+            seat.ejectPassengers();
+            seat.discard();
+            remove(seat);
          }
       }
    }
 
-   public static Vec3 dismount(ShipMountingEntity var0, LivingEntity var1) {
-      ShipFurnitureSeats.Anchor var2 = ANCHORS.get(var0);
-      if (var2 != null && !var0.level().isClientSide()) {
-         LoadedShip var3 = VSGameUtilsKt.getLoadedShipManagingPos(var0.level(), var2.block());
-         if (var3 != null && var3.getId() == var2.shipId()) {
-            Vector3d var4 = var3.getShipToWorld().transformPosition(new Vector3d(var2.previous()));
-            if (!var4.isFinite()) {
+   public static Vec3 dismount(ShipMountingEntity seat, LivingEntity passenger) {
+      ShipFurnitureSeats.Anchor anchor = ANCHORS.get(seat);
+      if (anchor != null && !seat.level().isClientSide()) {
+         LoadedShip ship = VSGameUtilsKt.getLoadedShipManagingPos(seat.level(), anchor.block());
+         if (ship != null && ship.getId() == anchor.shipId()) {
+            Vector3d world = ship.getShipToWorld().transformPosition(new Vector3d(anchor.previous()));
+            if (!world.isFinite()) {
                return null;
             }
 
-            for (double var8 : new double[]{0.0, 0.5, 1.0, 1.5, 2.0}) {
-               Vec3 var10 = new Vec3(var4.x, var4.y + var8, var4.z);
-               if (var0.level().noCollision(var1, var1.getBoundingBox().move(var10.subtract(var1.position())))) {
-                  return var10;
+            for (double offset : new double[]{0.0, 0.5, 1.0, 1.5, 2.0}) {
+               Vec3 candidate = new Vec3(world.x, world.y + offset, world.z);
+               if (seat.level().noCollision(passenger, passenger.getBoundingBox().move(candidate.subtract(passenger.position())))) {
+                  return candidate;
                }
             }
 
-            return var1.position();
+            return passenger.position();
          } else {
             return null;
          }
@@ -128,14 +144,14 @@ public final class ShipFurnitureSeats {
       }
    }
 
-   public static void remove(ShipMountingEntity var0) {
-      ShipFurnitureSeats.Anchor var1 = ANCHORS.remove(var0);
-      if (var1 != null) {
-         Map var2 = OCCUPIED.get(var0.level());
-         if (var2 != null) {
-            WeakReference var3 = (WeakReference)var2.get(var1.block());
-            if (var3 != null && var3.get() == var0) {
-               var2.remove(var1.block());
+   public static void remove(ShipMountingEntity seat) {
+      ShipFurnitureSeats.Anchor anchor = ANCHORS.remove(seat);
+      if (anchor != null) {
+         Map<BlockPos, WeakReference<ShipMountingEntity>> occupied = OCCUPIED.get(seat.level());
+         if (occupied != null) {
+            WeakReference<ShipMountingEntity> ref = occupied.get(anchor.block());
+            if (ref != null && ref.get() == seat) {
+               occupied.remove(anchor.block());
             }
          }
       }

@@ -38,32 +38,33 @@ public abstract class ShipStepMixin {
       method = "move",
       at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/Entity;getMovementEmission()Lnet/minecraft/world/entity/Entity$MovementEmission;")
    )
-   private void maki$sampleDeckMotion(MoverType var1, Vec3 var2, CallbackInfo var3) {
-      if (this instanceof Player var4 && !var4.isLocalPlayer()) {
-         EntityDraggingInformation var14 = ((IEntityDraggingInformationProvider)var4).getDraggingInformation();
-         Long var6 = var14.getLastShipStoodOn();
-         Vector3dc var7 = var4.level().isClientSide ? var14.getRelativePositionOnShip() : var14.getServerRelativePlayerPosition();
-         if (var6 != null && var7 != null && var4.onGround() && !var4.isPassenger()) {
-            if (this.maki$sampled && this.maki$ship == var6) {
-               double var8 = var7.x() - this.maki$x;
-               double var10 = var7.z() - this.maki$z;
-               double var12 = var8 * var8 + var10 * var10;
-               if (var12 > 1.0E-4 && var12 < 16.0) {
+   private void maki$sampleDeckMotion(MoverType mover, Vec3 movement, CallbackInfo ci) {
+      if (this instanceof Player player && !player.isLocalPlayer()) {
+         EntityDraggingInformation dragging = ((IEntityDraggingInformationProvider)player).getDraggingInformation();
+         Long ship = dragging.getLastShipStoodOn();
+         Vector3dc relative = player.level().isClientSide ? dragging.getRelativePositionOnShip() : dragging.getServerRelativePlayerPosition();
+         if (ship != null && relative != null && player.onGround() && !player.isPassenger()) {
+            if (this.maki$sampled && this.maki$ship == ship) {
+               double dx = relative.x() - this.maki$x;
+               double dz = relative.z() - this.maki$z;
+               double distanceSquared = dx * dx + dz * dz;
+               if (distanceSquared > 1.0E-4 && distanceSquared < 16.0) {
                   this.maki$moved = true;
-                  this.maki$lastMotionTick = var4.tickCount;
-               } else if (var12 >= 16.0 || var4.tickCount - this.maki$lastMotionTick > 1) {
+                  this.maki$lastMotionTick = player.tickCount;
+               } else if (distanceSquared >= 16.0 || player.tickCount - this.maki$lastMotionTick > 1) {
                   this.maki$moved = false;
                }
             } else {
                this.maki$moved = false;
             }
 
-            this.maki$ship = var6;
-            this.maki$x = var7.x();
-            this.maki$z = var7.z();
+            this.maki$ship = ship;
+            this.maki$x = relative.x();
+            this.maki$z = relative.z();
             this.maki$sampled = true;
          } else {
-            this.maki$sampled = this.maki$moved = false;
+            this.maki$sampled = false;
+            this.maki$moved = false;
          }
       }
    }
@@ -78,21 +79,23 @@ public abstract class ShipStepMixin {
       require = 1,
       allow = 1
    )
-   private void maki$useDeckForSound(Args var1) {
-      if (this instanceof Player var2 && (Boolean)var1.get(2) && var2.onGround()) {
-         BlockPos var8 = var2.getOnPos();
-         Ship var4 = VSGameUtilsKt.getShipManagingPos(var2.level(), var8);
-         if (var4 != null) {
-            boolean var5 = var2.isLocalPlayer() ? var2.xxa != 0.0F || var2.zza != 0.0F : this.maki$sampled && this.maki$ship == var4.getId() && this.maki$moved;
-            if (!var5) {
-               var1.set(2, false);
+   private void maki$useDeckForSound(Args args) {
+      if (this instanceof Player player && (Boolean)args.get(2) && player.onGround()) {
+         BlockPos deck = player.getOnPos();
+         Ship ship = VSGameUtilsKt.getShipManagingPos(player.level(), deck);
+         if (ship != null) {
+            boolean moving = player.isLocalPlayer()
+               ? player.xxa != 0.0F || player.zza != 0.0F
+               : this.maki$sampled && this.maki$ship == ship.getId() && this.maki$moved;
+            if (!moving) {
+               args.set(2, false);
             } else {
-               BlockPos var6 = (BlockPos)var1.get(0);
-               if (!var8.equals(var6) && VSGameUtilsKt.getShipManagingPos(var2.level(), var6) == null) {
-                  BlockState var7 = var2.level().getBlockState(var8);
-                  if (!var7.isAir()) {
-                     var1.set(0, var8);
-                     var1.set(1, var7);
+               BlockPos vanilla = (BlockPos)args.get(0);
+               if (!deck.equals(vanilla) && VSGameUtilsKt.getShipManagingPos(player.level(), vanilla) == null) {
+                  BlockState state = player.level().getBlockState(deck);
+                  if (!state.isAir()) {
+                     args.set(0, deck);
+                     args.set(1, state);
                   }
                }
             }

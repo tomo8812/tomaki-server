@@ -179,6 +179,28 @@ final class FingerprintManifest {
       return changed;
    }
 
+   static boolean sameRelevantInputsExcept(FingerprintManifest.Manifest oldManifest, FingerprintManifest.Manifest newManifest, Set<String> excludedKeys) {
+      Map<String, FingerprintManifest.Entry> oldEntries = byKey(oldManifest.entries());
+      Map<String, FingerprintManifest.Entry> newEntries = byKey(newManifest.entries());
+      Set<String> keys = new LinkedHashSet<>();
+      keys.addAll(oldEntries.keySet());
+      keys.addAll(newEntries.keySet());
+
+      for (String key : keys) {
+         if (!excludedKeys.contains(key)) {
+            FingerprintManifest.Entry oldEntry = oldEntries.get(key);
+            FingerprintManifest.Entry newEntry = newEntries.get(key);
+            boolean relevant = oldEntry != null && oldEntry.impact() == FingerprintManifest.Impact.RELEVANT
+               || newEntry != null && newEntry.impact() == FingerprintManifest.Impact.RELEVANT;
+            if (relevant && !equivalent(oldEntry, newEntry)) {
+               return false;
+            }
+         }
+      }
+
+      return true;
+   }
+
    private static Map<String, FingerprintManifest.Entry> byKey(List<FingerprintManifest.Entry> entries) {
       Map<String, FingerprintManifest.Entry> result = new LinkedHashMap<>();
 

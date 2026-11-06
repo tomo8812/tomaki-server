@@ -26,24 +26,27 @@ public final class PassengerRecovery {
    private static long revision;
    private static boolean replaying;
 
-   private static boolean ready(ClientLevel var0, ClientboundSetPassengersPacket var1) {
-      Entity var2 = var0.getEntity(var1.getVehicle());
-      if (var2 == null) {
+   private PassengerRecovery() {
+   }
+
+   private static boolean ready(ClientLevel level, ClientboundSetPassengersPacket packet) {
+      Entity vehicle = level.getEntity(packet.getVehicle());
+      if (vehicle == null) {
          return false;
       }
 
-      for (int var6 : var1.getPassengers()) {
-         if (var0.getEntity(var6) == null) {
+      for (int passenger : packet.getPassengers()) {
+         if (level.getEntity(passenger) == null) {
             return false;
          }
       }
 
-      if (var1.getPassengers().length > 0) {
-         if (VSGameUtilsKt.isBlockInShipyard(var0, var2.position()) && VSGameUtilsKt.getShipManaging(var2) == null) {
+      if (packet.getPassengers().length > 0) {
+         if (VSGameUtilsKt.isBlockInShipyard(level, vehicle.position()) && VSGameUtilsKt.getShipManaging(vehicle) == null) {
             return false;
          }
 
-         if (var2 instanceof ShipMountingEntity var7 && var7.provideShipMountedToData(var0.getEntity(var1.getPassengers()[0]), 0.0F) == null) {
+         if (vehicle instanceof ShipMountingEntity mounting && mounting.provideShipMountedToData(level.getEntity(packet.getPassengers()[0]), 0.0F) == null) {
             return false;
          }
       }
@@ -51,97 +54,97 @@ public final class PassengerRecovery {
       return true;
    }
 
-   private static void reset(ClientPacketListener var0) {
+   private static void reset(ClientPacketListener connection) {
       PENDING.clear();
       ASSIGNMENTS.clear();
-      owner = var0;
+      owner = connection;
       world = Minecraft.getInstance().level;
       ticks = 0;
       revision = 0L;
    }
 
-   public static boolean defer(ClientPacketListener var0, ClientboundSetPassengersPacket var1) {
-      Minecraft var2 = Minecraft.getInstance();
-      if (var2.level == null) {
+   public static boolean defer(ClientPacketListener connection, ClientboundSetPassengersPacket packet) {
+      Minecraft minecraft = Minecraft.getInstance();
+      if (minecraft.level == null) {
          return false;
       }
 
-      if (owner != var0 || world != var2.level) {
-         reset(var0);
+      if (owner != connection || world != minecraft.level) {
+         reset(connection);
       }
 
       if (replaying) {
          return false;
       }
 
-      long var3 = ++revision;
+      long currentRevision = ++revision;
 
-      for (int var8 : var1.getPassengers()) {
-         ASSIGNMENTS.remove(var8);
-         ASSIGNMENTS.put(var8, var3);
+      for (int passenger : packet.getPassengers()) {
+         ASSIGNMENTS.remove(passenger);
+         ASSIGNMENTS.put(passenger, currentRevision);
       }
 
       while (ASSIGNMENTS.size() > 4096) {
          ASSIGNMENTS.remove(ASSIGNMENTS.keySet().iterator().next());
       }
 
-      if (ready(var2.level, var1)) {
-         PENDING.remove(var1.getVehicle());
+      if (ready(minecraft.level, packet)) {
+         PENDING.remove(packet.getVehicle());
          return false;
       }
 
-      if (PENDING.size() >= 128 && !PENDING.containsKey(var1.getVehicle())) {
+      if (PENDING.size() >= 128 && !PENDING.containsKey(packet.getVehicle())) {
          PENDING.remove(PENDING.keySet().iterator().next());
       }
 
-      PENDING.put(var1.getVehicle(), new PassengerRecovery.Pending(var1, ticks + 600, var3));
-      LOG.debug("Deferred passengers until entities are available: vehicle={}", var1.getVehicle());
+      PENDING.put(packet.getVehicle(), new PassengerRecovery.Pending(packet, ticks + 600, currentRevision));
+      LOG.debug("Deferred passenger state until ship/entity state is ready: vehicle={}", packet.getVehicle());
       return true;
    }
 
    public static void tick() {
-      Minecraft var0 = Minecraft.getInstance();
-      ClientPacketListener var1 = var0.getConnection();
-      if (var1 == owner && world == var0.level && var0.level != null) {
+      Minecraft minecraft = Minecraft.getInstance();
+      ClientPacketListener connection = minecraft.getConnection();
+      if (connection == owner && world == minecraft.level && minecraft.level != null) {
          ticks++;
-         ArrayList var2 = new ArrayList();
-         Iterator var3 = PENDING.entrySet().iterator();
+         ArrayList<ClientboundSetPassengersPacket> replay = new ArrayList<>();
+         Iterator<Entry<Integer, PassengerRecovery.Pending>> iterator = PENDING.entrySet().iterator();
 
-         while (var3.hasNext()) {
-            Entry var4 = (Entry)var3.next();
-            PassengerRecovery.Pending var5 = (PassengerRecovery.Pending)var4.getValue();
-            boolean var6 = false;
+         while (iterator.hasNext()) {
+            Entry<Integer, PassengerRecovery.Pending> entry = iterator.next();
+            PassengerRecovery.Pending pending = entry.getValue();
+            boolean stale = false;
 
-            for (int var10 : var5.packet().getPassengers()) {
-               if (!Objects.equals(ASSIGNMENTS.get(var10), var5.revision())) {
-                  var6 = true;
+            for (int passenger : pending.packet().getPassengers()) {
+               if (!Objects.equals(ASSIGNMENTS.get(passenger), pending.revision())) {
+                  stale = true;
                   break;
                }
             }
 
-            if (var6) {
-               var3.remove();
-            } else if (ready(var0.level, var5.packet())) {
-               var2.add(var5.packet());
-               var3.remove();
-            } else if (ticks >= var5.expires()) {
-               LOG.debug("Expired pending passengers: vehicle={}", var4.getKey());
-               var3.remove();
+            if (stale) {
+               iterator.remove();
+            } else if (ready(minecraft.level, pending.packet())) {
+               replay.add(pending.packet());
+               iterator.remove();
+            } else if (ticks >= pending.expires()) {
+               LOG.warn("Passenger recovery expired after 600 client ticks: vehicle={}", entry.getKey());
+               iterator.remove();
             }
          }
 
          replaying = true;
 
          try {
-            for (ClientboundSetPassengersPacket var15 : var2) {
-               var1.handleSetEntityPassengersPacket(var15);
-               LOG.info("Recovered delayed passenger state: vehicle={}", var15.getVehicle());
+            for (ClientboundSetPassengersPacket packet : replay) {
+               connection.handleSetEntityPassengersPacket(packet);
+               LOG.info("Recovered delayed passenger state: vehicle={}", packet.getVehicle());
             }
          } finally {
             replaying = false;
          }
       } else {
-         reset(var1);
+         reset(connection);
       }
    }
 

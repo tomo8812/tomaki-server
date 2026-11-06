@@ -11,41 +11,41 @@ public final class DeferredData extends SavedData {
    public final LongOpenHashSet pending = new LongOpenHashSet();
    public final LongOpenHashSet queued = new LongOpenHashSet();
 
-   public static DeferredData get(ServerLevel var0) {
-      return (DeferredData)var0.getDataStorage()
-         .computeIfAbsent(new Factory(DeferredData::new, (var0x, var1) -> load(var0x), null), "maki_millenaire_lod_pending");
+   public static DeferredData get(ServerLevel level) {
+      return (DeferredData)level.getDataStorage()
+         .computeIfAbsent(new Factory(DeferredData::new, (tag, lookup) -> load(tag), null), "maki_millenaire_lod_pending");
    }
 
-   public static DeferredData load(CompoundTag var0) {
-      DeferredData var1 = new DeferredData();
-      var1.pending.addAll(LongOpenHashSet.of(var0.getLongArray("pending")));
-      return var1;
+   public static DeferredData load(CompoundTag tag) {
+      DeferredData data = new DeferredData();
+      data.pending.addAll(LongOpenHashSet.of(tag.getLongArray("pending")));
+      return data;
    }
 
-   public void remember(long var1, boolean var3) {
-      if (this.pending.add(var1)) {
+   public void remember(long key, boolean claimed) {
+      if (this.pending.add(key)) {
          this.setDirty();
       }
 
-      if (var3) {
-         this.queued.add(var1);
+      if (claimed) {
+         this.queued.add(key);
       }
    }
 
-   public void release(long var1) {
-      this.queued.remove(var1);
+   public void release(long key) {
+      this.queued.remove(key);
    }
 
-   public void consume(long var1) {
-      this.queued.remove(var1);
-      if (this.pending.remove(var1)) {
+   public void consume(long key) {
+      this.queued.remove(key);
+      if (this.pending.remove(key)) {
          this.setDirty();
       }
    }
 
-   public CompoundTag save(CompoundTag var1, Provider var2) {
-      var1.putInt("version", 1);
-      var1.putLongArray("pending", this.pending.toLongArray());
-      return var1;
+   public CompoundTag save(CompoundTag tag, Provider lookup) {
+      tag.putInt("version", 1);
+      tag.putLongArray("pending", this.pending.toLongArray());
+      return tag;
    }
 }

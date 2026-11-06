@@ -1,6 +1,5 @@
 package maki.chunksmithcache;
 
-import com.google.gson.Gson;
 import com.kishku7.chunksmith.ChunksmithProvider;
 import com.kishku7.chunksmith.PlatformCompat;
 import com.kishku7.chunksmith.ducks.MinecraftServerExtension;
@@ -32,7 +31,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
-import maki.statusio.StatusIo;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ChunkResult;
 import net.minecraft.server.level.ServerChunkCache;
@@ -53,7 +51,6 @@ public final class BackfillController {
    private static final ThreadMXBean THREAD_CPU = ManagementFactory.getThreadMXBean();
    private static final TicketType<Unit> BACKFILL_TICKET = TicketType.create("maki_chunk_cache_backfill", (var0, var1) -> 0);
    private static final Logger LOG = LoggerFactory.getLogger("MakiChunkCache");
-   private static final Gson JSON = new Gson();
    private static final Map<MinecraftServer, BackfillController.State> STATES = new WeakHashMap<>();
    private static volatile List<ServerLevel> LEVELS = List.of();
    private static final long RESCAN_MILLIS = 600000L;
@@ -819,101 +816,30 @@ public final class BackfillController {
 
    private static void report(MinecraftServer server, BackfillController.State state, boolean force) {
       long now = System.currentTimeMillis();
-      if (force || now - state.lastReport >= 10000L) {
+      if (force || now - state.lastReport >= 30000L) {
          state.lastReport = now;
-
-         try {
-            Map<String, Object> data = new LinkedHashMap<>();
-            data.put("statusSchemaVersion", 2);
-            data.put("time", Instant.now().toString());
-            data.put("phase", state.phase);
-            data.put("players", server.getPlayerCount());
-            data.put("busy", state.busy);
-            data.put("scanning", state.scanning);
-            data.put("idlePregenClaimed", state.idlePregenClaimed);
-            data.put("awaitingDependencyScopeDrain", state.awaitingScopeDrain);
-            data.put("guardActive", state.activeLevel != null && state.activePos != null && BackfillGuard.active(state.activeLevel, state.activePos));
-            data.put("serverFrozen", server.tickRateManager().isFrozen());
-            data.put("backfillTicketHeld", state.backfillTicketHeld);
-            data.put("loadFuturePending", state.loadFuturePending);
-            data.put("fullLoadTimeoutReached", state.fullLoadTimeoutReached);
-            data.put("waitReason", state.waitReason);
-            data.put("completionOutcome", state.completionOutcome);
-            data.put("activeSince", instant(state.activeSince));
-            data.put("phaseEnteredAt", instant(state.phaseEnteredAt));
-            data.put("lastProgressAt", instant(state.lastProgressAt));
-            data.put("ticketAddedAt", instant(state.ticketAddedAt));
-            data.put("ticketRemovedAt", instant(state.ticketRemovedAt));
-            data.put("fullChunkAcquiredAt", instant(state.fullChunkAcquiredAt));
-            data.put("phaseAgeMillis", state.phaseEnteredAt == 0L ? null : Math.max(0L, now - state.phaseEnteredAt));
-            data.put("unloadWaitMillis", state.ticketRemovedAt == 0L ? null : Math.max(0L, now - state.ticketRemovedAt));
-            data.put("lastTicketRemovedAt", instant(state.lastTicketRemovedAt));
-            data.put("lastUnloadAt", instant(state.lastUnloadAt));
-            data.put("lastOutcome", state.lastOutcome);
-            data.put("retiredGuardCount", state.retiredGuards.size());
-            data.put("retiredGuardCap", 8);
-            data.put("retiredGuardsCreated", state.retiredGuardsCreated);
-            data.put("retiredGuardsUnloaded", state.retiredGuardsUnloaded);
-            data.put("retiredGuardsHandedOff", state.retiredGuardsHandedOff);
-            data.put("retiredGuardsReleasedExternally", state.retiredGuardsReleasedExternally);
-            data.put("retiredGuardWarnings", state.retiredGuardWarnings);
-            List<Map<String, Object>> retiredData = new ArrayList<>();
-            long oldestRetiredAge = 0L;
-
-            for (BackfillController.RetiredGuard retired : state.retiredGuards.values()) {
-               long age = Math.max(0L, now - retired.ticketRemovedAt);
-               oldestRetiredAge = Math.max(oldestRetiredAge, age);
-               Map<String, Object> item = new LinkedHashMap<>();
-               item.put("dimension", retired.level.dimension().location().toString());
-               item.put("chunkX", retired.pos.x);
-               item.put("chunkZ", retired.pos.z);
-               item.put("outcome", retired.outcome);
-               item.put("retiredAt", instant(retired.retiredAt));
-               item.put("ticketRemovedAt", instant(retired.ticketRemovedAt));
-               item.put("ageMillis", age);
-               item.put("warned", retired.warned);
-               item.put("loaded", retired.level.getChunkSource().hasChunk(retired.pos.x, retired.pos.z));
-               retiredData.add(item);
+         String dimension = state.activeLevel == null ? "none" : state.activeLevel.dimension().location().toString();
+         String chunk = state.activePos == null ? "none" : state.activePos.x + "," + state.activePos.z;
+         LOG.info(
+            "Chunk-cache backfill state: phase={}, busy={}, scanning={}, dimension={}, chunk={}, waitReason={}, outcome={}, ownTicket={}, futurePending={}, dependencyDrain={}, retiredGuards={}, started={}, completed={}, failed={}, handedOff={}",
+            new Object[]{
+               state.phase,
+               state.busy,
+               state.scanning,
+               dimension,
+               chunk,
+               state.waitReason,
+               state.completionOutcome,
+               state.backfillTicketHeld,
+               state.loadFuturePending,
+               state.awaitingScopeDrain,
+               state.retiredGuards.size(),
+               state.backfillsStarted,
+               state.backfillsCompleted,
+               state.backfillsFailed,
+               state.backfillsHandedOff
             }
-
-            data.put("oldestRetiredGuardAgeMillis", state.retiredGuards.isEmpty() ? null : oldestRetiredAge);
-            data.put("retiredGuards", retiredData);
-            data.put("activeDimension", state.activeLevel == null ? null : state.activeLevel.dimension().location().toString());
-            data.put("activeChunkX", state.activePos == null ? null : state.activePos.x);
-            data.put("activeChunkZ", state.activePos == null ? null : state.activePos.z);
-            data.put(
-               "activeChunkLoaded",
-               state.activeLevel != null && state.activePos != null && state.activeLevel.getChunkSource().hasChunk(state.activePos.x, state.activePos.z)
-            );
-            data.put("scansStarted", state.scansStarted);
-            data.put("scanFailures", state.scanFailures);
-            data.put("normalStateUnknown", state.normalStateUnknown);
-            data.put("candidateDeferredUntil", state.candidateDeferredUntil == 0L ? null : Instant.ofEpochMilli(state.candidateDeferredUntil).toString());
-            data.put("candidatesFound", state.candidatesFound);
-            data.put("backfillsStarted", state.backfillsStarted);
-            data.put("backfillsCompleted", state.backfillsCompleted);
-            data.put("backfillsFailed", state.backfillsFailed);
-            data.put("backfillsHandedOff", state.backfillsHandedOff);
-            data.put("playerOwnedDependenciesReleased", state.playerOwnedDependenciesReleased);
-            data.put("lodOffersSubmitted", state.lodOffersSubmitted);
-            data.put("lodRefreshCompleted", state.lodRefreshCompleted);
-            data.put("lastRequestQueuedAt", state.lastRequestQueuedAt == 0L ? null : Instant.ofEpochMilli(state.lastRequestQueuedAt).toString());
-            data.put("lastTicketSafePointDelayMs", metric(state.lastTicketSafePointDelayMs));
-            data.put("lastDistanceManagerUpdateWallMs", metric(state.lastDistanceManagerUpdateWallMs));
-            data.put("lastGetChunkFutureCallWallMs", metric(state.lastGetChunkFutureCallWallMs));
-            data.put("lastRequestSetupWallMs", metric(state.lastRequestSetupWallMs));
-            data.put("lastRequestSetupCpuMs", metric(state.lastRequestSetupCpuMs));
-            data.put("lastChunkFutureWaitWallMs", metric(state.lastChunkFutureWaitWallMs));
-            data.put("lastLoadedBeforeRequest", state.lastLoadedBeforeRequest);
-            data.put("lastCreateMissingChunk", state.lastCreateMissingChunk);
-            data.put("lastPendingChunkTasksBefore", state.lastPendingChunkTasksBefore < 0 ? null : state.lastPendingChunkTasksBefore);
-            data.put("lastPendingChunkTasksAfter", state.lastPendingChunkTasksAfter < 0 ? null : state.lastPendingChunkTasksAfter);
-            data.put("lastPendingChunkWritesBefore", state.lastPendingChunkWritesBefore < 0L ? null : state.lastPendingChunkWritesBefore);
-            data.put("lastPendingChunkWritesAfter", state.lastPendingChunkWritesAfter < 0L ? null : state.lastPendingChunkWritesAfter);
-            StatusIo.publish(Path.of("logs/maki-chunk-cache-backfill-status.json"), JSON.toJson(data) + "\n");
-         } catch (Exception e) {
-            LOG.debug("Could not report chunk-cache backfill status", e);
-         }
+         );
       }
    }
 

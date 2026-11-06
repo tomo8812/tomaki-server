@@ -1,9 +1,7 @@
-package maki.lagobserver;
+package maki.modsobserver;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.lang.System.Logger;
-import java.lang.System.Logger.Level;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
 import java.nio.file.Files;
@@ -23,16 +21,23 @@ import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.server.MinecraftServer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class NbtCopyObserver {
-   private static final Logger LOG = System.getLogger("MakiNbtCopyObserver");
+   private static final Logger LOG = LoggerFactory.getLogger("MakiModsObserverNbt");
    private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
-   private static final Path CONFIG = Path.of("config/maki-lag-observer.properties");
-   private static final Path LOG_FILE = Path.of("logs/maki-nbt-copy-observer.jsonl");
+   private static final Path CONFIG = Path.of("config/maki-mods-observer.properties");
+   private static final Path LOG_FILE = Path.of("logs/maki-mods-observer-nbt.jsonl");
    private static final long CONFIG_RELOAD_INTERVAL_NANOS = 5000000000L;
    private static final BlockingQueue<String> WRITE_QUEUE = new ArrayBlockingQueue<>(64);
    private static final AtomicBoolean WRITER_STARTED = new AtomicBoolean();
    private static final AtomicBoolean WRITE_WARNING_LOGGED = new AtomicBoolean();
+   private static final AtomicBoolean CAPACITY_WARNING_LOGGED = new AtomicBoolean();
+   private static final AtomicBoolean QUEUE_WARNING_LOGGED = new AtomicBoolean();
+   private static final AtomicBoolean SESSION_LIMIT_REACHED = new AtomicBoolean();
+   private static final AtomicLong SESSION_STARTED_NANOS = new AtomicLong();
+   private static final AtomicLong ACCEPTED_EVENTS = new AtomicLong();
    private static final AtomicLong DROPPED_EVENTS = new AtomicLong();
    private static final ThreadLocal<NbtCopyObserver.Trace> ACTIVE = new ThreadLocal<>();
    private static final Map<Integer, Integer> SLOW_ROOTS_THIS_TICK = new HashMap<>();
@@ -54,16 +59,20 @@ public final class NbtCopyObserver {
 
       owner = server;
       serverThread = Thread.currentThread();
-      tickInProgress = true;
-      tickSequence++;
-      ACTIVE.remove();
-      SLOW_ROOTS_THIS_TICK.clear();
-      ensureCpuTimeEnabled();
       reloadSettingsIfDue();
+      if (!diagnosticSessionActive()) {
+         tickInProgress = false;
+      } else {
+         tickInProgress = true;
+         tickSequence++;
+         ACTIVE.remove();
+         SLOW_ROOTS_THIS_TICK.clear();
+         ensureCpuTimeEnabled();
+      }
    }
 
    public static void tickEnd(MinecraftServer server) {
-      if (owner == server) {
+      if (owner == server && settings.enabled && !SESSION_LIMIT_REACHED.get()) {
          tickInProgress = false;
          ACTIVE.remove();
       }
@@ -83,7 +92,7 @@ public final class NbtCopyObserver {
    }
 
    public static void enterCompound(CompoundTag tag) {
-      if (tag != null) {
+      if (settings.enabled && !SESSION_LIMIT_REACHED.get() && tag != null) {
          enter("compound", tag.size(), System.identityHashCode(tag));
       }
    }
@@ -93,7 +102,7 @@ public final class NbtCopyObserver {
    }
 
    public static void enterList(ListTag tag) {
-      if (tag != null) {
+      if (settings.enabled && !SESSION_LIMIT_REACHED.get() && tag != null) {
          enter("list", tag.size(), System.identityHashCode(tag));
       }
    }
@@ -105,7 +114,7 @@ public final class NbtCopyObserver {
    private static void enter(String kind, int entries, int identityHash) {
       Thread current = Thread.currentThread();
       NbtCopyObserver.Settings currentSettings = settings;
-      if (currentSettings.enabled && current == serverThread && owner != null) {
+      if (currentSettings.enabled && !SESSION_LIMIT_REACHED.get() && current == serverThread && owner != null) {
          NbtCopyObserver.Trace trace = ACTIVE.get();
          if (trace == null) {
             MinecraftServer server = owner;
@@ -150,11 +159,13 @@ public final class NbtCopyObserver {
                   long finishedAt = System.nanoTime();
                   long wallNanos = Math.max(0L, finishedAt - trace.startedAtNanos);
                   NbtCopyObserver.Settings currentSettings = settings;
-                  if (currentSettings.enabled && wallNanos >= currentSettings.slowThresholdNanos) {
-                     long cpuNanos = cpuDelta(trace.startedCpuNanos, cpuTime(current));
-                     int sameRootSlowCopies = SLOW_ROOTS_THIS_TICK.merge(trace.rootIdentityHash, 1, Integer::sum);
-                     NbtCopyObserver.StackCapture capture = captureStack(currentSettings.maxStackFrames);
-                     enqueue(formatEvent(trace, wallNanos, cpuNanos, sameRootSlowCopies, capture));
+                  if (currentSettings.enabled && !SESSION_LIMIT_REACHED.get() && wallNanos >= currentSettings.slowThresholdNanos) {
+                     if (reserveDiagnosticEvent()) {
+                        long cpuNanos = cpuDelta(trace.startedCpuNanos, cpuTime(current));
+                        int sameRootSlowCopies = SLOW_ROOTS_THIS_TICK.merge(trace.rootIdentityHash, 1, Integer::sum);
+                        NbtCopyObserver.StackCapture capture = captureStack(currentSettings.maxStackFrames);
+                        enqueue(formatEvent(trace, wallNanos, cpuNanos, sameRootSlowCopies, capture));
+                     }
                   }
                }
             }
@@ -193,7 +204,7 @@ public final class NbtCopyObserver {
    }
 
    private static boolean isObserverFrame(String className) {
-      return className.startsWith("maki.lagobserver.") || className.startsWith("org.spongepowered.asm.mixin.") || className.equals(Thread.class.getName());
+      return className.startsWith("maki.modsobserver.") || className.startsWith("org.spongepowered.asm.mixin.") || className.equals(Thread.class.getName());
    }
 
    private static String formatEvent(NbtCopyObserver.Trace trace, long wallNanos, long cpuNanos, int sameRootSlowCopies, NbtCopyObserver.StackCapture capture) {
@@ -261,16 +272,75 @@ public final class NbtCopyObserver {
       return out.append(System.lineSeparator()).toString();
    }
 
+   private static boolean diagnosticSessionActive() {
+      NbtCopyObserver.Settings s = settings;
+      if (s.enabled && !SESSION_LIMIT_REACHED.get()) {
+         long now = System.nanoTime();
+         long started = SESSION_STARTED_NANOS.get();
+         if (started == 0L) {
+            SESSION_STARTED_NANOS.compareAndSet(0L, now);
+            started = SESSION_STARTED_NANOS.get();
+         }
+
+         if (now - started >= s.maxDurationNanos) {
+            markSessionLimit("duration limit " + s.maxDurationNanos / 60000000000L + " minute(s) reached");
+            return false;
+         } else {
+            return true;
+         }
+      } else {
+         return false;
+      }
+   }
+
+   private static boolean reserveDiagnosticEvent() {
+      NbtCopyObserver.Settings s = settings;
+      if (!diagnosticSessionActive()) {
+         return false;
+      }
+
+      long accepted = ACCEPTED_EVENTS.incrementAndGet();
+      if (accepted > s.maxEvents) {
+         ACCEPTED_EVENTS.decrementAndGet();
+         markSessionLimit("event limit " + s.maxEvents + " reached");
+         return false;
+      }
+
+      if (accepted == s.maxEvents) {
+         markSessionLimit("event limit " + s.maxEvents + " reached");
+      }
+
+      return true;
+   }
+
+   private static void markSessionLimit(String reason) {
+      if (SESSION_LIMIT_REACHED.compareAndSet(false, true)) {
+         LOG.warn("Maki Mods Observer slow-NBT diagnostics stopped for the current config: {}", reason);
+      }
+   }
+
+   private static void resetDiagnosticSession() {
+      SESSION_STARTED_NANOS.set(0L);
+      ACCEPTED_EVENTS.set(0L);
+      DROPPED_EVENTS.set(0L);
+      SESSION_LIMIT_REACHED.set(false);
+      QUEUE_WARNING_LOGGED.set(false);
+      CAPACITY_WARNING_LOGGED.set(false);
+   }
+
    private static void enqueue(String line) {
       ensureWriter();
       if (!WRITE_QUEUE.offer(line)) {
-         DROPPED_EVENTS.incrementAndGet();
+         long dropped = DROPPED_EVENTS.incrementAndGet();
+         if (QUEUE_WARNING_LOGGED.compareAndSet(false, true)) {
+            LOG.warn("Maki Mods Observer NBT writer queue is full; dropping events (dropped={})", dropped);
+         }
       }
    }
 
    private static void ensureWriter() {
       if (WRITER_STARTED.compareAndSet(false, true)) {
-         Thread writer = new Thread(NbtCopyObserver::writerLoop, "maki-nbt-copy-observer-writer");
+         Thread writer = new Thread(NbtCopyObserver::writerLoop, "maki-mods-observer-nbt-writer");
          writer.setDaemon(true);
          writer.setPriority(1);
          writer.start();
@@ -282,18 +352,34 @@ public final class NbtCopyObserver {
          try {
             String line = WRITE_QUEUE.take();
             Files.createDirectories(LOG_FILE.getParent());
-            Files.writeString(LOG_FILE, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            WRITE_WARNING_LOGGED.set(false);
+            if (Files.isRegularFile(LOG_FILE) && Files.size(LOG_FILE) >= settings.maxFileBytes) {
+               DROPPED_EVENTS.incrementAndGet();
+               if (CAPACITY_WARNING_LOGGED.compareAndSet(false, true)) {
+                  LOG.warn(
+                     "Maki Mods Observer NBT diagnostic file reached its {} MiB cap; further events are dropped until the file is rotated or removed",
+                     settings.maxFileBytes / 1048576L
+                  );
+               }
+
+               markSessionLimit("file size cap " + settings.maxFileBytes / 1048576L + " MiB reached");
+            } else {
+               Files.writeString(LOG_FILE, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+               CAPACITY_WARNING_LOGGED.set(false);
+               WRITE_WARNING_LOGGED.set(false);
+               if (WRITE_QUEUE.remainingCapacity() > 0) {
+                  QUEUE_WARNING_LOGGED.set(false);
+               }
+            }
          } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
             return;
          } catch (IOException error) {
             if (WRITE_WARNING_LOGGED.compareAndSet(false, true)) {
-               LOG.log(Level.WARNING, "Could not write NBT copy diagnostic sample: " + error);
+               LOG.warn("Could not write NBT copy diagnostic sample", error);
             }
          } catch (Throwable error) {
             if (WRITE_WARNING_LOGGED.compareAndSet(false, true)) {
-               LOG.log(Level.WARNING, "NBT copy diagnostic writer failed: " + error);
+               LOG.warn("NBT copy diagnostic writer failed", error);
             }
          }
       }
@@ -319,8 +405,23 @@ public final class NbtCopyObserver {
 
             settings = NbtCopyObserver.Settings.parse(properties);
             configStamp = stamp;
+            resetDiagnosticSession();
+            if (!settings.enabled) {
+               WRITE_QUEUE.clear();
+            }
+
+            LOG.info(
+               "Maki Mods Observer slow-NBT diagnostics enabled={}; thresholdMs={}; maxDurationMinutes={}; maxEvents={}; maxFileMiB={}",
+               new Object[]{
+                  settings.enabled,
+                  settings.slowThresholdNanos / 1000000L,
+                  settings.maxDurationNanos / 60000000000L,
+                  settings.maxEvents,
+                  settings.maxFileBytes / 1048576L
+               }
+            );
          } catch (Exception error) {
-            LOG.log(Level.WARNING, "Invalid NBT copy observer config; retaining previous settings: " + error);
+            LOG.warn("Invalid NBT copy observer config; retaining previous settings", error);
          }
       }
    }
@@ -434,9 +535,9 @@ public final class NbtCopyObserver {
       out.append('"');
    }
 
-   private record Settings(boolean enabled, long slowThresholdNanos, int maxStackFrames) {
+   private record Settings(boolean enabled, long slowThresholdNanos, int maxStackFrames, long maxFileBytes, long maxDurationNanos, long maxEvents) {
       static NbtCopyObserver.Settings defaults() {
-         return new NbtCopyObserver.Settings(true, 50000000L, 192);
+         return new NbtCopyObserver.Settings(false, 50000000L, 192, 16777216L, 1800000000000L, 5000L);
       }
 
       static NbtCopyObserver.Settings parse(Properties properties) {
@@ -444,7 +545,10 @@ public final class NbtCopyObserver {
          boolean enabled = Boolean.parseBoolean(properties.getProperty("nbt-copy-observer-enabled", Boolean.toString(defaults.enabled)));
          long thresholdMs = boundedLong(properties, "nbt-copy-threshold-ms", defaults.slowThresholdNanos / 1000000L, 1L, 60000L);
          int maxFrames = (int)boundedLong(properties, "nbt-copy-max-stack-frames", defaults.maxStackFrames, 32L, 512L);
-         return new NbtCopyObserver.Settings(enabled, thresholdMs * 1000000L, maxFrames);
+         long maxFileMb = boundedLong(properties, "diagnostic-max-file-mb", defaults.maxFileBytes / 1048576L, 1L, 1024L);
+         long maxDurationMinutes = boundedLong(properties, "diagnostic-max-duration-minutes", defaults.maxDurationNanos / 60000000000L, 1L, 1440L);
+         long maxEvents = boundedLong(properties, "diagnostic-max-events", defaults.maxEvents, 1L, 1000000L);
+         return new NbtCopyObserver.Settings(enabled, thresholdMs * 1000000L, maxFrames, maxFileMb * 1048576L, maxDurationMinutes * 60000000000L, maxEvents);
       }
 
       private static long boundedLong(Properties properties, String key, long fallback, long min, long max) {

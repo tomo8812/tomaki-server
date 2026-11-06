@@ -14,19 +14,19 @@ public abstract class LivingSleepMixin {
    private SleepCompat.WakeAnchor maki$wakeAnchor;
 
    @Inject(method = "tick()V", at = @At("TAIL"), remap = false)
-   private void maki$followBed(CallbackInfo var1) {
+   private void maki$followBed(CallbackInfo ci) {
       SleepCompat.follow((LivingEntity)this);
    }
 
    @Inject(method = "stopSleeping()V", at = @At("HEAD"), remap = false)
-   private void maki$rememberWake(CallbackInfo var1) {
+   private void maki$rememberWake(CallbackInfo ci) {
       this.maki$wakeAnchor = SleepCompat.beforeWake((LivingEntity)this);
    }
 
    @Inject(method = "stopSleeping()V", at = @At("RETURN"), remap = false)
-   private void maki$finishWake(CallbackInfo var1) {
-      SleepCompat.WakeAnchor var2 = this.maki$wakeAnchor;
+   private void maki$finishWake(CallbackInfo ci) {
+      SleepCompat.WakeAnchor anchor = this.maki$wakeAnchor;
       this.maki$wakeAnchor = null;
-      SleepCompat.afterWake((LivingEntity)this, var2);
+      SleepCompat.afterWake((LivingEntity)this, anchor);
    }
 }

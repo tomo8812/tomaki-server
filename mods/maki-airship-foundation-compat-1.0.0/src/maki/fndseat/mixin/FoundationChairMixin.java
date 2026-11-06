@@ -20,17 +20,17 @@ public abstract class FoundationChairMixin {
       cancellable = true,
       remap = false
    )
-   private void maki$dismountOnShip(LivingEntity var1, CallbackInfoReturnable<Vec3> var2) {
-      Entity var3 = (Entity)this;
-      Vec3 var4 = SeatCompat.dismount(var3, var1);
-      if (var4 != null) {
-         var3.discard();
-         var2.setReturnValue(var4);
+   private void maki$dismountOnShip(LivingEntity passenger, CallbackInfoReturnable<Vec3> cir) {
+      Entity chair = (Entity)this;
+      Vec3 location = SeatCompat.dismount(chair, passenger);
+      if (location != null) {
+         chair.discard();
+         cir.setReturnValue(location);
       }
    }
 
    @Inject(method = "remove(Lnet/minecraft/world/entity/Entity$RemovalReason;)V", at = @At("HEAD"), remap = false)
-   private void maki$removeSeatAnchor(RemovalReason var1, CallbackInfo var2) {
+   private void maki$removeSeatAnchor(RemovalReason reason, CallbackInfo ci) {
       SeatCompat.remove((Entity)this);
    }
 }

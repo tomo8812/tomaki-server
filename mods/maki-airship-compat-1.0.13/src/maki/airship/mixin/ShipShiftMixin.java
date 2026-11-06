@@ -25,15 +25,15 @@ public abstract class ShipShiftMixin {
    private boolean maki$wasShipMount;
 
    @Inject(method = "tick()V", at = @At("TAIL"), remap = false)
-   private void maki$syncShipShift(CallbackInfo var1) {
-      LocalPlayer var2 = (LocalPlayer)this;
-      boolean var3 = var2.getVehicle() instanceof ShipMountingEntity;
-      boolean var4 = var2.isShiftKeyDown();
-      if (ShipShiftDecision.send(var3, this.maki$wasShipMount, var4, this.wasShiftKeyDown)) {
-         this.connection.send(new ServerboundPlayerCommandPacket(var2, var4 ? Action.PRESS_SHIFT_KEY : Action.RELEASE_SHIFT_KEY));
-         this.wasShiftKeyDown = var4;
+   private void maki$syncShipShift(CallbackInfo ci) {
+      LocalPlayer player = (LocalPlayer)this;
+      boolean shipMount = player.getVehicle() instanceof ShipMountingEntity;
+      boolean shiftDown = player.isShiftKeyDown();
+      if (ShipShiftDecision.send(shipMount, this.maki$wasShipMount, shiftDown, this.wasShiftKeyDown)) {
+         this.connection.send(new ServerboundPlayerCommandPacket(player, shiftDown ? Action.PRESS_SHIFT_KEY : Action.RELEASE_SHIFT_KEY));
+         this.wasShiftKeyDown = shiftDown;
       }
 
-      this.maki$wasShipMount = var3;
+      this.maki$wasShipMount = shipMount;
    }
 }

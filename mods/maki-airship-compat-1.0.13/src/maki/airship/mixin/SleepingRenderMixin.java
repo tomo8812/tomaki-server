@@ -18,7 +18,7 @@ public abstract class SleepingRenderMixin {
       at = @At(value = "INVOKE", target = "Lcom/mojang/blaze3d/vertex/PoseStack;pushPose()V", shift = Shift.AFTER, ordinal = 0),
       remap = false
    )
-   private void maki$sleepInBedBasis(LivingEntity var1, float var2, float var3, PoseStack var4, MultiBufferSource var5, int var6, CallbackInfo var7) {
-      ShipSleepingRender.apply(var1, var3, var4);
+   private void maki$sleepInBedBasis(LivingEntity entity, float yaw, float partialTicks, PoseStack pose, MultiBufferSource buffers, int light, CallbackInfo ci) {
+      ShipSleepingRender.apply(entity, partialTicks, pose);
    }
 }

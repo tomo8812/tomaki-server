@@ -26,11 +26,11 @@ public abstract class FoundationSeatUtilMixin {
       remap = false
    )
    private static void maki$useWorkingShipVehicle(
-      Level var0, Player var1, InteractionHand var2, BlockHitResult var3, double var4, CallbackInfoReturnable<ItemInteractionResult> var6
+      Level level, Player player, InteractionHand hand, BlockHitResult hit, double height, CallbackInfoReturnable<ItemInteractionResult> cir
    ) {
-      ItemInteractionResult var7 = ShipFurnitureSeats.use(var0, var1, var2, var3, var4);
-      if (var7 != null) {
-         var6.setReturnValue(var7);
+      ItemInteractionResult result = ShipFurnitureSeats.use(level, player, hand, hit, height);
+      if (result != null) {
+         cir.setReturnValue(result);
       }
    }
 
@@ -39,9 +39,9 @@ public abstract class FoundationSeatUtilMixin {
       at = @At("RETURN"),
       remap = false
    )
-   private static void maki$rememberSeat(Level var0, BlockPos var1, ChairEntity var2, BlockPos var3, CallbackInfoReturnable<Boolean> var4) {
-      if (Boolean.TRUE.equals(var4.getReturnValue())) {
-         SeatCompat.remember(var0, var1, var2, var3);
+   private static void maki$rememberSeat(Level level, BlockPos key, ChairEntity chair, BlockPos dismount, CallbackInfoReturnable<Boolean> cir) {
+      if (Boolean.TRUE.equals(cir.getReturnValue())) {
+         SeatCompat.remember(level, key, chair, dismount);
       }
    }
 
@@ -50,7 +50,7 @@ public abstract class FoundationSeatUtilMixin {
       at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/player/Player;startRiding(Lnet/minecraft/world/entity/Entity;)Z"),
       remap = false
    )
-   private static boolean maki$mountShipChair(Player var0, Entity var1) {
-      return SeatCompat.mount(var0, var1);
+   private static boolean maki$mountShipChair(Player player, Entity chair) {
+      return SeatCompat.mount(player, chair);
    }
 }

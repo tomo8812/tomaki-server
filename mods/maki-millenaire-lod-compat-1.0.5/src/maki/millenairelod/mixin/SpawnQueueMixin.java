@@ -19,18 +19,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(value = VillageSpawnQueue.class, remap = false)
 public abstract class SpawnQueueMixin {
    @Inject(method = "trySpawnNext", at = @At("HEAD"))
-   private void compat$replay(ServerLevel var1, CallbackInfo var2) {
-      Compat.replay(var1, (VillageSpawnQueue)this);
+   private void compat$replay(ServerLevel level, CallbackInfo ci) {
+      Compat.replay(level, (VillageSpawnQueue)this);
    }
 
    @Redirect(method = "processMainQueue", at = @At(value = "INVOKE", target = "Ljava/util/Queue;poll()Ljava/lang/Object;"))
    private Object compat$poll(
-      Queue<BlockPos> var1, ServerLevel var2, VillageSavedData var3, VillageManager var4, boolean var5, boolean var6, boolean var7, long var8
+      Queue<BlockPos> queue, ServerLevel level, VillageSavedData saved, VillageManager manager, boolean villages, boolean lone, boolean log, long tick
    ) {
-      for (int var10 = 0; var10 < 10; var10++) {
-         BlockPos var11 = (BlockPos)var1.poll();
-         if (var11 == null || Compat.beginCandidate(var2, var11)) {
-            return var11;
+      for (int i = 0; i < 10; i++) {
+         BlockPos pos = queue.poll();
+         if (pos == null || Compat.beginCandidate(level, pos)) {
+            return pos;
          }
       }
 
@@ -38,11 +38,11 @@ public abstract class SpawnQueueMixin {
    }
 
    @Redirect(method = "processLBQueue", at = @At(value = "INVOKE", target = "Ljava/util/Deque;pollFirst()Ljava/lang/Object;"))
-   private Object compat$pollLone(Deque<Object> var1, ServerLevel var2, VillageSavedData var3, VillageManager var4, boolean var5, long var6) {
-      for (int var8 = 0; var8 < 20; var8++) {
-         Object var9 = var1.pollFirst();
-         if (var9 == null || Compat.beginCandidate(var2, ((LoneCandidateAccessor)var9).compat$pos())) {
-            return var9;
+   private Object compat$pollLone(Deque<Object> queue, ServerLevel level, VillageSavedData saved, VillageManager manager, boolean log, long tick) {
+      for (int i = 0; i < 20; i++) {
+         Object candidate = queue.pollFirst();
+         if (candidate == null || Compat.beginCandidate(level, ((LoneCandidateAccessor)candidate).compat$pos())) {
+            return candidate;
          }
       }
 
@@ -51,32 +51,40 @@ public abstract class SpawnQueueMixin {
 
    @Redirect(method = "processMainQueue", at = @At(value = "INVOKE", target = "Ljava/util/Deque;addLast(Ljava/lang/Object;)V"))
    private void compat$addLoneFromMain(
-      Deque<Object> var1, Object var2, ServerLevel var3, VillageSavedData var4, VillageManager var5, boolean var6, boolean var7, boolean var8, long var9
+      Deque<Object> queue,
+      Object candidate,
+      ServerLevel level,
+      VillageSavedData saved,
+      VillageManager manager,
+      boolean villages,
+      boolean lone,
+      boolean log,
+      long tick
    ) {
-      Compat.waiting(var3, ((LoneCandidateAccessor)var2).compat$pos(), true);
-      var1.addLast(var2);
+      Compat.waiting(level, ((LoneCandidateAccessor)candidate).compat$pos(), true);
+      queue.addLast(candidate);
    }
 
    @Redirect(method = "processLBQueue", at = @At(value = "INVOKE", target = "Ljava/util/Deque;addLast(Ljava/lang/Object;)V"))
-   private void compat$addLone(Deque<Object> var1, Object var2, ServerLevel var3, VillageSavedData var4, VillageManager var5, boolean var6, long var7) {
-      Compat.waiting(var3, ((LoneCandidateAccessor)var2).compat$pos(), true);
-      var1.addLast(var2);
-   }
-
-   @Inject(method = "trySpawnVillage", at = @At("RETURN"))
-   private void compat$deferred(
-      ServerLevel var1, BlockPos var2, double var3, VillageManager var5, boolean var6, boolean var7, boolean var8, CallbackInfoReturnable<?> var9
-   ) {
-      if ("DEFERRED".equals(String.valueOf(var9.getReturnValue()))) {
-         ReplayController.deferred(var1, var2, !var6);
-      }
+   private void compat$addLone(Deque<Object> queue, Object candidate, ServerLevel level, VillageSavedData saved, VillageManager manager, boolean log, long tick) {
+      Compat.waiting(level, ((LoneCandidateAccessor)candidate).compat$pos(), true);
+      queue.addLast(candidate);
    }
 
    @Redirect(
       method = "trySpawnVillage",
       at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerLevel;hasChunksAt(Lnet/minecraft/core/BlockPos;Lnet/minecraft/core/BlockPos;)Z")
    )
-   private boolean compat$coverage(ServerLevel var1, BlockPos var2, BlockPos var3) {
-      return ReplayController.coverageCheck(var1, var2, var3);
+   private boolean compat$coverage(ServerLevel level, BlockPos from, BlockPos to) {
+      return ReplayController.coverageCheck(level, from, to);
+   }
+
+   @Inject(method = "trySpawnVillage", at = @At("RETURN"))
+   private void compat$deferred(
+      ServerLevel level, BlockPos pos, double distance, VillageManager manager, boolean lone, boolean log, boolean keyOnly, CallbackInfoReturnable<?> cir
+   ) {
+      if ("DEFERRED".equals(String.valueOf(cir.getReturnValue()))) {
+         ReplayController.deferred(level, pos, !lone);
+      }
    }
 }

@@ -21,9 +21,9 @@ public abstract class ClientPassengerMixin {
       cancellable = true,
       remap = false
    )
-   private void maki$deferPassengers(ClientboundSetPassengersPacket var1, CallbackInfo var2) {
-      if (PassengerRecovery.defer((ClientPacketListener)this, var1)) {
-         var2.cancel();
+   private void maki$deferPassengers(ClientboundSetPassengersPacket packet, CallbackInfo ci) {
+      if (PassengerRecovery.defer((ClientPacketListener)this, packet)) {
+         ci.cancel();
       }
    }
 }

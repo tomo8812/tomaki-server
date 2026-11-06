@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(value = Minecraft.class, remap = false)
 public abstract class ClientTickMixin {
    @Inject(method = "tick()V", at = @At("TAIL"), remap = false)
-   private void maki$retryPassengers(CallbackInfo var1) {
+   private void maki$retryPassengers(CallbackInfo ci) {
       PassengerRecovery.tick();
    }
 }

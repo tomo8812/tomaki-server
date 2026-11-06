@@ -1,15 +1,19 @@
 package maki.lodcpu;
 
-import maki.statusio.StatusIo;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.tick.ServerTickEvent.Post;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Mod("maki_lod_cpu")
 public final class MakiLodCpu {
+   private static final Logger LOG = LoggerFactory.getLogger("MakiLodCpu");
+
    public MakiLodCpu() {
+      LOG.info("Maki LOD CPU initialized; follow ownership, CPU governor and task migration commands are enabled.");
       NeoForge.EVENT_BUS.addListener(this::tick);
       NeoForge.EVENT_BUS.addListener(e -> {
          if (e.getEntity() instanceof ServerPlayer p) {
@@ -23,7 +27,7 @@ public final class MakiLodCpu {
       });
       NeoForge.EVENT_BUS.addListener(e -> {
          PlayerCenter.shutdown(e.getServer());
-         StatusIo.flush(2000L);
+         LOG.info("Maki LOD CPU stopped; authoritative Chunksmith task progress and migration backups remain in their durable stores.");
       });
       NeoForge.EVENT_BUS.addListener(e -> PlayerCenter.register(e.getDispatcher()));
    }

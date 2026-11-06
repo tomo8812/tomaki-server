@@ -44,6 +44,7 @@ final class GenerationStore {
          }
 
          migrateExactLegacy(root, snapshot, trigger);
+         migratePolicyEquivalent(root, snapshot, trigger);
          quarantineIncompatible(root, snapshot, trigger);
          Path active = root.resolve(snapshot.fingerprint());
          Files.createDirectories(active);
@@ -192,6 +193,42 @@ final class GenerationStore {
                   new Object[]{snapshot.legacyFingerprint(), snapshot.fingerprint(), root.getFileName(), before.entries(), before.bytes(), trigger}
                );
             }
+         }
+      }
+   }
+
+   private static void migratePolicyEquivalent(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+      FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+
+      List<Path> candidates;
+      try (Stream<Path> stream = Files.list(root)) {
+         candidates = stream.filter(x$0 -> Files.isDirectory(x$0))
+            .filter(path -> path.getFileName().toString().matches("[0-9a-f]{24}"))
+            .filter(path -> !path.getFileName().toString().equals(snapshot.fingerprint()))
+            .toList();
+      }
+
+      for (Path candidate : candidates) {
+         FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(candidate.resolve("manifest-v2.txt"));
+         if (old != null && FingerprintManifest.sameRelevantInputsExcept(old, current, Set.of("policy:compatibility"))) {
+            String oldFingerprint = candidate.getFileName().toString();
+            GenerationStore.Stats before = stats(candidate);
+            Path active = root.resolve(snapshot.fingerprint());
+            FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve("manifest-v2.txt"));
+            mergeDirectory(candidate, active);
+            Set<String> accepted = new LinkedHashSet<>();
+            accepted.add(snapshot.fingerprint());
+            accepted.add(oldFingerprint);
+            accepted.addAll(old.storedFingerprints());
+            if (existing != null) {
+               accepted.addAll(existing.storedFingerprints());
+            }
+
+            FingerprintManifest.writeAtomic(active.resolve("manifest-v2.txt"), snapshot.manifest(accepted));
+            LOG.info(
+               "Adopted policy-equivalent chunk-cache generation {} as {} for {}; all worldgen/serialization-relevant inputs are unchanged; entries={} bytes={} trigger={}",
+               new Object[]{oldFingerprint, snapshot.fingerprint(), root.getFileName(), before.entries(), before.bytes(), trigger}
+            );
          }
       }
    }

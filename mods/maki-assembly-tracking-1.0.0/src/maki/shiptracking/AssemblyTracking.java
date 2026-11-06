@@ -37,99 +37,103 @@ public final class AssemblyTracking {
    private static boolean enabled = true;
 
    public AssemblyTracking() {
-      NeoForge.EVENT_BUS.addListener(var0 -> tick(var0.getServer()));
-      NeoForge.EVENT_BUS.addListener(var0 -> {
+      LOG.info(
+         "Maki Assembly Tracking initialized; bounded post-assembly player tracking repair is enabled by default and follows config/maki-assembly-tracking.properties."
+      );
+      NeoForge.EVENT_BUS.addListener(e -> tick(e.getServer()));
+      NeoForge.EVENT_BUS.addListener(e -> {
+         LOG.info("Maki Assembly Tracking stopping; clearing {} pending repair job(s).", JOBS.size());
          JOBS.clear();
          LAST.clear();
          owner = null;
       });
    }
 
-   public static void assembled(ServerLevel var0, Set<BlockPos> var1) {
-      if (enabled && !var1.isEmpty()) {
-         int var2 = Integer.MAX_VALUE;
-         int var3 = var2;
-         int var4 = var2;
-         int var5 = Integer.MIN_VALUE;
-         int var6 = var5;
-         int var7 = var5;
+   public static void assembled(ServerLevel level, Set<BlockPos> blocks) {
+      if (enabled && !blocks.isEmpty()) {
+         int minX = Integer.MAX_VALUE;
+         int minY = minX;
+         int minZ = minX;
+         int maxX = Integer.MIN_VALUE;
+         int maxY = maxX;
+         int maxZ = maxX;
 
-         for (BlockPos var9 : var1) {
-            var2 = Math.min(var2, var9.getX());
-            var3 = Math.min(var3, var9.getY());
-            var4 = Math.min(var4, var9.getZ());
-            var5 = Math.max(var5, var9.getX());
-            var6 = Math.max(var6, var9.getY());
-            var7 = Math.max(var7, var9.getZ());
+         for (BlockPos p : blocks) {
+            minX = Math.min(minX, p.getX());
+            minY = Math.min(minY, p.getY());
+            minZ = Math.min(minZ, p.getZ());
+            maxX = Math.max(maxX, p.getX());
+            maxY = Math.max(maxY, p.getY());
+            maxZ = Math.max(maxZ, p.getZ());
          }
 
-         AABB var14 = new AABB(var2, var3, var4, var5 + 1, var6 + 1, var7 + 1).inflate(4.0);
-         HashSet var15 = new HashSet();
+         AABB area = new AABB(minX, minY, minZ, maxX + 1, maxY + 1, maxZ + 1).inflate(4.0);
+         Set<UUID> affected = new HashSet<>();
 
-         for (ServerPlayer var11 : var0.players()) {
-            if (var14.intersects(var11.getBoundingBox())) {
-               var15.add(var11.getUUID());
+         for (ServerPlayer p : level.players()) {
+            if (area.intersects(p.getBoundingBox())) {
+               affected.add(p.getUUID());
             }
          }
 
-         if (!var15.isEmpty()) {
+         if (!affected.isEmpty()) {
             while (JOBS.size() > 60) {
                JOBS.removeFirst();
             }
 
-            for (int var13 : new int[]{20, 100}) {
-               JOBS.add(new AssemblyTracking.Job(var0, Set.copyOf(var15), sequence + var13, var13));
+            for (int delay : new int[]{20, 100}) {
+               JOBS.add(new AssemblyTracking.Job(level, Set.copyOf(affected), sequence + delay, delay));
             }
 
-            LOG.info("Assembly near {} player(s); scheduling tracked-player synchronization at 20 and 100 ticks", var15.size());
+            LOG.info("Assembly near {} player(s); scheduling tracked-player synchronization at 20 and 100 ticks", affected.size());
          }
       }
    }
 
-   public static boolean repairPair(boolean var0, boolean var1, boolean var2, boolean var3) {
-      return !var0 && var1 && var2 && var3;
+   public static boolean repairPair(boolean samePlayer, boolean sameLevel, boolean alreadyTracked, boolean alive) {
+      return !samePlayer && sameLevel && alreadyTracked && alive;
    }
 
    private static void reload() {
-      long var0 = System.currentTimeMillis();
-      if (var0 - lastConfigRead >= 5000L) {
-         lastConfigRead = var0;
-         Path var2 = Path.of("config/maki-assembly-tracking.properties");
+      long now = System.currentTimeMillis();
+      if (now - lastConfigRead >= 5000L) {
+         lastConfigRead = now;
+         Path path = Path.of("config/maki-assembly-tracking.properties");
 
          try {
-            if (!Files.exists(var2)) {
+            if (!Files.exists(path)) {
                return;
             }
 
-            long var3 = Files.getLastModifiedTime(var2).toMillis();
-            if (var3 == stamp) {
+            long next = Files.getLastModifiedTime(path).toMillis();
+            if (next == stamp) {
                return;
             }
 
-            Properties var5 = new Properties();
+            Properties p = new Properties();
 
-            try (BufferedReader var6 = Files.newBufferedReader(var2)) {
-               var5.load(var6);
+            try (BufferedReader r = Files.newBufferedReader(path)) {
+               p.load(r);
             }
 
-            String var12 = var5.getProperty("enabled", "true");
-            if (!var12.equals("true") && !var12.equals("false")) {
+            String value = p.getProperty("enabled", "true");
+            if (!value.equals("true") && !value.equals("false")) {
                throw new IllegalArgumentException("enabled");
             }
 
-            enabled = Boolean.parseBoolean(var12);
-            stamp = var3;
+            enabled = Boolean.parseBoolean(value);
+            stamp = next;
             LOG.info("Assembly tracking resync enabled={}", enabled);
-         } catch (Exception var11) {
+         } catch (Exception e) {
             enabled = false;
-            LOG.warn("Invalid assembly tracking settings; repair disabled", var11);
+            LOG.warn("Invalid assembly tracking settings; repair disabled", e);
          }
       }
    }
 
-   private static void tick(MinecraftServer var0) {
-      if (owner != var0) {
-         owner = var0;
+   private static void tick(MinecraftServer server) {
+      if (owner != server) {
+         owner = server;
          JOBS.clear();
          LAST.clear();
          sequence = 0L;
@@ -140,40 +144,43 @@ public final class AssemblyTracking {
       if (!enabled) {
          JOBS.clear();
       } else {
-         Iterator var1 = JOBS.iterator();
+         Iterator<AssemblyTracking.Job> iterator = JOBS.iterator();
 
-         while (var1.hasNext()) {
-            AssemblyTracking.Job var2 = (AssemblyTracking.Job)var1.next();
-            if (sequence >= var2.due()) {
-               var1.remove();
-               int var3 = 0;
-               Int2ObjectMap var4 = ((ChunkMapAccess)var2.level().getChunkSource().chunkMap).maki$entities();
+         while (iterator.hasNext()) {
+            AssemblyTracking.Job job = iterator.next();
+            if (sequence >= job.due()) {
+               iterator.remove();
+               int refreshed = 0;
+               Int2ObjectMap<Object> map = ((ChunkMapAccess)job.level().getChunkSource().chunkMap).maki$entities();
 
-               for (ServerPlayer var6 : var2.level().players()) {
-                  if (var4.get(var6.getId()) instanceof TrackedEntityAccess var8) {
-                     for (ServerPlayer var10 : var2.level().players()) {
-                        if ((var2.affected().contains(var6.getUUID()) || var2.affected().contains(var10.getUUID()))
+               for (ServerPlayer target : job.level().players()) {
+                  if (map.get(target.getId()) instanceof TrackedEntityAccess tracked) {
+                     for (ServerPlayer viewer : job.level().players()) {
+                        if ((job.affected().contains(target.getUUID()) || job.affected().contains(viewer.getUUID()))
                            && repairPair(
-                              var6 == var10, var6.level() == var10.level(), var8.maki$seenBy().contains(var10.connection), var6.isAlive() && var10.isAlive()
+                              target == viewer,
+                              target.level() == viewer.level(),
+                              tracked.maki$seenBy().contains(viewer.connection),
+                              target.isAlive() && viewer.isAlive()
                            )) {
-                           AssemblyTracking.Pair var11 = new AssemblyTracking.Pair(var6.getUUID(), var10.getUUID());
-                           if (sequence - LAST.getOrDefault(var11, -4611686018427387904L) >= 20L) {
-                              var8.maki$serverEntity().removePairing(var10);
-                              var8.maki$serverEntity().addPairing(var10);
-                              LAST.put(var11, sequence);
-                              var3++;
+                           AssemblyTracking.Pair pair = new AssemblyTracking.Pair(target.getUUID(), viewer.getUUID());
+                           if (sequence - LAST.getOrDefault(pair, -4611686018427387904L) >= 20L) {
+                              tracked.maki$serverEntity().removePairing(viewer);
+                              tracked.maki$serverEntity().addPairing(viewer);
+                              LAST.put(pair, sequence);
+                              refreshed++;
                            }
                         }
                      }
                   }
                }
 
-               LOG.info("Post-assembly synchronization: delay={} ticks, refreshed={} existing player tracking pair(s)", var2.delay(), var3);
+               LOG.info("Post-assembly synchronization: delay={} ticks, refreshed={} existing player tracking pair(s)", job.delay(), refreshed);
             }
          }
 
          if (sequence % 200L == 0L) {
-            LAST.entrySet().removeIf(var0x -> sequence - var0x.getValue() > 200L);
+            LAST.entrySet().removeIf(e -> sequence - e.getValue() > 200L);
          }
       }
    }

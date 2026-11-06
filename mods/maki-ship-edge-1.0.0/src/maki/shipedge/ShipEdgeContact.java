@@ -1,10 +1,11 @@
 package maki.shipedge;
 
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3dc;
 import org.valkyrienskies.core.api.ships.Ship;
-import org.valkyrienskies.core.internal.world.VsiShipWorld;
 import org.valkyrienskies.mod.common.VSGameUtilsKt;
 import org.valkyrienskies.mod.common.util.EntityDragger;
 import org.valkyrienskies.mod.common.util.EntityDraggingInformation;
@@ -14,34 +15,34 @@ public final class ShipEdgeContact {
    private ShipEdgeContact() {
    }
 
-   public static Vec3 query(Player var0, Vec3 var1, MoverType var2, boolean var3) {
-      if (Double.isFinite(var1.x)
-         && Double.isFinite(var1.y)
-         && Double.isFinite(var1.z)
-         && !(var1.y > 0.0)
-         && (var2 == MoverType.SELF || var2 == MoverType.PLAYER)
-         && var0.onGround()
-         && !var0.isPassenger()
-         && !var0.getAbilities().flying
-         && var3
-         && (var1.x != 0.0 || var1.z != 0.0)) {
-         if (!(var0 instanceof IEntityDraggingInformationProvider var4)) {
+   public static Vec3 query(Player player, Vec3 movement, MoverType mover, boolean stayingOnSurface) {
+      if (Double.isFinite(movement.x)
+         && Double.isFinite(movement.y)
+         && Double.isFinite(movement.z)
+         && !(movement.y > 0.0)
+         && (mover == MoverType.SELF || mover == MoverType.PLAYER)
+         && player.onGround()
+         && !player.isPassenger()
+         && !player.getAbilities().flying
+         && stayingOnSurface
+         && (movement.x != 0.0 || movement.z != 0.0)) {
+         if (!(player instanceof IEntityDraggingInformationProvider provider)) {
             return null;
          } else {
-            EntityDraggingInformation var9 = var4.getDraggingInformation();
-            if (var9.isEntityBeingDraggedByAShip() && var9.getLastShipStoodOn() != null && var9.getTicksSinceStoodOnShip() == 1) {
-               VsiShipWorld var6 = VSGameUtilsKt.getShipObjectWorld(var0.level());
-               if (var6 == null) {
+            EntityDraggingInformation dragging = provider.getDraggingInformation();
+            if (dragging.isEntityBeingDraggedByAShip() && dragging.getLastShipStoodOn() != null && dragging.getTicksSinceStoodOnShip() == 1) {
+               Vector3dc relative = dragging.getRelativePositionOnShip();
+               if (relative == null) {
                   return null;
+               } else {
+                  Ship ship = VSGameUtilsKt.getLoadedShipManagingPos(player.level(), BlockPos.containing(relative.x(), relative.y(), relative.z()));
+                  if (ship != null && ship.getId() == dragging.getLastShipStoodOn()) {
+                     Vec3 adjusted = EntityDragger.backOff(movement, ship, player, player.level());
+                     return Double.isFinite(adjusted.x) && Double.isFinite(adjusted.y) && Double.isFinite(adjusted.z) ? adjusted : null;
+                  } else {
+                     return null;
+                  }
                }
-
-               Ship var7 = var6.getLoadedShips().getById(var9.getLastShipStoodOn());
-               if (var7 == null) {
-                  return null;
-               }
-
-               Vec3 var8 = EntityDragger.backOff(var1, var7, var0, var0.level());
-               return Double.isFinite(var8.x) && Double.isFinite(var8.y) && Double.isFinite(var8.z) ? var8 : null;
             } else {
                return null;
             }

@@ -1,6 +1,6 @@
-package maki.lagobserver.mixin;
+package maki.modsobserver.mixin;
 
-import maki.lagobserver.NbtCopyObserver;
+import maki.modsobserver.NbtCopyObserver;
 import net.minecraft.nbt.ListTag;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;

@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(value = EntityRenderer.class, remap = false)
 public abstract class EntityLightMixin {
    @Inject(method = "getPackedLightCoords(Lnet/minecraft/world/entity/Entity;F)I", at = @At("RETURN"), cancellable = true, remap = false)
-   private void maki$sampleShipEyeLight(Entity var1, float var2, CallbackInfoReturnable<Integer> var3) {
-      var3.setReturnValue(ShipEntityLight.packed(var1, var2, (Integer)var3.getReturnValue()));
+   private void maki$sampleShipEyeLight(Entity entity, float partialTicks, CallbackInfoReturnable<Integer> cir) {
+      cir.setReturnValue(ShipEntityLight.packed(entity, partialTicks, (Integer)cir.getReturnValue()));
    }
 }

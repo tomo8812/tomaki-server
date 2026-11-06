@@ -1,6 +1,5 @@
 package maki.lodcpu;
 
-import com.google.gson.Gson;
 import com.sun.management.OperatingSystemMXBean;
 import java.io.Reader;
 import java.lang.management.GarbageCollectorMXBean;
@@ -8,12 +7,8 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Properties;
-import maki.statusio.StatusIo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,7 +16,6 @@ public final class CpuGovernor {
    private static final Logger LOG = LoggerFactory.getLogger("MakiLodCpu");
    private static final Path CONFIG = Path.of("config/maki-lod-cpu.properties");
    private static final AdaptivePolicy POLICY = new AdaptivePolicy();
-   private static final Gson JSON = new Gson();
    private static Settings settings = new Settings();
    private static volatile int cap = 2;
    private static volatile long taskActivity;
@@ -100,12 +94,22 @@ public final class CpuGovernor {
             LodCounters lod = LodCounters.read();
             boolean comparable = previousLod != null && lod.identity() == previousLod.identity() && lod.available() && previousLod.available();
             long writes = comparable ? Math.max(0L, lod.written() - previousLod.written()) : 0L;
-            long bytes = comparable ? Math.max(0L, lod.bytes() - previousLod.bytes()) : 0L;
+            if (comparable) {
+               Math.max(0L, lod.bytes() - previousLod.bytes());
+            } else {
+               long bytes = 0L;
+            }
+
             long sync = comparable ? Math.max(0L, lod.synchronousWrites() - previousLod.synchronousWrites()) : 0L;
             previousLod = lod;
             long oom = budget.oomKills() >= 0L && lastOom >= 0L ? Math.max(0L, budget.oomKills() - lastOom) : 0L;
             lastOom = budget.oomKills();
-            long throttled = budget.throttledMicros() >= 0L && lastThrottled >= 0L ? Math.max(0L, budget.throttledMicros() - lastThrottled) : 0L;
+            if (budget.throttledMicros() >= 0L && lastThrottled >= 0L) {
+               Math.max(0L, budget.throttledMicros() - lastThrottled);
+            } else {
+               long throttled = 0L;
+            }
+
             lastThrottled = budget.throttledMicros();
             WorkTelemetry work = observedWork;
             WorkTelemetry.NativeState state = work == null ? null : work.state;
@@ -178,7 +182,6 @@ public final class CpuGovernor {
                      POLICY.phase
                   }
                );
-               report(sample, state, budget, bytes, throttled, players, active);
                lastReport = now;
             }
          }
@@ -279,61 +282,5 @@ public final class CpuGovernor {
 
    private static Object finite(double n) {
       return Double.isFinite(n) ? n : null;
-   }
-
-   private static void report(AdaptiveSample x, WorkTelemetry.NativeState state, MemoryBudget memory, long bytes, long throttled, int players, boolean active) {
-      try {
-         Map<String, Object> m = new LinkedHashMap<>();
-         m.put("time", Instant.now().toString());
-         m.put("statusSchemaVersion", 2);
-         m.put("controllerVersion", "1.3.3");
-         m.put("cpuBudgetCores", capacity);
-         m.put("cpuBudgetUsedPercent", finite(x.cpu()));
-         m.put("mspt", finite(x.mspt()));
-         m.put("heapUsedPercent", finite(x.heap()));
-         m.put("players", players);
-         m.put("cpuConcurrencyCeiling", cap);
-         m.put("reason", POLICY.reason);
-         m.put("reasonScope", "follow-owned-generation-task");
-         m.put("active", active);
-         m.put("nativeDispatchWidth", x.nativeWidth());
-         m.put("inFlight", x.inFlight());
-         m.put("sampleSeconds", x.seconds());
-         m.put("lodSavedPerSecond", finite(x.lodWrites() / x.seconds()));
-         m.put("lodSavedBytesPerSecond", finite(bytes / x.seconds()));
-         m.put("lodSavedInSample", x.lodWrites());
-         m.put("lodSavedScope", "all-chunksmith-cslod-store-writes");
-         m.put("requestCompletionsPerSecond", finite(x.completions() / x.seconds()));
-         m.put("requestCompletionsInSample", x.completions());
-         m.put("requestCompletionScope", "follow-owned-generation-task");
-         m.put("throughputBasis", x.storeAvailable() ? "successful-native-LOD-store-writes" : "completed-requests-fallback");
-         m.put("lodWriteQueue", x.lodQueue());
-         m.put("worldWriteQueue", x.worldWriteQueue());
-         m.put("synchronousLodWrites", x.synchronousWrites());
-         m.put("nativeBackpressure", x.nativeHeld());
-         m.put("gcTimePercent", finite(x.gc()));
-         m.put("nativeWriteHeld", state != null && state.writeHeld());
-         m.put("nativeResidencyHeld", state != null && state.residencyHeld());
-         m.put("nativeHeapHeld", state != null && state.heapHeld());
-         m.put("nativeAddedChunks", state == null ? -1L : state.addedChunks());
-         m.put("systemMemoryHeadroomMb", memory.headroomMb());
-         m.put("processRssMb", memory.rssMb());
-         m.put("memoryPsiSomeAvg10", memory.memoryPsi());
-         m.put("ioPsiSomeAvg10", memory.ioPsi());
-         m.put("cgroupThrottledMicrosInSample", throttled);
-         m.put("cgroupOomKillsInSample", x.oomKills());
-         m.put("requestLatencyP95BucketUpperMs", x.latencyP95Ms());
-         m.put("experimentPhase", POLICY.phase);
-         m.put("lastWindowRate", POLICY.lastWindowRate);
-         m.put("baselineRate", POLICY.baselineRate);
-         m.put("probeRate", POLICY.probeRate);
-         m.put("confirmedBaselineRate", POLICY.confirmedBaselineRate);
-         m.put("lastExperiment", POLICY.lastExperiment);
-         m.put("experimentNumber", POLICY.experimentNumber);
-         m.put("experimentRetryRemainingSeconds", POLICY.retryRemainingSeconds());
-         StatusIo.publish(Path.of("logs/maki-lod-cpu-status.json"), JSON.toJson(m) + "\n");
-      } catch (Exception e) {
-         LOG.debug("Cannot write throughput status", e);
-      }
    }
 }

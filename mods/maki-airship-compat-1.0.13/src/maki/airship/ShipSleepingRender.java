@@ -12,21 +12,22 @@ import org.valkyrienskies.core.api.ships.properties.ShipTransform;
 import org.valkyrienskies.mod.common.VSGameUtilsKt;
 
 public final class ShipSleepingRender {
-   public static void apply(LivingEntity var0, float var1, PoseStack var2) {
-      if (SleepCompat.anchored(var0) && !var0.isPassenger()) {
-         if (!VSGameUtilsKt.isBlockInShipyard(var0.level(), var0.position())) {
-            BlockPos var3 = (BlockPos)var0.getSleepingPos().orElseThrow();
-            if (VSGameUtilsKt.getLoadedShipManagingPos(var0.level(), var3) instanceof ClientShip var5) {
-               ShipTransform var6 = var5.getRenderTransform();
-               Vec3 var7 = SleepCompat.bedPoint(var3);
-               Vector3d var8 = var6.getShipToWorld().transformPosition(new Vector3d(var7.x, var7.y, var7.z));
-               Vec3 var9 = var0.getPosition(var1);
-               if (var8.isFinite()) {
-                  var2.translate(var8.x - var9.x, var8.y - var9.y, var8.z - var9.z);
-                  var2.mulPose(new Quaternionf(var6.getShipToWorldRotation()));
-                  Vector3dc var10 = var6.getShipToWorldScaling();
-                  var2.scale((float)var10.x(), (float)var10.y(), (float)var10.z());
-               }
+   private ShipSleepingRender() {
+   }
+
+   public static void apply(LivingEntity entity, float partialTicks, PoseStack pose) {
+      if (SleepCompat.anchored(entity) && !entity.isPassenger() && !VSGameUtilsKt.isBlockInShipyard(entity.level(), entity.position())) {
+         BlockPos bed = (BlockPos)entity.getSleepingPos().orElseThrow();
+         if (VSGameUtilsKt.getLoadedShipManagingPos(entity.level(), bed) instanceof ClientShip ship) {
+            ShipTransform var10 = ship.getRenderTransform();
+            Vec3 localBed = SleepCompat.bedPoint(bed);
+            Vector3d worldBed = var10.getShipToWorld().transformPosition(new Vector3d(localBed.x, localBed.y, localBed.z));
+            Vec3 entityPosition = entity.getPosition(partialTicks);
+            if (worldBed.isFinite()) {
+               pose.translate(worldBed.x - entityPosition.x, worldBed.y - entityPosition.y, worldBed.z - entityPosition.z);
+               pose.mulPose(new Quaternionf(var10.getShipToWorldRotation()));
+               Vector3dc scale = var10.getShipToWorldScaling();
+               pose.scale((float)scale.x(), (float)scale.y(), (float)scale.z());
             }
          }
       }

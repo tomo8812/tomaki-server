@@ -1,8 +1,8 @@
 # maki-lod-cpu-online-fix-1.0.2.jar
 
 - Source: `mods/maki-lod-cpu-online-fix-1.0.2.jar`
-- Git blob OID: `e38c90e8e5f384be44596b6deb9ff7460d730ced`
-- SHA-256: `7ff011e71149398c98a633b8a6e2c3ba94ccd1793b80ab7e9508d41c7746b911`
+- Git blob OID: `47affa42e3300cef74daab4d514b0ce4344f1668`
+- SHA-256: `833defdc614826804dcbf8f818827e6baf0a6d69c5f4e9b0946b9a2609d413f1`
 - Decompiler: Vineflower `1.12.0`
 - Extracted text resources: `3`
 

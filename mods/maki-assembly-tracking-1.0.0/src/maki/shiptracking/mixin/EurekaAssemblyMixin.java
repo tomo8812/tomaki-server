@@ -17,9 +17,9 @@ public abstract class EurekaAssemblyMixin {
       at = @At("RETURN"),
       require = 1
    )
-   private void maki$after(ServerLevel var1, Set<BlockPos> var2, CallbackInfoReturnable<ServerShip> var3) {
-      if (var3.getReturnValue() != null) {
-         AssemblyTracking.assembled(var1, var2);
+   private void maki$after(ServerLevel level, Set<BlockPos> blocks, CallbackInfoReturnable<ServerShip> ci) {
+      if (ci.getReturnValue() != null) {
+         AssemblyTracking.assembled(level, blocks);
       }
    }
 }

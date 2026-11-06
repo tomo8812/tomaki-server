@@ -64,43 +64,43 @@ public abstract class MountedCameraMixin {
    protected abstract void move(float var1, float var2, float var3);
 
    @Inject(method = "setup(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/world/entity/Entity;ZZF)V", at = @At("TAIL"), remap = false)
-   private void maki$normalMountedView(BlockGetter var1, Entity var2, boolean var3, boolean var4, float var5, CallbackInfo var6) {
-      if (var1 instanceof Level var7) {
-         boolean var12 = false;
-         ClientShip var8;
-         Vector3d var9;
-         float var10;
-         float var11;
-         if (var2 instanceof LivingEntity var13 && SleepCompat.anchored(var13) && !var13.isPassenger()) {
-            BlockPos var33 = (BlockPos)var13.getSleepingPos().orElseThrow();
-            if (!(VSGameUtilsKt.getLoadedShipManagingPos(var7, var33) instanceof ClientShip var37)) {
+   private void maki$normalMountedView(BlockGetter blockGetter, Entity entity, boolean detached, boolean reverse, float partialTicks, CallbackInfo ci) {
+      if (blockGetter instanceof Level level) {
+         boolean sleeping = false;
+         ClientShip ship;
+         Vector3d localMount;
+         float yaw;
+         float pitch;
+         if (entity instanceof LivingEntity living && SleepCompat.anchored(living) && !living.isPassenger()) {
+            BlockPos bed = (BlockPos)living.getSleepingPos().orElseThrow();
+            if (!(VSGameUtilsKt.getLoadedShipManagingPos(level, bed) instanceof ClientShip clientShip)) {
                return;
             }
 
-            var8 = var37;
-            Vec3 var17 = SleepCompat.bedPoint(var33);
-            var9 = new Vector3d(var17.x, var17.y, var17.z);
-            var10 = SleepingCameraPose.localYaw(var13.getBedOrientation());
-            var11 = 0.0F;
-            var12 = true;
+            ship = clientShip;
+            Vec3 var39 = SleepCompat.bedPoint(bed);
+            localMount = new Vector3d(var39.x, var39.y, var39.z);
+            yaw = SleepingCameraPose.localYaw(living.getBedOrientation());
+            pitch = 0.0F;
+            sleeping = true;
          } else {
-            if (!(var2.getVehicle() instanceof ShipMountingEntity) || ShipMountPerspective.isShipViewEngaged()) {
+            if (!(entity.getVehicle() instanceof ShipMountingEntity) || ShipMountPerspective.isShipViewEngaged()) {
                return;
             }
 
-            ShipMountedToData var14 = VSGameUtilsKt.getShipMountedToData(var2, var5);
-            if (var14 == null || !(var14.getShipMountedTo() instanceof ClientShip var15)) {
+            ShipMountedToData data = VSGameUtilsKt.getShipMountedToData(entity, partialTicks);
+            if (data == null || !(data.getShipMountedTo() instanceof ClientShip clientShip)) {
                return;
             }
 
-            var8 = var15;
-            var9 = new Vector3d(var14.getMountPosInShip());
-            var10 = var2.getViewYRot(var5);
-            var11 = var2.getViewXRot(var5);
+            ship = clientShip;
+            localMount = new Vector3d(data.getMountPosInShip());
+            yaw = entity.getViewYRot(partialTicks);
+            pitch = entity.getViewXRot(partialTicks);
          }
 
-         ShipTransform var32 = var8.getRenderTransform();
-         this.rotation.set(MountedCameraRotation.worldRotation(var32.getShipToWorldRotation(), var10, var11, var3 && var4));
+         ShipTransform transform = ship.getRenderTransform();
+         this.rotation.set(MountedCameraRotation.worldRotation(transform.getShipToWorldRotation(), yaw, pitch, detached && reverse));
          this.forwards.set(0.0F, 0.0F, -1.0F);
          this.rotation.transform(this.forwards);
          this.up.set(0.0F, 1.0F, 0.0F);
@@ -108,32 +108,33 @@ public abstract class MountedCameraMixin {
          this.left.set(-1.0F, 0.0F, 0.0F);
          this.rotation.transform(this.left);
          this.yRot = (float)Math.toDegrees(Math.atan2(-this.forwards.x, this.forwards.z));
-         this.xRot = (float)Math.toDegrees(Math.asin(Math.clamp(-this.forwards.y, -1.0, 1.0)));
-         Vector3d var34 = var32.getShipToWorld().transformPosition(var9, new Vector3d());
-         double var36 = this.eyeHeightOld + (this.eyeHeight - this.eyeHeightOld) * var5;
-         if (var12 && !var3) {
-            var36 += 0.3;
+         double clamped = Math.max(-1.0, Math.min(1.0, -this.forwards.y));
+         this.xRot = (float)Math.toDegrees(Math.asin(clamped));
+         Vector3d mountWorld = transform.getShipToWorld().transformPosition(localMount, new Vector3d());
+         double eye = this.eyeHeightOld + (this.eyeHeight - this.eyeHeightOld) * partialTicks;
+         if (sleeping && !detached) {
+            eye += 0.3;
          }
 
-         Vector3d var38 = var32.getShipToWorldRotation().transform(new Vector3d(0.0, var36, 0.0)).add(var34);
-         this.setPosition(var38.x, var38.y, var38.z);
-         if (var3) {
-            double var18 = 4.0 * (var2 instanceof LivingEntity var20 ? var20.getScale() : 1.0);
-            double var39 = var18;
+         Vector3d cameraWorld = transform.getShipToWorldRotation().transform(new Vector3d(0.0, eye, 0.0)).add(mountWorld);
+         this.setPosition(cameraWorld.x, cameraWorld.y, cameraWorld.z);
+         if (detached) {
+            double desired = 4.0 * (entity instanceof LivingEntity living ? living.getScale() : 1.0);
+            double allowed = desired;
 
-            for (int var22 = 0; var22 < 8; var22++) {
-               double var23 = ((var22 & 1) * 2 - 1) * 0.1;
-               double var25 = ((var22 >> 1 & 1) * 2 - 1) * 0.1;
-               double var27 = ((var22 >> 2 & 1) * 2 - 1) * 0.1;
-               Vec3 var29 = this.position.add(var23, var25, var27);
-               Vec3 var30 = var29.add(-this.forwards.x * var18, -this.forwards.y * var18, -this.forwards.z * var18);
-               BlockHitResult var31 = RaycastUtilsKt.clipIncludeShips(var7, new ClipContext(var29, var30, Block.VISUAL, Fluid.NONE, var2), true, null, false);
-               if (var31.getType() != Type.MISS) {
-                  var39 = Math.min(var39, var31.getLocation().distanceTo(this.position));
+            for (int corner = 0; corner < 8; corner++) {
+               double dx = ((corner & 1) * 2 - 1) * 0.1;
+               double dy = ((corner >> 1 & 1) * 2 - 1) * 0.1;
+               double dz = ((corner >> 2 & 1) * 2 - 1) * 0.1;
+               Vec3 start = this.position.add(dx, dy, dz);
+               Vec3 end = start.add(-this.forwards.x * desired, -this.forwards.y * desired, -this.forwards.z * desired);
+               BlockHitResult hit = RaycastUtilsKt.clipIncludeShips(level, new ClipContext(start, end, Block.VISUAL, Fluid.NONE, entity), true, null, false);
+               if (hit.getType() != Type.MISS) {
+                  allowed = Math.min(allowed, hit.getLocation().distanceTo(this.position));
                }
             }
 
-            this.move((float)(-var39), 0.0F, 0.0F);
+            this.move((float)(-allowed), 0.0F, 0.0F);
          }
       }
    }

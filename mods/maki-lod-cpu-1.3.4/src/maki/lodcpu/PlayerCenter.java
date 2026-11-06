@@ -16,11 +16,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import maki.statusio.StatusIo;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.nbt.CompoundTag;
@@ -50,6 +48,8 @@ public final class PlayerCenter {
    private static long lastReport;
    private static long lastCenterChange;
    private static long healthySince;
+   private static long lastStateSummary;
+   private static String lastLoggedState;
    private static boolean hadPlayers;
    private static boolean manualPause;
    private static boolean loadPause;
@@ -77,11 +77,13 @@ public final class PlayerCenter {
    private static void initialize(MinecraftServer server, long now) {
       owner = server;
       boot = now;
+      lastStateSummary = 0L;
       healthySince = 0L;
       lastCenterChange = 0L;
       lastReport = 0L;
       lastSave = 0L;
       lastCheck = 0L;
+      lastLoggedState = null;
       emptySince = server.getPlayerCount() == 0 ? now : 0L;
       hadPlayers = server.getPlayerCount() > 0;
       loadPause = false;
@@ -550,13 +552,12 @@ public final class PlayerCenter {
    }
 
    private static void report(MinecraftServer server, Chunksmith chunky, long now) {
-      if (now - lastReport >= 10000L) {
+      if (now - lastReport >= 1000L) {
          lastReport = now;
 
          try {
             GenerationTask current = (GenerationTask)chunky.getGenerationTasks().get("minecraft:overworld");
             TaskOwnership.PersistedOwner persistedOwner = TaskOwnership.persistedOwner(chunky, "minecraft:overworld");
-            TaskOwnership.PersistedTaskSnapshot persisted = TaskOwnership.snapshot(chunky, "minecraft:overworld");
             int players = server.getPlayerCount();
             boolean onlineBlocked = players > 0 && !settings().generateWhileOnline;
             boolean graceBlocked = now - boot < 10000L || players == 0 && now - emptySince < settings().emptyGraceSeconds * 1000L;
@@ -566,36 +567,42 @@ public final class PlayerCenter {
                   current != null && TaskOwnership.isOwned(current) && !current.isStopping()
                      || current == null && requested && persistedOwner != TaskOwnership.PersistedOwner.EXTERNAL && !LodHorizon.isArmed("minecraft:overworld")
                );
-            LinkedHashMap<String, Object> data = new LinkedHashMap<>();
-            data.put("statusSchemaVersion", 3);
-            data.put("time", Instant.now().toString());
-            data.put("player", settings().followPlayer);
-            data.put("targetOnline", server.getPlayerList().getPlayer(UUID.fromString(settings().followUuid)) != null);
-            data.put("centerX", saved.x);
-            data.put("centerZ", saved.z);
-            data.put("radius", settings().followRadius);
-            data.put("players", players);
-            data.put("onlineSlots", settings().generateWhileOnline ? settings().onlineMax : 0);
-            data.put("generateWhileOnline", settings().generateWhileOnline);
-            data.put("reason", reason);
-            data.put("followEnabled", enabled());
-            data.put("followRequested", requested);
-            data.put("manualPause", manualPause);
-            data.put("loadPause", loadPause);
-            data.put("lodSaveProtectionArmed", LodHorizon.isArmed("minecraft:overworld"));
-            data.put("canStartOrContinueFollow", canRun);
-            data.put("activeTaskOwner", current == null ? "none" : (TaskOwnership.isOwned(current) ? "follow" : "external"));
-            data.put("activeTaskChunks", current == null ? null : current.getCount());
-            data.put("activeTaskTotalChunks", current == null ? null : current.getChunkIterator().total());
-            data.put("activeTaskStopping", current == null ? null : current.isStopping());
-            data.put("persistedTaskOwner", TaskOwnership.status(persistedOwner));
-            data.put("persistedTask", persisted);
-            data.put("latestTaskBackup", ExternalTaskMigration.latestBackupId(chunky, server));
-            data.put("activeCenterX", current == null ? null : current.getSelection().centerX());
-            data.put("activeCenterZ", current == null ? null : current.getSelection().centerZ());
-            StatusIo.publish(Path.of("logs/maki-lod-follow-status.json"), JSON.toJson(data) + "\n");
+            String activeOwner = current == null ? "none" : (TaskOwnership.isOwned(current) ? "follow" : "external");
+            String state = reason
+               + "|"
+               + activeOwner
+               + "|"
+               + TaskOwnership.status(persistedOwner)
+               + "|"
+               + requested
+               + "|"
+               + manualPause
+               + "|"
+               + loadPause
+               + "|"
+               + canRun
+               + "|"
+               + players
+               + "|"
+               + saved.x
+               + "|"
+               + saved.z;
+            if (!state.equals(lastLoggedState)) {
+               LOG.info(
+                  "LOD follow state changed: reason={}, activeOwner={}, persistedOwner={}, requested={}, manualPause={}, loadPause={}, canRun={}, players={}, center={},{}",
+                  new Object[]{reason, activeOwner, TaskOwnership.status(persistedOwner), requested, manualPause, loadPause, canRun, players, saved.x, saved.z}
+               );
+               lastLoggedState = state;
+               lastStateSummary = now;
+            } else if (now - lastStateSummary >= 60000L) {
+               LOG.info(
+                  "LOD follow summary: reason={}, activeOwner={}, persistedOwner={}, canRun={}, players={}, center={},{}",
+                  new Object[]{reason, activeOwner, TaskOwnership.status(persistedOwner), canRun, players, saved.x, saved.z}
+               );
+               lastStateSummary = now;
+            }
          } catch (Exception e) {
-            LOG.debug("Could not report LOD follow status", e);
+            LOG.warn("Could not summarize LOD follow state; controller continues with the last valid state", e);
          }
       }
    }

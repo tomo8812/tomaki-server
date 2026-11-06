@@ -1,8 +1,8 @@
 # maki-millenaire-lod-compat-1.0.5.jar
 
 - Source: `mods/maki-millenaire-lod-compat-1.0.5.jar`
-- Git blob OID: `60e83efc361be396150f30337e1137d4bc74b4d6`
-- SHA-256: `ca7f1501cec1cae43fa29c3bd5e4f6816513ceff7648a62cb78542cdaa5c62a0`
+- Git blob OID: `8e4742591ef2415dd5e67809cca2f955d012fb49`
+- SHA-256: `3e53dec8f788940b7d4c41b57790736fed450cab0af3fbf0375a16ad201450f1`
 - Decompiler: Vineflower `1.12.0`
 - Extracted text resources: `3`
 

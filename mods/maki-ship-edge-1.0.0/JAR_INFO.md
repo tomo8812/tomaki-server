@@ -1,9 +1,9 @@
 # maki-ship-edge-1.0.0.jar
 
 - Source: `mods/maki-ship-edge-1.0.0.jar`
-- Git blob OID: `1395cf8114ad888e822009e5055cb1fa42436007`
-- SHA-256: `8117779ea276655a3a0079079f290a93faee3ba6404270b40649ea263e891c72`
+- Git blob OID: `3dc7c5b7bc17096d765f10feac767c342c63008d`
+- SHA-256: `af6c7e72f0fa587606cb028cf586876922261424e66d56623952204eb1a15105`
 - Decompiler: Vineflower `1.12.0`
-- Extracted text resources: `2`
+- Extracted text resources: `3`
 
 `src/` is decompiled code. `resources/` contains only text-like non-class files from the original JAR.

@@ -21,11 +21,11 @@ public abstract class ShipEdgeMixin {
       cancellable = true,
       remap = false
    )
-   private void maki$oneTickShipContact(Vec3 var1, MoverType var2, CallbackInfoReturnable<Vec3> var3) {
-      Player var4 = (Player)this;
-      Vec3 var5 = ShipEdgeContact.query(var4, var1, var2, this.isStayingOnGroundSurface());
-      if (var5 != null) {
-         var3.setReturnValue(var5);
+   private void maki$oneTickShipContact(Vec3 movement, MoverType mover, CallbackInfoReturnable<Vec3> cir) {
+      Player player = (Player)this;
+      Vec3 adjusted = ShipEdgeContact.query(player, movement, mover, this.isStayingOnGroundSurface());
+      if (adjusted != null) {
+         cir.setReturnValue(adjusted);
       }
    }
 }

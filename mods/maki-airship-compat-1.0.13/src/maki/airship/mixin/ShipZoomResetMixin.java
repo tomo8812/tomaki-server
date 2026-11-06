@@ -13,7 +13,7 @@ public abstract class ShipZoomResetMixin {
    private static double multiplier;
 
    @Inject(method = "reset()V", at = @At("RETURN"), remap = false)
-   private static void maki$restoreDefaultShipZoom(CallbackInfo var0) {
+   private static void maki$restoreDefaultShipZoom(CallbackInfo ci) {
       multiplier = 1.0;
    }
 }

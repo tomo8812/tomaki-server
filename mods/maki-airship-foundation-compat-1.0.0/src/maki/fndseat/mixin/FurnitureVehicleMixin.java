@@ -14,7 +14,7 @@ import org.valkyrienskies.mod.common.entity.ShipMountingEntity;
 @Mixin(value = ShipMountingEntity.class, remap = false)
 public abstract class FurnitureVehicleMixin {
    @Inject(method = "tick()V", at = @At("HEAD"), remap = false)
-   private void maki$checkFurniture(CallbackInfo var1) {
+   private void maki$checkFurniture(CallbackInfo ci) {
       ShipFurnitureSeats.tick((ShipMountingEntity)this);
    }
 
@@ -24,15 +24,15 @@ public abstract class FurnitureVehicleMixin {
       cancellable = true,
       remap = false
    )
-   private void maki$furnitureDismount(LivingEntity var1, CallbackInfoReturnable<Vec3> var2) {
-      Vec3 var3 = ShipFurnitureSeats.dismount((ShipMountingEntity)this, var1);
-      if (var3 != null) {
-         var2.setReturnValue(var3);
+   private void maki$furnitureDismount(LivingEntity passenger, CallbackInfoReturnable<Vec3> cir) {
+      Vec3 location = ShipFurnitureSeats.dismount((ShipMountingEntity)this, passenger);
+      if (location != null) {
+         cir.setReturnValue(location);
       }
    }
 
    @Inject(method = "remove(Lnet/minecraft/world/entity/Entity$RemovalReason;)V", at = @At("RETURN"), remap = false)
-   private void maki$releaseFurniture(RemovalReason var1, CallbackInfo var2) {
+   private void maki$releaseFurniture(RemovalReason reason, CallbackInfo ci) {
       ShipFurnitureSeats.remove((ShipMountingEntity)this);
    }
 }

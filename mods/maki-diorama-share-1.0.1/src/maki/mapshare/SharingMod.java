@@ -7,6 +7,7 @@ import net.neoforged.fml.config.ModConfig.Type;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import net.neoforged.neoforge.common.ModConfigSpec.Builder;
 import net.neoforged.neoforge.common.ModConfigSpec.IntValue;
+import org.slf4j.LoggerFactory;
 
 @Mod("maki_diorama_share")
 public final class SharingMod {
@@ -14,6 +15,7 @@ public final class SharingMod {
    public static final IntValue HISTORY;
 
    public SharingMod(IEventBus modBus, ModContainer container) {
+      LoggerFactory.getLogger("MakiDioramaShare").info("Maki Diorama Share initialized; share protocol and persistent player history are enabled.");
       container.registerConfig(Type.CLIENT, SPEC, "maki-diorama-share-client.toml");
       modBus.addListener(ShareNetwork::register);
       ServerSharing.register();

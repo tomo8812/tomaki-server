@@ -12,9 +12,9 @@ import org.valkyrienskies.mod.common.util.EntityDragger;
 @Mixin(value = EntityDragger.class, remap = false)
 public abstract class SleepDragMixin {
    @Inject(method = "isDraggable(Lnet/minecraft/world/entity/Entity;)Z", at = @At("HEAD"), cancellable = true, remap = false)
-   private static void maki$avoidDoubleSleepMovement(Entity var0, CallbackInfoReturnable<Boolean> var1) {
-      if (var0 instanceof LivingEntity var2 && SleepCompat.anchored(var2)) {
-         var1.setReturnValue(false);
+   private static void maki$avoidDoubleSleepMovement(Entity entity, CallbackInfoReturnable<Boolean> cir) {
+      if (entity instanceof LivingEntity living && SleepCompat.anchored(living)) {
+         cir.setReturnValue(false);
       }
    }
 }

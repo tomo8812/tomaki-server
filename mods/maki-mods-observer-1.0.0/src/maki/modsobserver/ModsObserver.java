@@ -1,9 +1,7 @@
-package maki.lagobserver;
+package maki.modsobserver;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.lang.System.Logger;
-import java.lang.System.Logger.Level;
 import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryUsage;
@@ -23,16 +21,31 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Map.Entry;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
 import net.minecraft.server.MinecraftServer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public final class LagObserver {
-   private static final Logger LOG = System.getLogger("MakiLagObserver");
+public final class ModsObserver {
+   private static final Logger LOG = LoggerFactory.getLogger("MakiModsObserver");
    private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
-   private static final Path CONFIG = Path.of("config/maki-lag-observer.properties");
-   private static final Path LOG_FILE = Path.of("logs/maki-lag-observer.jsonl");
+   private static final Path CONFIG = Path.of("config/maki-mods-observer.properties");
+   private static final Path LOG_FILE = Path.of("logs/maki-mods-observer.jsonl");
    private static final long THREAD_CPU_BASELINE_INTERVAL_NANOS = 1000000000L;
-   private static final Object WRITE_LOCK = new Object();
+   private static final long CONFIG_RELOAD_INTERVAL_NANOS = 5000000000L;
+   private static final BlockingQueue<Map<String, Object>> WRITE_QUEUE = new ArrayBlockingQueue<>(64);
+   private static final AtomicBoolean WRITER_STARTED = new AtomicBoolean();
+   private static final AtomicBoolean WRITE_WARNING_LOGGED = new AtomicBoolean();
+   private static final AtomicBoolean CAPTURE_WARNING_LOGGED = new AtomicBoolean();
+   private static final AtomicBoolean QUEUE_WARNING_LOGGED = new AtomicBoolean();
+   private static final AtomicBoolean SESSION_LIMIT_REACHED = new AtomicBoolean();
+   private static final AtomicLong SESSION_STARTED_NANOS = new AtomicLong();
+   private static final AtomicLong ACCEPTED_EVENTS = new AtomicLong();
+   private static final AtomicLong DROPPED_EVENTS = new AtomicLong();
    private static final Map<Long, Long> PREVIOUS_THREAD_CPU = new HashMap<>();
    private static volatile MinecraftServer owner;
    private static volatile Thread serverThread;
@@ -46,13 +59,14 @@ public final class LagObserver {
    private static volatile long lastTickEndNanos;
    private static volatile long lastTickEndCpuNanos = -1L;
    private static volatile long lastStallSampleNanos;
-   private static volatile LagObserver.TickSnapshot tickState = LagObserver.TickSnapshot.initial();
+   private static volatile ModsObserver.TickSnapshot tickState = ModsObserver.TickSnapshot.initial();
    private static volatile long threadCpuBaselineNanos;
-   private static volatile LagObserver.Settings settings = LagObserver.Settings.defaults();
+   private static volatile ModsObserver.Settings settings = ModsObserver.Settings.defaults();
    private static volatile long configStamp = Long.MIN_VALUE;
-   private static volatile boolean writeWarningLogged;
+   private static volatile boolean active;
+   private static volatile long nextConfigCheckNanos;
 
-   private LagObserver() {
+   private ModsObserver() {
    }
 
    public static void tickStart(MinecraftServer server) {
@@ -62,32 +76,45 @@ public final class LagObserver {
 
       owner = server;
       serverThread = Thread.currentThread();
-      ensureCpuTimeEnabled();
-      reloadSettings();
-      ensureWatchdog();
-      long now = System.nanoTime();
-      long previous = lastTickStartNanos;
-      long previousCpu = tickStartCpuNanos;
-      long cpuNow = cpuTime(serverThread);
-      lastTickStartNanos = now;
-      tickStartNanos = now;
-      tickStartCpuNanos = cpuNow;
-      tickInProgress = true;
-      long sequence = tickSequence + 1L;
-      tickSequence = sequence;
-      LagObserver.TickSnapshot snapshot = new LagObserver.TickSnapshot(sequence, true, now, cpuNow, lastTickEndNanos, lastTickEndCpuNanos);
-      tickState = snapshot;
-      LagObserver.Settings s = settings;
-      if (s.enabled && previous != 0L) {
-         long gap = now - previous;
-         if (gap >= millisToNanos(s.tickStartGapThresholdMs)) {
-            writeEvent(server, snapshot, "tick-start-gap", gap, cpuDelta(previousCpu, cpuNow), null, hottestThreads());
+      reloadSettingsIfDue();
+      if (!diagnosticSessionActive()) {
+         if (active) {
+            active = false;
+            stopWatchdog();
+            resetTimingState();
+         }
+      } else {
+         if (!active) {
+            active = true;
+            resetTimingState();
+            ensureCpuTimeEnabled();
+         }
+
+         ensureWatchdog();
+         long now = System.nanoTime();
+         long previous = lastTickStartNanos;
+         long previousCpu = tickStartCpuNanos;
+         long cpuNow = cpuTime(serverThread);
+         lastTickStartNanos = now;
+         tickStartNanos = now;
+         tickStartCpuNanos = cpuNow;
+         tickInProgress = true;
+         long sequence = tickSequence + 1L;
+         tickSequence = sequence;
+         ModsObserver.TickSnapshot snapshot = new ModsObserver.TickSnapshot(sequence, true, now, cpuNow, lastTickEndNanos, lastTickEndCpuNanos);
+         tickState = snapshot;
+         ModsObserver.Settings s = settings;
+         if (s.enabled && previous != 0L) {
+            long gap = now - previous;
+            if (gap >= millisToNanos(s.tickStartGapThresholdMs)) {
+               writeEvent(server, snapshot, "tick-start-gap", gap, cpuDelta(previousCpu, cpuNow), null, hottestThreads());
+            }
          }
       }
    }
 
    public static void tickEnd(MinecraftServer server) {
-      if (owner == server) {
+      if (owner == server && active) {
          long now = System.nanoTime();
          long started = tickStartNanos;
          long cpuStarted = tickStartCpuNanos;
@@ -95,12 +122,12 @@ public final class LagObserver {
          lastTickEndNanos = now;
          lastTickEndCpuNanos = cpuNow;
          tickInProgress = false;
-         LagObserver.TickSnapshot snapshot = new LagObserver.TickSnapshot(tickSequence, false, started, cpuStarted, now, cpuNow);
+         ModsObserver.TickSnapshot snapshot = new ModsObserver.TickSnapshot(tickSequence, false, started, cpuStarted, now, cpuNow);
          tickState = snapshot;
          if (started != 0L && settings.enabled) {
             long elapsed = Math.max(0L, now - started);
             if (elapsed >= millisToNanos(settings.longTickThresholdMs)) {
-               writeEvent(server, snapshot, "long-tick", elapsed, cpuDelta(cpuStarted, cpuNow), null, LagObserver.HotThreadSample.empty());
+               writeEvent(server, snapshot, "long-tick", elapsed, cpuDelta(cpuStarted, cpuNow), null, ModsObserver.HotThreadSample.empty());
             }
          }
       }
@@ -108,16 +135,11 @@ public final class LagObserver {
 
    public static void shutdown(MinecraftServer server) {
       if (owner == server) {
-         running = false;
-         Thread w = watchdog;
-         if (w != null) {
-            w.interrupt();
-         }
-
-         watchdog = null;
+         active = false;
+         stopWatchdog();
          tickInProgress = false;
          lastTickEndCpuNanos = -1L;
-         tickState = LagObserver.TickSnapshot.stopped(tickSequence);
+         tickState = ModsObserver.TickSnapshot.stopped(tickSequence);
          owner = null;
          serverThread = null;
          synchronized (PREVIOUS_THREAD_CPU) {
@@ -127,22 +149,46 @@ public final class LagObserver {
       }
    }
 
+   private static void resetTimingState() {
+      tickInProgress = false;
+      tickStartNanos = 0L;
+      tickStartCpuNanos = -1L;
+      lastTickStartNanos = 0L;
+      lastTickEndNanos = 0L;
+      lastTickEndCpuNanos = -1L;
+      lastStallSampleNanos = 0L;
+      tickState = ModsObserver.TickSnapshot.initial();
+      synchronized (PREVIOUS_THREAD_CPU) {
+         PREVIOUS_THREAD_CPU.clear();
+         threadCpuBaselineNanos = 0L;
+      }
+   }
+
+   private static void stopWatchdog() {
+      running = false;
+      Thread thread = watchdog;
+      watchdog = null;
+      if (thread != null) {
+         thread.interrupt();
+      }
+   }
+
    private static void ensureWatchdog() {
       if (watchdog == null || !watchdog.isAlive()) {
          running = true;
-         Thread thread = new Thread(LagObserver::watchLoop, "maki-lag-observer-watchdog");
+         Thread thread = new Thread(ModsObserver::watchLoop, "maki-mods-observer-watchdog");
          thread.setDaemon(true);
          thread.setPriority(1);
          primeThreadCpuSnapshot();
          watchdog = thread;
          thread.start();
-         LOG.log(Level.INFO, "Lag observer active; stall samples are written to " + LOG_FILE + " only when thresholds are exceeded");
+         LOG.info("Maki Mods Observer stall diagnostics enabled; thresholded samples use {}", LOG_FILE);
       }
    }
 
    private static void watchLoop() {
       while (running) {
-         LagObserver.Settings beforeSleep = settings;
+         ModsObserver.Settings beforeSleep = settings;
 
          try {
             Thread.sleep(beforeSleep.watchdogIntervalMs);
@@ -152,13 +198,13 @@ public final class LagObserver {
             }
          }
 
-         reloadSettings();
-         LagObserver.Settings s = settings;
+         reloadSettingsIfDue();
+         ModsObserver.Settings s = settings;
          MinecraftServer server = owner;
          Thread thread = serverThread;
-         if (s.enabled && server != null && thread != null) {
+         if (diagnosticSessionActive() && server != null && thread != null) {
             long now = System.nanoTime();
-            LagObserver.TickSnapshot snapshot = tickState;
+            ModsObserver.TickSnapshot snapshot = tickState;
             long age = snapshot.inProgress() ? now - snapshot.tickStartNanos() : (snapshot.lastTickEndNanos() == 0L ? 0L : now - snapshot.lastTickEndNanos());
             if (age < millisToNanos(s.stallThresholdMs)) {
                refreshThreadCpuBaselineIfDue(now);
@@ -172,7 +218,7 @@ public final class LagObserver {
       }
    }
 
-   private static boolean capture(MinecraftServer server, LagObserver.TickSnapshot snapshot, String event, long wallNanos, boolean includeHotThreads) {
+   private static boolean capture(MinecraftServer server, ModsObserver.TickSnapshot snapshot, String event, long wallNanos, boolean includeHotThreads) {
       Thread thread = serverThread;
       if (thread != null && tickState == snapshot) {
          ThreadInfo info = THREADS.getThreadInfo(thread.threadId(), settings.maxStackFrames);
@@ -182,7 +228,7 @@ public final class LagObserver {
          long effectiveWall = snapshot.inProgress()
             ? Math.max(wallNanos, sampledAt - snapshot.tickStartNanos())
             : Math.max(wallNanos, sampledAt - snapshot.lastTickEndNanos());
-         LagObserver.HotThreadSample hot = includeHotThreads ? hottestThreads() : LagObserver.HotThreadSample.empty();
+         ModsObserver.HotThreadSample hot = includeHotThreads ? hottestThreads() : ModsObserver.HotThreadSample.empty();
          if (tickState == snapshot && owner == server && serverThread == thread) {
             writeEvent(server, snapshot, event, effectiveWall, cpu, info, hot);
             return true;
@@ -196,58 +242,158 @@ public final class LagObserver {
 
    private static void writeEvent(
       MinecraftServer server,
-      LagObserver.TickSnapshot snapshot,
+      ModsObserver.TickSnapshot snapshot,
       String event,
       long wallNanos,
       long serverCpuNanos,
       ThreadInfo info,
-      LagObserver.HotThreadSample hotThreadSample
+      ModsObserver.HotThreadSample hotThreadSample
    ) {
-      try {
-         Map<String, Object> root = new LinkedHashMap<>();
-         root.put("time", Instant.now().toString());
-         root.put("event", event);
-         root.put("tickSequence", snapshot.sequence());
-         root.put("tickInProgress", snapshot.inProgress());
-         root.put("wallMs", nanosToMillis(wallNanos));
-         root.put("serverThreadCpuMs", serverCpuNanos < 0L ? null : nanosToMillis(serverCpuNanos));
-         root.put("serverThreadCpuToWallPercent", serverCpuNanos >= 0L && wallNanos > 0L ? round1(100.0 * serverCpuNanos / wallNanos) : null);
-         root.put("averageTickMs", round1(server.getAverageTickTimeNanos() / 1000000.0));
-         root.put("players", server.getPlayerCount());
-         root.put("frozen", server.tickRateManager().isFrozen());
-         root.put("lastTickEndAgoMs", snapshot.lastTickEndNanos() == 0L ? null : nanosToMillis(Math.max(0L, System.nanoTime() - snapshot.lastTickEndNanos())));
-         if (info != null) {
-            root.put("serverThreadState", info.getThreadState().name());
-            root.put("serverThreadLock", info.getLockName());
-            root.put("serverThreadLockOwner", info.getLockOwnerName());
-            root.put("serverThreadBlockedCount", info.getBlockedCount());
-            root.put("serverThreadWaitedCount", info.getWaitedCount());
-            ArrayList<String> stack = new ArrayList<>();
+      if (reserveDiagnosticEvent()) {
+         try {
+            Map<String, Object> root = new LinkedHashMap<>();
+            root.put("time", Instant.now().toString());
+            root.put("event", event);
+            root.put("tickSequence", snapshot.sequence());
+            root.put("tickInProgress", snapshot.inProgress());
+            root.put("wallMs", nanosToMillis(wallNanos));
+            root.put("serverThreadCpuMs", serverCpuNanos < 0L ? null : nanosToMillis(serverCpuNanos));
+            root.put("serverThreadCpuToWallPercent", serverCpuNanos >= 0L && wallNanos > 0L ? round1(100.0 * serverCpuNanos / wallNanos) : null);
+            root.put("averageTickMs", round1(server.getAverageTickTimeNanos() / 1000000.0));
+            root.put("players", server.getPlayerCount());
+            root.put("frozen", server.tickRateManager().isFrozen());
+            root.put(
+               "lastTickEndAgoMs", snapshot.lastTickEndNanos() == 0L ? null : nanosToMillis(Math.max(0L, System.nanoTime() - snapshot.lastTickEndNanos()))
+            );
+            if (info != null) {
+               root.put("serverThreadState", info.getThreadState().name());
+               root.put("serverThreadLock", info.getLockName());
+               root.put("serverThreadLockOwner", info.getLockOwnerName());
+               root.put("serverThreadBlockedCount", info.getBlockedCount());
+               root.put("serverThreadWaitedCount", info.getWaitedCount());
+               ArrayList<String> stack = new ArrayList<>();
 
-            for (StackTraceElement frame : info.getStackTrace()) {
-               stack.add(frame.toString());
+               for (StackTraceElement frame : info.getStackTrace()) {
+                  stack.add(frame.toString());
+               }
+
+               root.put("serverThreadStack", stack);
             }
 
-            root.put("serverThreadStack", stack);
+            root.put("hotThreadWindowMs", hotThreadSample.windowNanos() < 0L ? null : nanosToMillis(hotThreadSample.windowNanos()));
+            root.put("hotThreads", hotThreadSample.threads().stream().map(ModsObserver.HotThread::asMap).toList());
+            root.put("modState", modState());
+            enqueue(root);
+            CAPTURE_WARNING_LOGGED.set(false);
+         } catch (Throwable error) {
+            if (CAPTURE_WARNING_LOGGED.compareAndSet(false, true)) {
+               LOG.warn("Could not capture MOD diagnostic sample", error);
+            }
+         }
+      }
+   }
+
+   private static boolean diagnosticSessionActive() {
+      ModsObserver.Settings s = settings;
+      if (s.enabled && !SESSION_LIMIT_REACHED.get()) {
+         long now = System.nanoTime();
+         long started = SESSION_STARTED_NANOS.get();
+         if (started == 0L) {
+            SESSION_STARTED_NANOS.compareAndSet(0L, now);
+            started = SESSION_STARTED_NANOS.get();
          }
 
-         root.put("hotThreadWindowMs", hotThreadSample.windowNanos() < 0L ? null : nanosToMillis(hotThreadSample.windowNanos()));
-         root.put("hotThreads", hotThreadSample.threads().stream().map(LagObserver.HotThread::asMap).toList());
-         root.put("process", processMetrics());
-         root.put("jvm", jvmMetrics());
-         root.put("linux", linuxMetrics());
-         root.put("modState", modState());
-         String line = LagObserver.Json.encode(root) + System.lineSeparator();
-         synchronized (WRITE_LOCK) {
+         if (now - started >= s.maxDurationNanos) {
+            markSessionLimit("duration limit " + s.maxDurationNanos / 60000000000L + " minute(s) reached");
+            return false;
+         } else {
+            return true;
+         }
+      } else {
+         return false;
+      }
+   }
+
+   private static boolean reserveDiagnosticEvent() {
+      ModsObserver.Settings s = settings;
+      if (!diagnosticSessionActive()) {
+         return false;
+      }
+
+      long accepted = ACCEPTED_EVENTS.incrementAndGet();
+      if (accepted > s.maxEvents) {
+         ACCEPTED_EVENTS.decrementAndGet();
+         markSessionLimit("event limit " + s.maxEvents + " reached");
+         return false;
+      }
+
+      if (accepted == s.maxEvents) {
+         markSessionLimit("event limit " + s.maxEvents + " reached");
+      }
+
+      return true;
+   }
+
+   private static void markSessionLimit(String reason) {
+      if (SESSION_LIMIT_REACHED.compareAndSet(false, true)) {
+         LOG.warn("Maki Mods Observer stall diagnostics stopped for the current config: {}", reason);
+      }
+   }
+
+   private static void resetDiagnosticSession() {
+      SESSION_STARTED_NANOS.set(0L);
+      ACCEPTED_EVENTS.set(0L);
+      DROPPED_EVENTS.set(0L);
+      SESSION_LIMIT_REACHED.set(false);
+      QUEUE_WARNING_LOGGED.set(false);
+   }
+
+   private static void enqueue(Map<String, Object> sample) {
+      ensureWriter();
+      if (!WRITE_QUEUE.offer(sample)) {
+         long dropped = DROPPED_EVENTS.incrementAndGet();
+         if (QUEUE_WARNING_LOGGED.compareAndSet(false, true)) {
+            LOG.warn("Maki Mods Observer diagnostic writer queue is full; dropping samples (dropped={})", dropped);
+         }
+      }
+   }
+
+   private static void ensureWriter() {
+      if (WRITER_STARTED.compareAndSet(false, true)) {
+         Thread writer = new Thread(ModsObserver::writerLoop, "maki-mods-observer-writer");
+         writer.setDaemon(true);
+         writer.setPriority(1);
+         writer.start();
+      }
+   }
+
+   private static void writerLoop() {
+      while (true) {
+         try {
+            Map<String, Object> root = WRITE_QUEUE.take();
+            root.put("process", processMetrics());
+            root.put("jvm", jvmMetrics());
+            root.put("linux", linuxMetrics());
+            root.put("droppedEventsTotal", DROPPED_EVENTS.get());
+            String line = ModsObserver.Json.encode(root) + System.lineSeparator();
             Files.createDirectories(LOG_FILE.getParent());
-            Files.writeString(LOG_FILE, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-         }
-
-         writeWarningLogged = false;
-      } catch (Throwable error) {
-         if (!writeWarningLogged) {
-            writeWarningLogged = true;
-            LOG.log(Level.WARNING, "Could not write lag diagnostic sample: " + error);
+            if (Files.isRegularFile(LOG_FILE) && Files.size(LOG_FILE) >= settings.maxFileBytes) {
+               DROPPED_EVENTS.incrementAndGet();
+               markSessionLimit("file size cap " + settings.maxFileBytes / 1048576L + " MiB reached");
+            } else {
+               Files.writeString(LOG_FILE, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+               WRITE_WARNING_LOGGED.set(false);
+               if (WRITE_QUEUE.remainingCapacity() > 0) {
+                  QUEUE_WARNING_LOGGED.set(false);
+               }
+            }
+         } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+            return;
+         } catch (Throwable error) {
+            if (WRITE_WARNING_LOGGED.compareAndSet(false, true)) {
+               LOG.warn("Could not write MOD diagnostic sample", error);
+            }
          }
       }
    }
@@ -620,7 +766,7 @@ public final class LagObserver {
 
    private static Object reflectiveChunksmithTasks() {
       try {
-         Class<?> provider = Class.forName("com.kishku7.chunksmith.ChunksmithProvider", false, LagObserver.class.getClassLoader());
+         Class<?> provider = Class.forName("com.kishku7.chunksmith.ChunksmithProvider", false, ModsObserver.class.getClassLoader());
          boolean loaded = (Boolean)provider.getMethod("isLoaded").invoke(null);
          if (!loaded) {
             return 0;
@@ -638,7 +784,7 @@ public final class LagObserver {
 
    private static Object reflectiveBoolean(String type, String method) {
       try {
-         Class<?> cls = Class.forName(type, false, LagObserver.class.getClassLoader());
+         Class<?> cls = Class.forName(type, false, ModsObserver.class.getClassLoader());
          Object value = cls.getMethod(method).invoke(null);
          return value instanceof Boolean ? value : null;
       } catch (Throwable ignored) {
@@ -646,12 +792,12 @@ public final class LagObserver {
       }
    }
 
-   private static LagObserver.HotThreadSample hottestThreads() {
+   private static ModsObserver.HotThreadSample hottestThreads() {
       if (THREADS.isThreadCpuTimeSupported() && THREADS.isThreadCpuTimeEnabled()) {
          long sampledAt = System.nanoTime();
          long[] ids = THREADS.getAllThreadIds();
          ThreadInfo[] infos = THREADS.getThreadInfo(ids, 1);
-         ArrayList<LagObserver.HotThread> hot = new ArrayList<>();
+         ArrayList<ModsObserver.HotThread> hot = new ArrayList<>();
          long windowNanos;
          synchronized (PREVIOUS_THREAD_CPU) {
             windowNanos = threadCpuBaselineNanos == 0L ? -1L : Math.max(0L, sampledAt - threadCpuBaselineNanos);
@@ -664,7 +810,7 @@ public final class LagObserver {
                   long delta = Math.max(0L, cpu - previous);
                   if (delta != 0L) {
                      String top = info.getStackTrace().length == 0 ? null : info.getStackTrace()[0].toString();
-                     hot.add(new LagObserver.HotThread(info.getThreadName(), info.getThreadState().name(), delta, top));
+                     hot.add(new ModsObserver.HotThread(info.getThreadName(), info.getThreadState().name(), delta, top));
                   }
                }
             }
@@ -681,11 +827,11 @@ public final class LagObserver {
             threadCpuBaselineNanos = sampledAt;
          }
 
-         hot.sort(Comparator.comparingLong(LagObserver.HotThread::cpuNanos).reversed());
+         hot.sort(Comparator.comparingLong(ModsObserver.HotThread::cpuNanos).reversed());
          int limit = Math.min(settings.topThreads, hot.size());
-         return new LagObserver.HotThreadSample(windowNanos, List.copyOf(hot.subList(0, limit)));
+         return new ModsObserver.HotThreadSample(windowNanos, List.copyOf(hot.subList(0, limit)));
       } else {
-         return LagObserver.HotThreadSample.empty();
+         return ModsObserver.HotThreadSample.empty();
       }
    }
 
@@ -731,24 +877,38 @@ public final class LagObserver {
       return start >= 0L && end >= start ? end - start : -1L;
    }
 
-   private static void reloadSettings() {
-      try {
-         long stamp = Files.exists(CONFIG) ? Files.getLastModifiedTime(CONFIG).toMillis() : -1L;
-         if (stamp == configStamp) {
-            return;
-         }
+   private static void reloadSettingsIfDue() {
+      long now = System.nanoTime();
+      if (now >= nextConfigCheckNanos) {
+         nextConfigCheckNanos = now + 5000000000L;
 
-         Properties properties = new Properties();
-         if (stamp >= 0L) {
-            try (BufferedReader reader = Files.newBufferedReader(CONFIG)) {
-               properties.load(reader);
+         try {
+            long stamp = Files.exists(CONFIG) ? Files.getLastModifiedTime(CONFIG).toMillis() : -1L;
+            if (stamp == configStamp) {
+               return;
             }
-         }
 
-         settings = LagObserver.Settings.parse(properties);
-         configStamp = stamp;
-      } catch (Exception error) {
-         LOG.log(Level.WARNING, "Invalid lag observer config; retaining previous settings: " + error);
+            Properties properties = new Properties();
+            if (stamp >= 0L) {
+               try (BufferedReader reader = Files.newBufferedReader(CONFIG)) {
+                  properties.load(reader);
+               }
+            }
+
+            settings = ModsObserver.Settings.parse(properties);
+            configStamp = stamp;
+            resetDiagnosticSession();
+            if (!settings.enabled) {
+               WRITE_QUEUE.clear();
+            }
+
+            LOG.info(
+               "Maki Mods Observer stall diagnostics enabled={}; maxDurationMinutes={}; maxEvents={}; maxFileMiB={}; config={}",
+               new Object[]{settings.enabled, settings.maxDurationNanos / 60000000000L, settings.maxEvents, settings.maxFileBytes / 1048576L, CONFIG}
+            );
+         } catch (Exception error) {
+            LOG.warn("Invalid Maki Mods Observer config; retaining previous settings", error);
+         }
       }
    }
 
@@ -797,15 +957,15 @@ public final class LagObserver {
          LinkedHashMap<String, Object> out = new LinkedHashMap<>();
          out.put("name", this.name);
          out.put("state", this.state);
-         out.put("cpuDeltaMs", LagObserver.nanosToMillis(this.cpuNanos));
+         out.put("cpuDeltaMs", ModsObserver.nanosToMillis(this.cpuNanos));
          out.put("topFrame", this.topFrame);
          return out;
       }
    }
 
-   private record HotThreadSample(long windowNanos, List<LagObserver.HotThread> threads) {
-      static LagObserver.HotThreadSample empty() {
-         return new LagObserver.HotThreadSample(-1L, List.of());
+   private record HotThreadSample(long windowNanos, List<ModsObserver.HotThread> threads) {
+      static ModsObserver.HotThreadSample empty() {
+         return new ModsObserver.HotThreadSample(-1L, List.of());
       }
    }
 
@@ -906,15 +1066,18 @@ public final class LagObserver {
       long longTickThresholdMs,
       long tickStartGapThresholdMs,
       int topThreads,
-      int maxStackFrames
+      int maxStackFrames,
+      long maxFileBytes,
+      long maxDurationNanos,
+      long maxEvents
    ) {
-      static LagObserver.Settings defaults() {
-         return new LagObserver.Settings(true, 100L, 500L, 500L, 200L, 500L, 8, 24);
+      static ModsObserver.Settings defaults() {
+         return new ModsObserver.Settings(false, 100L, 500L, 500L, 200L, 500L, 8, 128, 16777216L, 1800000000000L, 5000L);
       }
 
-      static LagObserver.Settings parse(Properties p) {
-         LagObserver.Settings d = defaults();
-         return new LagObserver.Settings(
+      static ModsObserver.Settings parse(Properties p) {
+         ModsObserver.Settings d = defaults();
+         return new ModsObserver.Settings(
             Boolean.parseBoolean(p.getProperty("enabled", Boolean.toString(d.enabled))),
             boundedLong(p, "watchdog-interval-ms", d.watchdogIntervalMs, 50L, 5000L),
             boundedLong(p, "stall-threshold-ms", d.stallThresholdMs, 100L, 60000L),
@@ -922,7 +1085,10 @@ public final class LagObserver {
             boundedLong(p, "long-tick-threshold-ms", d.longTickThresholdMs, 50L, 60000L),
             boundedLong(p, "tick-start-gap-threshold-ms", d.tickStartGapThresholdMs, 100L, 60000L),
             (int)boundedLong(p, "top-threads", d.topThreads, 1L, 32L),
-            (int)boundedLong(p, "max-stack-frames", d.maxStackFrames, 4L, 128L)
+            (int)boundedLong(p, "max-stack-frames", d.maxStackFrames, 4L, 128L),
+            boundedLong(p, "diagnostic-max-file-mb", d.maxFileBytes / 1048576L, 1L, 1024L) * 1048576L,
+            boundedLong(p, "diagnostic-max-duration-minutes", d.maxDurationNanos / 60000000000L, 1L, 1440L) * 60000000000L,
+            boundedLong(p, "diagnostic-max-events", d.maxEvents, 1L, 1000000L)
          );
       }
 
@@ -942,12 +1108,12 @@ public final class LagObserver {
    }
 
    private record TickSnapshot(long sequence, boolean inProgress, long tickStartNanos, long tickStartCpuNanos, long lastTickEndNanos, long lastTickEndCpuNanos) {
-      static LagObserver.TickSnapshot initial() {
-         return new LagObserver.TickSnapshot(0L, false, 0L, -1L, 0L, -1L);
+      static ModsObserver.TickSnapshot initial() {
+         return new ModsObserver.TickSnapshot(0L, false, 0L, -1L, 0L, -1L);
       }
 
-      static LagObserver.TickSnapshot stopped(long sequence) {
-         return new LagObserver.TickSnapshot(sequence, false, 0L, -1L, 0L, -1L);
+      static ModsObserver.TickSnapshot stopped(long sequence) {
+         return new ModsObserver.TickSnapshot(sequence, false, 0L, -1L, 0L, -1L);
       }
    }
 }

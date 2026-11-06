@@ -66,7 +66,9 @@ public final class ReservationLifecycle {
                var3.attempts.removeLast();
                if (var4.begun) {
                   Object var8 = Compat.maki$protection(var0);
-                  if (var8 != null) {
+                  if (var8 == null) {
+                     var3.counts.clear();
+                  } else {
                      Object var9 = Compat.maki$reservations(var8);
 
                      for (long var11 : var4.keys) {
@@ -82,8 +84,6 @@ public final class ReservationLifecycle {
                      }
 
                      Compat.maki$invalidateVillageCache(var8);
-                  } else {
-                     var3.counts.clear();
                   }
                }
 

@@ -13,8 +13,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(value = Millenaire.class, remap = false)
 public abstract class MillenaireMixin {
    @Inject(method = "lambda$new$32", at = @At("HEAD"), cancellable = true)
-   private static void compat$chunk(VillageSpawnQueue var0, ChunkPos var1, boolean var2, ServerLevel var3, CallbackInfo var4) {
-      Compat.onChunk(var0, var1, var2, var3);
-      var4.cancel();
+   private static void compat$chunk(VillageSpawnQueue queue, ChunkPos pos, boolean isNew, ServerLevel level, CallbackInfo ci) {
+      Compat.onChunk(queue, pos, isNew, level);
+      ci.cancel();
    }
 }

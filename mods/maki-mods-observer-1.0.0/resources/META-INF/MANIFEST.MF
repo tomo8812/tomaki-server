@@ -1,4 +1,4 @@
 Manifest-Version: 1.0
-Implementation-Title: Maki Status I/O
+Implementation-Title: Maki Mods Observer
 Implementation-Version: 1.0.0
 
