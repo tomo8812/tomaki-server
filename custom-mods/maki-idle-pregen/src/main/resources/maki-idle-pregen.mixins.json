@@ -8,6 +8,8 @@
     "VillageManagerMixin",
     "VillageSpawnQueueMixin",
     "VillageMixin",
+    "VillageRehydratorMixin",
+    "WaypointRebuildThrottleMixin",
     "BuildingInstanceMixin",
     "VillageWaypointGraphMixin",
     "WaypointTraversalTesterMixin",

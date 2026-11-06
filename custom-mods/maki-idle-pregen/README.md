@@ -12,9 +12,12 @@ Millenaire 9.0.3 initializes derived village state from Village.tick. Two startu
 Version 1.1.0 keeps those operations synchronous on the server thread, but changes admission:
 
 - with zero players, waypoint graph rebuilds and bed-position backfills are deferred even before a Chunksmith task has started;
+- Millenaire's `ServerStartedEvent` rehydration rebuild is routed through the same guarded stale-rebuild path instead of calling the graph rebuild directly;
 - with players online, at most one heavy Millenaire initialization operation is admitted per server tick;
 - bed backfill runs only when every chunk intersecting the building volume is already loaded;
 - waypoint graph rebuild runs only when chunks within the path-search radius around the village center and all building navigation anchors are already loaded;
+- graph chunk-envelope scanning occurs only after Millenaire's own `WaypointRebuildThrottle.tryAcquire` grants a rebuild; clean/throttled attempts do not rescan the village;
+- if that post-throttle preflight defers the rebuild, the throttle's request/backoff state is restored so the custom guard does not create artificial upstream backoff;
 - a missing-chunk preflight is retried at most once per second for each operation, avoiding a new polling hotspot;
 - deferred operations retain Millenaire's existing dirty/uninitialized state, so they are retried by the normal owner instead of being marked complete or moved off-thread.
 

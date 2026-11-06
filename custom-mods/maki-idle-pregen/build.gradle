@@ -43,6 +43,8 @@ def registeredMixins = [
     'maki.idlepregen.mixin.VillageManagerMixin',
     'maki.idlepregen.mixin.VillageSpawnQueueMixin',
     'maki.idlepregen.mixin.VillageMixin',
+    'maki.idlepregen.mixin.VillageRehydratorMixin',
+    'maki.idlepregen.mixin.WaypointRebuildThrottleMixin',
     'maki.idlepregen.mixin.BuildingInstanceMixin',
     'maki.idlepregen.mixin.VillageWaypointGraphMixin',
     'maki.idlepregen.mixin.WaypointTraversalTesterMixin',
@@ -76,8 +78,9 @@ tasks.register('verifyMixinAnnotationRetention') {
             if (mixinIndex < 0 || invisibleIndex < 0 || visibleIndex > invisibleIndex) {
                 throw new GradleException(className + ': @Mixin is not class-retained/invisible')
             }
-            if (text.contains('org.spongepowered.asm.mixin.injection.Inject(') &&
-                !text.contains('RuntimeVisibleAnnotations:')) {
+            def hasInjector = text.contains('org.spongepowered.asm.mixin.injection.Inject(') ||
+                text.contains('org.spongepowered.asm.mixin.injection.Redirect(')
+            if (!hasInjector || !text.contains('RuntimeVisibleAnnotations:')) {
                 throw new GradleException(className + ': injector annotations are not runtime-visible')
             }
         }

@@ -30,6 +30,7 @@ public final class MillenaireInitGuard {
     private static int permits;
     private static long serverTicks;
     private static final Map<String, Long> RETRY_AFTER = new HashMap<>();
+    private static final ThreadLocal<WaypointAttempt> WAYPOINT_ATTEMPT = new ThreadLocal<>();
 
     private static long zeroPlayerGraphDeferrals;
     private static long zeroPlayerBedDeferrals;
@@ -48,6 +49,7 @@ public final class MillenaireInitGuard {
             permits = 0;
             serverTicks = 0L;
             RETRY_AFTER.clear();
+            WAYPOINT_ATTEMPT.remove();
             resetCounters();
         }
         serverTicks++;
@@ -64,11 +66,18 @@ public final class MillenaireInitGuard {
             permits = 0;
             serverTicks = 0L;
             RETRY_AFTER.clear();
+            WAYPOINT_ATTEMPT.remove();
             resetCounters();
         }
     }
 
-    public static boolean allowWaypointGraph(ServerLevel level, Village village) {
+    /**
+     * Cheap admission before Millenaire mutates WaypointRebuildThrottle.
+     * The expensive loaded-chunk envelope check runs only if tryAcquire actually grants a rebuild.
+     */
+    public static boolean beginWaypointGraphAttempt(ServerLevel level, Village village) {
+        WAYPOINT_ATTEMPT.remove();
+
         MinecraftServer server = level.getServer();
         if (!server.isDedicatedServer()) {
             return true;
@@ -86,36 +95,57 @@ public final class MillenaireInitGuard {
         if (coolingDown(key)) {
             return false;
         }
-
-        int missing = countMissingGraphChunks(level, village);
-        if (missing > 0) {
-            missingGraphDeferrals++;
-            graphMissingChunksObserved += missing;
-            deferRetry(key);
-            if (missingGraphDeferrals == 1L || missingGraphDeferrals % 200L == 0L) {
-                LOG.log(Level.INFO, "Deferred Millenaire waypoint graph for village "
-                        + village.getId() + ": " + missing
-                        + " required chunks are not loaded; no synchronous load was requested");
-            }
+        if (!hasPermit("waypoint graph", String.valueOf(village.getId()))) {
             return false;
         }
 
-        RETRY_AFTER.remove(key);
-        return hasPermit("waypoint graph", String.valueOf(village.getId()));
+        WAYPOINT_ATTEMPT.set(new WaypointAttempt(level, village, key));
+        return true;
     }
 
-    public static void consumeWaypointGraphPermit(ServerLevel level) {
-        if (!level.getServer().isDedicatedServer()) {
-            return;
+    public static boolean hasWaypointGraphAttempt() {
+        return WAYPOINT_ATTEMPT.get() != null;
+    }
+
+    /**
+     * Called from WaypointRebuildThrottle.tryAcquire RETURN only after upstream admission succeeds.
+     * Returning false asks the throttle mixin to restore its pre-call state.
+     */
+    public static boolean admitWaypointGraphAfterThrottle() {
+        WaypointAttempt attempt = WAYPOINT_ATTEMPT.get();
+        if (attempt == null) {
+            return true;
         }
 
-        // This is called immediately before Village.rebuildWaypointGraph, after
-        // WaypointRebuildThrottle.tryAcquire has returned true. Server ticks are
-        // single-threaded, so the permit observed by allowWaypointGraph cannot be
-        // consumed between the preflight and this point.
-        if (permits > 0) {
+        try {
+            if (permits <= 0) {
+                budgetDeferrals++;
+                return false;
+            }
+
+            int missing = countMissingGraphChunks(attempt.level, attempt.village);
+            if (missing > 0) {
+                missingGraphDeferrals++;
+                graphMissingChunksObserved += missing;
+                deferRetry(attempt.key);
+                if (missingGraphDeferrals == 1L || missingGraphDeferrals % 200L == 0L) {
+                    LOG.log(Level.INFO, "Deferred Millenaire waypoint graph for village "
+                            + attempt.village.getId() + ": " + missing
+                            + " required chunks are not loaded; no synchronous load was requested");
+                }
+                return false;
+            }
+
+            RETRY_AFTER.remove(attempt.key);
             permits--;
+            return true;
+        } finally {
+            WAYPOINT_ATTEMPT.remove();
         }
+    }
+
+    public static void finishWaypointGraphAttempt() {
+        WAYPOINT_ATTEMPT.remove();
     }
 
     public static boolean allowBedBackfill(ServerLevel level, BuildingInstance building, BuildingPlan plan) {
@@ -134,6 +164,9 @@ public final class MillenaireInitGuard {
 
         String key = operationKey("bed", level, building.getId());
         if (coolingDown(key)) {
+            return false;
+        }
+        if (!hasPermit("bed backfill", String.valueOf(building.getId()))) {
             return false;
         }
 
@@ -278,5 +311,8 @@ public final class MillenaireInitGuard {
         missingBedDeferrals = 0L;
         graphMissingChunksObserved = 0L;
         bedMissingChunksObserved = 0L;
+    }
+
+    private record WaypointAttempt(ServerLevel level, Village village, String key) {
     }
 }
