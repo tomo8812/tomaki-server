@@ -3,6 +3,6 @@
   "minVersion": "0.8.7",
   "package": "maki.lodcpu.mixin",
   "compatibilityLevel": "JAVA_21",
-  "server": ["GenerationTaskMixin", "TaskLoaderMixin"],
+  "server": ["GenerationTaskMixin", "TaskLoaderMixin", "TaskLoaderAccessor"],
   "injectors": {"defaultRequire": 1}
 }
