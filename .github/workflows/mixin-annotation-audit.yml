@@ -74,6 +74,46 @@ jobs:
           path: reports/rebuilt-mixin-audit.json
           retention-days: 14
 
+  publish-issue62:
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/issue-62' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: source-build
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Download audited rebuilt custom MOD JARs
+        uses: actions/download-artifact@v4
+        with:
+          name: rebuilt-custom-mod-jars
+          path: /tmp/maki-rebuilt
+      - name: Replace deployable custom MOD set
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -f mods/maki-*.jar
+          cp /tmp/maki-rebuilt/maki-*.jar mods/
+          python3 .github/scripts/check_deployment_sources.py
+      - name: Commit audited deployment artifacts
+        shell: bash
+        run: |
+          set -euxo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mods
+          if git diff --cached --quiet; then
+            echo 'Deployable custom MOD set already matches audited source build.'
+            exit 0
+          fi
+          git commit -m 'build: rebuild all custom MOD deployables for issue 62'
+          git push origin "HEAD:${GITHUB_HEAD_REF}"
+
   jar-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
