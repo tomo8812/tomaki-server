@@ -40,14 +40,14 @@ final class SharedWorkBudget {
 
     synchronized Decision request(long nowNanos,String taskMode,Settings settings) {
         if("external".equals(taskMode)) {
-            cancelPending();
+            cancelPending(nowNanos,settings);
             lastReason="external-chunksmith-task";
             return decision(nowNanos,false,false,lastReason);
         }
 
         String pressure=pressure(nowNanos,settings);
         if(pressure!=null) {
-            cancelPending();
+            cancelPending(nowNanos,settings);
             lastReason=pressure;
             return decision(nowNanos,false,false,lastReason);
         }
@@ -68,8 +68,7 @@ final class SharedWorkBudget {
         if("none".equals(taskMode))followDrained=true;
         if("follow".equals(taskMode)&&!followDrained) {
             if(elapsedMillis(nowNanos,reservationAtNanos)>=settings.backfillDrainWaitSeconds*1000L) {
-                cancelPending();
-                nextEligibleAtNanos=nowNanos+settings.backfillMinSpacingSeconds*1_000_000_000L;
+                cancelPending(nowNanos,settings);
                 lastReason="follow-drain-timeout";
                 return decision(nowNanos,false,false,lastReason);
             }
@@ -197,14 +196,22 @@ final class SharedWorkBudget {
         return null;
     }
 
-    private void cancelPending() {
+    private void cancelPending(long nowNanos,Settings settings) {
         if(reserved&&workStartedAtNanos==0L) {
             transitionSerial++;
             reserved=false;
             followDrained=false;
             reservationAtNanos=0L;
+            nextEligibleAtNanos=Math.max(
+                nextEligibleAtNanos,
+                nowNanos+cleanFollowWindowMillis(settings)*1_000_000L
+            );
         }
         demandSinceNanos=0L;
+    }
+
+    private static long cleanFollowWindowMillis(Settings settings) {
+        return (long)Math.ceil(settings.interval*2000.0);
     }
 
     private Decision decision(long nowNanos,boolean hasReservation,boolean ready,String reason) {
