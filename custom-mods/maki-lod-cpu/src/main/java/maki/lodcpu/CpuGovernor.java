@@ -12,6 +12,7 @@ public final class CpuGovernor {
     private static final Logger LOG=LoggerFactory.getLogger("MakiLodCpu");
     private static final Path CONFIG=Path.of("config/maki-lod-cpu.properties");
     private static final AdaptivePolicy POLICY=new AdaptivePolicy();
+    private static final SharedWorkBudget SHARED_BUDGET=new SharedWorkBudget();
     private static Settings settings=new Settings();
     private static volatile int cap=2;
     private static volatile long taskActivity;
