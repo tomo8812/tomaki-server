@@ -41,7 +41,8 @@ tasks.named('jar') {
 tasks.register('verifyMixinAnnotationRetention') {
     dependsOn tasks.named('classes')
     doLast {
-        def javap = javaToolchains.launcherFor {
+        def toolchains = project.extensions.getByType(org.gradle.jvm.toolchain.JavaToolchainService)
+        def javap = toolchains.launcherFor {
             languageVersion = JavaLanguageVersion.of(21)
         }.get().metadata.installationPath.file('bin/javap').asFile
         [
@@ -54,10 +55,11 @@ tasks.register('verifyMixinAnnotationRetention') {
             'maki.idlepregen.mixin.WaypointTraversalTesterMixin',
             'maki.idlepregen.mixin.MillWalkNodeEvaluatorMixin',
             'maki.idlepregen.mixin.PathNavigationRegionMixin',
+            'maki.idlepregen.mixin.EmptyLevelChunkMixin',
             'maki.idlepregen.mixin.ServerChunkCacheMixin'
         ].each { className ->
             def output = new ByteArrayOutputStream()
-            exec {
+            project.exec {
                 commandLine javap, '-classpath', sourceSets.main.output.classesDirs.asPath, '-p', '-v', className
                 standardOutput = output
             }

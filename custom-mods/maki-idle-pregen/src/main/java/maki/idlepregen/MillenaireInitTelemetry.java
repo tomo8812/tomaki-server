@@ -52,6 +52,13 @@ public final class MillenaireInitTelemetry {
         }
     }
 
+    public static void recordEmptyChunkCreation() {
+        Context context = CURRENT.get();
+        if (context != null && "waypoint-graph".equals(context.operation)) {
+            context.emptyChunkCreations++;
+        }
+    }
+
     public static void recordChunkGet(boolean loadRequested, boolean unloadedAtEntry) {
         Context context = CURRENT.get();
         if (context == null) {
@@ -81,6 +88,7 @@ public final class MillenaireInitTelemetry {
                 + " traversalSearches=" + context.traversalSearches
                 + " pathTypeLookups=" + context.pathTypeLookups
                 + " emptyChunkAccesses=" + context.emptyChunkAccesses
+                + " emptyChunkCreations=" + context.emptyChunkCreations
                 + " chunkGetCalls=" + context.chunkGetCalls
                 + " getChunkLoadRequested=" + context.chunkGetLoadRequested
                 + " unloadedLoadRequests=" + context.synchronousLoadMisses;
@@ -96,6 +104,7 @@ public final class MillenaireInitTelemetry {
         long traversalSearches;
         long pathTypeLookups;
         long emptyChunkAccesses;
+        long emptyChunkCreations;
         long chunkGetCalls;
         long chunkGetLoadRequested;
         long synchronousLoadMisses;

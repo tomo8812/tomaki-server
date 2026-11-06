@@ -13,6 +13,7 @@
     "WaypointTraversalTesterMixin",
     "MillWalkNodeEvaluatorMixin",
     "PathNavigationRegionMixin",
+    "EmptyLevelChunkMixin",
     "ServerChunkCacheMixin"
   ],
   "injectors": {"defaultRequire": 1}
