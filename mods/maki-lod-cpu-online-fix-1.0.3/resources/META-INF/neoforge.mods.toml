@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="maki_lod_cpu_online_fix"
+version="1.0.3"
+displayName="Maki LOD CPU Online Limit Fix"
+description="Restores adaptive online generation in maki-lod-cpu while enforcing online-max-concurrent."
+[[dependencies.maki_lod_cpu_online_fix]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.262,21.2)"
+side="SERVER"
+[[dependencies.maki_lod_cpu_online_fix]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+side="SERVER"
+[[dependencies.maki_lod_cpu_online_fix]]
+modId="maki_lod_cpu"
+type="required"
+versionRange="[1.4.0,1.5.0)"
+ordering="AFTER"
+side="SERVER"
+[[mixins]]
+config="maki-lod-cpu-online-fix.mixins.json"

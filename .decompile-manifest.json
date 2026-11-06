@@ -125,10 +125,10 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "3464fc7284bc684525086648c5c3668d3f1c20c14a2083d48f9686a2dbceca8c"
     },
-    "mods/maki-chunksmith-chunk-cache-1.1.1.jar": {
-      "blob_oid": "4d2218384df0e61a212ae380d35861aeeebc4586",
-      "output": "mods/maki-chunksmith-chunk-cache-1.1.1",
-      "sha256": "01a84f5aad4f2cfd388218947dd6bf178880fd567b3d8e3dfea8347e1264b78d"
+    "mods/maki-chunksmith-chunk-cache-1.2.0.jar": {
+      "blob_oid": "5237d3dcaa4845f181ff0b30e1d126bd58b09bc1",
+      "output": "mods/maki-chunksmith-chunk-cache-1.2.0",
+      "sha256": "9b6e996084d25a84551e31b987893bc1970a51dc78eb1795670230b840c4af9c"
     },
     "mods/maki-diorama-share-1.0.1.jar": {
       "blob_oid": "c5bf0011c7a0f4ac2aa5e415338bb0fe4c67fb64",
@@ -140,15 +140,15 @@
       "output": "mods/maki-idle-pregen-1.1.1",
       "sha256": "85edab9fbce7fd0a643aead86577e269037fc39fe84606c229f1d446441a5f12"
     },
-    "mods/maki-lod-cpu-1.3.4.jar": {
-      "blob_oid": "a77039548eafb12f718234bcf99b3f7379e6400a",
-      "output": "mods/maki-lod-cpu-1.3.4",
-      "sha256": "04c3a6f458550d15e4b8c736c597e376c1825cfb533a66181ff142c383fb7ed2"
+    "mods/maki-lod-cpu-1.4.0.jar": {
+      "blob_oid": "69f9a00d2cd819e625a198090c4ed0dfcbedd0a8",
+      "output": "mods/maki-lod-cpu-1.4.0",
+      "sha256": "2cd157f1b78378f41863e6cfdfe545c3763dc3ddb1f0bce3cbfa6d9fd1d77799"
     },
-    "mods/maki-lod-cpu-online-fix-1.0.2.jar": {
-      "blob_oid": "47affa42e3300cef74daab4d514b0ce4344f1668",
-      "output": "mods/maki-lod-cpu-online-fix-1.0.2",
-      "sha256": "833defdc614826804dcbf8f818827e6baf0a6d69c5f4e9b0946b9a2609d413f1"
+    "mods/maki-lod-cpu-online-fix-1.0.3.jar": {
+      "blob_oid": "11f04d03bc1fc17e6ec503b0e5bdcc020926787b",
+      "output": "mods/maki-lod-cpu-online-fix-1.0.3",
+      "sha256": "2217e4f0267b8786016e5f2ddbf6491eb4165f37e17439f23b7003f1cd1de206"
     },
     "mods/maki-millenaire-lod-compat-1.0.5.jar": {
       "blob_oid": "8e4742591ef2415dd5e67809cca2f955d012fb49",

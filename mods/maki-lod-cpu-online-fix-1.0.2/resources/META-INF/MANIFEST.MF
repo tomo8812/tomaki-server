@@ -1,4 +1,0 @@
-Manifest-Version: 1.0
-Implementation-Title: Maki LOD CPU Online Limit Fix
-Implementation-Version: 1.0.2
-
