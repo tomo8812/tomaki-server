@@ -356,7 +356,7 @@ final class GenerationStore {
         return new Stats(entries, bytes);
     }
 
-    private static void mergeDirectory(Path source, Path target) throws IOException {
+    static void mergeDirectory(Path source, Path target) throws IOException {
         Files.createDirectories(target);
         List<Path> paths;
         try (Stream<Path> stream = Files.walk(source)) {
