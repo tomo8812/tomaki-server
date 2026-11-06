@@ -29,7 +29,7 @@ Version 1.0.4 makes legacy CSLOD backfill distinguish the state of normal chunk 
 - candidate scans classify normal storage as absent, incomplete ProtoChunk, FULL, or unknown by reading only the saved `Status` through the vanilla chunk scanner;
 - incomplete ProtoChunks remain eligible for backfill, while existing FULL chunks remain authoritative and unknown/corrupt storage fails closed;
 - a cache file counts as complete only when its envelope is valid for the current fingerprint and its serialized chunk is FULL;
-- before FULL generation starts, the vanilla generation pyramid supplies the exact dependency radius and the backfill guard snapshots only absent/incomplete positions in that footprint;
+- before FULL generation starts, the vanilla generation pyramid supplies the exact dependency radius; the guard snapshots only absent/incomplete positions and starts only when that owned scope has no existing updating/visible/pending-unload holders;
 - chunk, entity, and POI persistence is vetoed for that owned dependency scope, while existing FULL positions are never owned by backfill;
 - the guard is retained after the target unloads until updating, visible, and pending-unload holders in the owned scope have drained, preventing delayed `saveAll` writes from persisting neighboring ProtoChunks;
 - when a real player loads an incomplete normal chunk, a valid FULL cold-cache entry is preferred and can then promote normally; without a valid cache, the saved ProtoChunk continues through vanilla generation;
