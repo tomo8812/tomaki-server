@@ -84,7 +84,7 @@ tasks.register('verifyValkyrienSkiesPauseApi') {
 
         def inspect = { String className ->
             def process = new ProcessBuilder(
-                    javap.absolutePath, '-classpath', vsJar.absolutePath, '-p', className)
+                    javap.absolutePath, '-classpath', vsJar.absolutePath, '-p', '-c', className)
                     .redirectErrorStream(true)
                     .start()
             def output = process.inputStream.getText('UTF-8')
@@ -107,8 +107,9 @@ tasks.register('verifyValkyrienSkiesPauseApi') {
         }
 
         def implementation = inspect('org.valkyrienskies.core.impl.shadow.FQ')
-        if (!implementation.contains('postTickGame();')) {
-            throw new GradleException('Bundled Valkyrien Skies pipeline implementation changed')
+        if (!implementation.contains('postTickGame();') ||
+            !implementation.contains('java/util/concurrent/ConcurrentLinkedQueue.add:(Ljava/lang/Object;)Z')) {
+            throw new GradleException('Bundled Valkyrien Skies postTickGame queue handoff changed')
         }
     }
 }
