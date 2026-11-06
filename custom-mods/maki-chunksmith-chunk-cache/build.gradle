@@ -117,10 +117,18 @@ tasks.register('verifyIssue41BackfillTicketLifecycle') {
         if (!source.contains('invokeGetChunkFutureMainThread(pos.x, pos.z, ChunkStatus.FULL, createMissingChunk)') || !source.contains('boolean createMissingChunk = false;')) {
             throw new GradleException('Issue #41 regression: owned BACKFILL_TICKET lookup is missing')
         }
-        ['backfillTicketHeld', 'ticketRemovedAt', 'unloadWaitMillis', 'guardActive', 'serverFrozen', 'retiredGuardCount', 'MAX_RETIRED_GUARDS', 'fullLoadTimeoutReached', 'pre-full-timeout-awaiting-future'].each { field ->
+        ['backfillTicketHeld', 'ticketRemovedAt', 'retiredGuards', 'MAX_RETIRED_GUARDS', 'fullLoadTimeoutReached', 'pre-full-timeout-awaiting-future'].each { field ->
             if (!source.contains(field)) {
                 throw new GradleException('Issue #41 regression: lifecycle diagnostic ' + field + ' is missing')
             }
+        }
+        if (!source.contains('Chunk-cache backfill state: phase={}') ||
+            !source.contains('waitReason={}') ||
+            !source.contains('retiredGuards.size()')) {
+            throw new GradleException('Issue #62 regression: backfill lifecycle must remain visible in standard logs')
+        }
+        if (source.contains('maki-chunk-cache-backfill-status.json') || source.contains('StatusIo')) {
+            throw new GradleException('Issue #62 regression: retired backfill status-file output returned')
         }
     }
 }
