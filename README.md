@@ -39,7 +39,7 @@ terrain_slabs-neoforge-3.1.2.jar
 
 ## サーバー側の自作MOD
 
-サーバーでは `custom-mods/` の14プロジェクトから生成した次のJARを1つずつ `mods/` に配置します。Issue #62以降、通常運用の状態確認は `latest.log` を使用し、定期status JSONは使用しません。
+サーバーでは `custom-mods/` の14プロジェクトから生成した次のJARを1つずつ `mods/` に配置します。通常運用の状態確認には `latest.log` を使用し、定期的なstatus JSONは使用しません。
 
 ```text
 maki-airship-compat-1.0.13.jar
@@ -58,6 +58,6 @@ maki-ship-footsteps-1.0.1.jar
 maki-ship-save-1.0.2.jar
 ```
 
-`maki-lag-observer` は `maki-mods-observer` に置換され、`maki-status-io` は廃止されています。更新時は旧 `maki-lag-observer-*.jar` と `maki-status-io-*.jar`、旧 `config/maki-lag-observer.properties` を残さないでください。詳細診断が必要な場合だけ `config/maki-mods-observer.properties` でObserverを有効化します。Observerは既定OFFで、1回の設定セッションごとに既定30分・5000イベント/stream・16 MiB/fileの上限があります。
+`maki-lag-observer` は `maki-mods-observer` に置き換えられ、`maki-status-io` は廃止されています。更新時は旧 `maki-lag-observer-*.jar`、`maki-status-io-*.jar`、`config/maki-lag-observer.properties` を残さないでください。詳細診断が必要な場合だけ `config/maki-mods-observer.properties` でObserverを有効化します。詳細診断は既定で無効で、設定を変更しない1セッションあたり既定30分、各stream 5000イベント、各file 16 MiBに制限されます。
 
-Chunksmithのtask/cache/cursor、LOD、Diorama、world内のMODデータ、migration backup/auditは診断ファイルではないため削除しません。
+Chunksmithのタスク・キャッシュ・カーソル、LOD、Diorama、ワールド内のMODデータ、移行バックアップ・監査データは運用データなので削除しません。

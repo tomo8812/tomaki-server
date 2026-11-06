@@ -7,7 +7,7 @@ Both diagnostic paths are disabled by default. Enable them explicitly in `config
 - General watchdog output: `logs/maki-mods-observer.jsonl`
 - Slow NBT-copy output: `logs/maki-mods-observer-nbt.jsonl`
 
-The watchdog retains the previous tick/server-thread CPU, stack, JVM, Linux PSI/cgroup and MOD-state sampling knowledge. Slow NBT tracing retains the bounded server-thread hook and 64-entry asynchronous writer queue introduced for Issue #36. These files are not normal status or authoritative state and may be absent when diagnostics are disabled.
+The watchdog captures tick/server-thread CPU, stack, JVM, Linux PSI/cgroup and MOD-state diagnostics. Slow NBT tracing uses a bounded server-thread hook and a 64-entry asynchronous writer queue. These files are troubleshooting output, not normal status or authoritative state, and may be absent when diagnostics are disabled.
 
 No legacy `maki_lag_observer` MOD ID, old config filename, or old output filename is supported by this replacement.
 

@@ -1,6 +1,6 @@
-# Issue #62 custom MOD logging and diagnostics design
+# Custom MOD logging and diagnostics design
 
-Issue #62 makes normal Minecraft/NeoForge logging the operational interface for every maintained custom MOD. `latest.log` must be sufficient to distinguish startup, normal operation, intentional waiting, degraded/retryable behavior and hard failure. High-volume diagnostic capture is owned only by `maki-mods-observer`.
+Normal Minecraft/NeoForge logging is the operational interface for every maintained custom MOD. `latest.log` must be sufficient to distinguish startup, normal operation, intentional waiting, degraded or retryable behavior, and hard failure. High-volume diagnostic capture is owned only by `maki-mods-observer`.
 
 ## Logging ownership
 
@@ -32,11 +32,11 @@ No custom MOD should emit INFO every tick, every chunk, every entity or every pa
 
 ## Diagnostics owner
 
-`maki-mods-observer` replaces `maki-lag-observer` without a compatibility alias. It retains the bounded server-stall/CPU/JVM/Linux sampler and slow NBT-copy caller/structure tracing knowledge from Issue #36. Detailed file output is opt-in in `config/maki-mods-observer.properties`; both `enabled` and `nbt-copy-observer-enabled` default to `false`. Both diagnostic streams use bounded asynchronous writers. The default unchanged-config session limit is 30 minutes and 5000 events per stream, with a 16 MiB cap per file; rewriting the config explicitly starts a new session. Stall diagnostics defer `/proc`/cgroup reads, JSON encoding and file I/O to the writer thread instead of the Minecraft server thread. The observer does not become the authoritative owner of LOD, cache, ship, village or player state.
+`maki-mods-observer` replaces `maki-lag-observer` without a compatibility alias. It provides a bounded server-stall/CPU/JVM/Linux sampler and slow NBT-copy caller/structure tracing. Detailed file output is opt-in in `config/maki-mods-observer.properties`; both `enabled` and `nbt-copy-observer-enabled` default to `false`. Both diagnostic streams use bounded asynchronous writers. The default unchanged-config session limit is 30 minutes and 5000 events per stream, with a 16 MiB cap per file; rewriting the config explicitly starts a new session. Stall diagnostics defer `/proc`/cgroup reads, JSON encoding and file I/O to the writer thread instead of the Minecraft server thread. The observer does not become the authoritative owner of LOD, cache, ship, village or player state.
 
 ## Removed status I/O
 
-Issue #62 removes `maki-status-io` and the diagnostic files `logs/maki-lod-cpu-status.json`, `logs/maki-lod-follow-status.json`, and `logs/maki-chunk-cache-backfill-status.json`. Their operational content is represented by state-change and low-frequency standard log summaries in the owning MODs. Persistent task progress, cache data, Diorama data, migration backups/audits and game/mod save data are not status files and are not removed.
+`maki-status-io` and the diagnostic files `logs/maki-lod-cpu-status.json`, `logs/maki-lod-follow-status.json`, and `logs/maki-chunk-cache-backfill-status.json` are retired. Their operational content is represented by state-change and low-frequency standard log summaries in the owning MODs. Persistent task progress, cache data, Diorama data, migration backups/audits and game/mod save data are not status files and are not removed.
 
 ## Deployment migration
 
