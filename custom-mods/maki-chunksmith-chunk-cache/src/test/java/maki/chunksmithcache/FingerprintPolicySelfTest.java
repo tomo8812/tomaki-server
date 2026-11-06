@@ -19,8 +19,9 @@ public final class FingerprintPolicySelfTest {
             Path worldgenJar = temp.resolve("worldgen.jar");
             writeModJar(worldgenJar, "worldgen_mod", "payload-a");
 
-            FingerprintPolicy policy = FingerprintPolicy.forTesting(Set.of("diagnostic_probe"), List.of("config/diagnostic-probe.properties"));
-            require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.IGNORED, "observation-only mod must be ignored");
+            FingerprintPolicy policy = FingerprintPolicy.forTesting(List.of("config/diagnostic-probe.properties"));
+            require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.RELEVANT,
+                "a mod id alone must not bypass compatibility checks; audited artifacts are normalized before policy fallback");
             require(policy.classify("mods/worldgen.jar", worldgenJar) == FingerprintManifest.Impact.RELEVANT, "unknown/worldgen mod must remain relevant");
             require(FingerprintPolicy.isAlwaysExcluded("config/chunksmith/tasks/minecraft/overworld.properties"), "Chunksmith task progress regression");
 
@@ -76,7 +77,8 @@ public final class FingerprintPolicySelfTest {
             require(corruptRejected, "corrupt manifest must fail closed");
 
             writeModJar(observerJar, "diagnostic_probe", "payload-b");
-            require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.IGNORED, "observer classification must be based on mod id, not JAR bytes");
+            require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.RELEVANT,
+                "unknown changed bytes must remain relevant even when the mod id is unchanged");
             System.out.println("Issue #40 fingerprint/quarantine regression checks: PASS");
         } finally {
             deleteTree(temp);

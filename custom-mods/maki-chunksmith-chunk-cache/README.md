@@ -1,6 +1,6 @@
 # maki-chunksmith-chunk-cache
 
-Version 1.2.0 combines compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
+Version 1.2.1 combines semantic compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
 
 
 Maintained source for the server-only Chunksmith cold-cache/backfill compatibility mod.
@@ -97,3 +97,19 @@ Version 1.2.0 no longer treats every active Chunksmith task as an unconditional 
 
 This design deliberately uses a brief dispatch barrier instead of lifecycle pause/resume. Chunksmith 4.6.0 has no public per-coordinate reservation API, so fully concurrent follow/Backfill would leave dependency-overlap races unless the distributed MOD were patched. Keeping that exclusion in the custom compatibility MOD preserves upstream upgradeability.
 
+
+## Issue #68 semantic compatibility inputs
+
+Version 1.2.1 keeps the #40 manifest/quarantine mechanism but fingerprints effective semantics where equivalence can be proven without weakening the default fail-closed policy.
+
+- `config/zfastnoise.mixin.properties` is parsed with the same `java.util.Properties.load(InputStream)` and `Boolean.parseBoolean` behavior used by zfastnoise 1.0.13. Only `mixin.perf.biome` and `mixin.perf.noise` affect compatibility; generated timestamp comments, key order, equivalent whitespace and unknown preserved keys stay audit-only raw differences. Missing keys use zfastnoise's real `true` defaults. Parse failures remain raw and compatibility-relevant.
+- MOD JARs are **not** exempted by filename or MOD ID. `AuditedModCompatibility` contains exact artifact/content attestations for installed components whose decompiled/current code was audited as generation-neutral: `maki_lod_cpu`, `maki_lod_cpu_online_fix`, `maki_diorama_share`, `maki_mods_observer`, Jade, EMI, ClientSort and Sound Physics Remastered. The stable compatibility input is the audited behavior contract, while the raw JAR is retained as an ignored audit entry.
+- Attestations accept either the exact audited raw SHA-256 or the exact canonical JAR-content SHA-256. The canonical digest sorts entry names and hashes entry payloads while excluding archive/signature packaging metadata, so a byte-for-byte rebuild/repack of the same audited code/resources does not invalidate cache compatibility. Any changed code/resource payload, unknown version/artifact, ambiguous multi-MOD JAR, malformed metadata, or declared indirect zfastnoise override remains fail-closed relevant.
+- Generation-affecting MODs/configs/datapacks, world seed/dimension/generator state and unknown inputs remain compatibility-relevant. The change intentionally removes the previous MOD-ID-only observation exemption.
+- Compatibility schema v3 can adopt a v2 generation only when every relevant input can be normalized to the same proven semantics. Historical zfastnoise recovery is limited to the two known Issue #68 raw signatures or an old raw entry that exactly matches the currently parsed source. Historical audited MOD entries normalize only from exact attested raw digests.
+- Proven-equivalent quarantined generations are re-adopted automatically during reconcile. Existing active cache entries win path conflicts; only non-conflicting quarantined entries are recovered. `/makichunkcache quarantine restore <id>` uses the same proof and refuses unknown/unproven differences.
+- Logs distinguish zfastnoise source-format/comment-only differences, effective setting changes, audited generation-neutral JAR changes and generic fail-closed changes. No additional unbounded diagnostic file is introduced.
+
+The production quarantine manifest is not stored in this repository, so the specific 5,688-entry quarantine reported in Issue #68 cannot be declared reusable from repository evidence alone. It is preserved and is reused only if its stored manifest passes the proof above.
+
+This implementation changes only the source-owned `maki-chunksmith-chunk-cache` MOD and its deployment JAR; it does not patch zfastnoise, Chunksmith, Jade, EMI, ClientSort, Sound Physics Remastered, or any other distributed MOD.

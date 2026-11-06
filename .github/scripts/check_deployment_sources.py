@@ -38,8 +38,12 @@ assert not (root / "config/maki-lag-observer.properties").exists(), "Retired obs
 fingerprint_config = (root / "config/maki-chunksmith-chunk-cache.properties").read_text(encoding="utf-8")
 assert "maki_lag_observer" not in fingerprint_config, "Retired observer MOD ID remains in active fingerprint config"
 assert "maki-lag-observer.properties" not in fingerprint_config, "Retired observer config path remains in active fingerprint config"
-assert "maki_mods_observer" in fingerprint_config, "New observer MOD ID is not classified as observation-only"
-assert "config/maki-mods-observer.properties" in fingerprint_config, "New observer config is not excluded from compatibility fingerprinting"
+assert "fingerprint.observation-only-mod-ids" not in fingerprint_config, "MOD-id-only compatibility exemptions must not be deployed"
+assert "config/maki-mods-observer.properties" in fingerprint_config, "Observer config is not excluded from compatibility fingerprinting"
+audited_mod_source = (
+    root / "custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/AuditedModCompatibility.java"
+).read_text(encoding="utf-8")
+assert '"maki_mods_observer"' in audited_mod_source, "Observer JAR is missing its exact audited compatibility attestation"
 
 seen_ids = {}
 checked_sources = 0
