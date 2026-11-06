@@ -34,11 +34,11 @@ final class TaskMigrationStore {
         String id=ID_TIME.format(Instant.now())+"-"+safe(action)+"-"+hash.substring(0,12)+"-"+UUID.randomUUID().toString().substring(0,8);
         Path directory=root.resolve(id);
         Files.createDirectories(directory);
-        Path payload=directory.resolve("task.properties");
+        Path payload=directory.resolve("task.snapshot");
         writeAtomic(payload,input);
         String copied=sha256(Files.readAllBytes(payload));
         if(!hash.equals(copied))throw new IOException("Backup hash verification failed for "+payload);
-        Path metadata=directory.resolve("migration.properties");
+        Path metadata=directory.resolve("migration.meta");
         String meta=""
             +"schemaVersion="+SCHEMA_VERSION+"\n"
             +"createdAt="+oneLine(created)+"\n"
@@ -70,7 +70,7 @@ final class TaskMigrationStore {
         if(Files.exists(source))throw new IOException("A live persisted task already exists; refusing to overwrite it");
         Path directory=latestDirectory(root);
         if(directory==null)throw new IOException("No task backup is available");
-        Path payload=directory.resolve("task.properties");
+        Path payload=directory.resolve("task.snapshot");
         byte[] input=Files.readAllBytes(payload);
         String hash=sha256(input);
         Files.createDirectories(source.getParent());
@@ -94,7 +94,7 @@ final class TaskMigrationStore {
         if(!Files.isDirectory(root))return null;
         try(Stream<Path> stream=Files.list(root)){
             return stream.filter(Files::isDirectory)
-                .filter(path->Files.isRegularFile(path.resolve("task.properties")))
+                .filter(path->Files.isRegularFile(path.resolve("task.snapshot")))
                 .max(Comparator.comparing(path->path.getFileName().toString()))
                 .orElse(null);
         }
