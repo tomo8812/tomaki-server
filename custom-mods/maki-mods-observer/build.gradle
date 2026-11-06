@@ -3,11 +3,11 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.148'
 }
 
-group = 'maki.lagobserver'
-version = '1.1.0'
+group = 'maki.modsobserver'
+version = '1.0.0'
 
 base {
-    archivesName = 'maki-lag-observer'
+    archivesName = 'maki-mods-observer'
 }
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
@@ -24,7 +24,7 @@ tasks.withType(JavaCompile).configureEach {
 tasks.named('jar') {
     manifest {
         attributes(
-            'Implementation-Title': 'Maki Lag Observer',
+            'Implementation-Title': 'Maki Mods Observer',
             'Implementation-Version': project.version
         )
     }
@@ -40,9 +40,9 @@ tasks.register('verifyMixinAnnotationRetention') {
             languageVersion = JavaLanguageVersion.of(21)
         }.get().metadata.installationPath.file('bin/javap').asFile
         [
-            'maki.lagobserver.mixin.CompoundTagMixin',
-            'maki.lagobserver.mixin.ListTagMixin',
-            'maki.lagobserver.mixin.MinecraftServerMixin'
+            'maki.modsobserver.mixin.CompoundTagMixin',
+            'maki.modsobserver.mixin.ListTagMixin',
+            'maki.modsobserver.mixin.MinecraftServerMixin'
         ].each { className ->
             def process = new ProcessBuilder(
                 javap.absolutePath,

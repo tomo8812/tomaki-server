@@ -1,4 +1,4 @@
-package maki.lagobserver;
+package maki.modsobserver;
 
 import java.io.IOException;
 import java.lang.management.ManagementFactory;
@@ -30,10 +30,10 @@ import net.minecraft.server.MinecraftServer;
  * and disk I/O is delegated to a bounded daemon writer queue.</p>
  */
 public final class NbtCopyObserver {
-    private static final System.Logger LOG = System.getLogger("MakiNbtCopyObserver");
+    private static final System.Logger LOG = System.getLogger("MakiModsObserverNbt");
     private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
-    private static final Path CONFIG = Path.of("config/maki-lag-observer.properties");
-    private static final Path LOG_FILE = Path.of("logs/maki-nbt-copy-observer.jsonl");
+    private static final Path CONFIG = Path.of("config/maki-mods-observer.properties");
+    private static final Path LOG_FILE = Path.of("logs/maki-mods-observer-nbt.jsonl");
     private static final long CONFIG_RELOAD_INTERVAL_NANOS = 5_000_000_000L;
     private static final BlockingQueue<String> WRITE_QUEUE = new ArrayBlockingQueue<>(64);
     private static final AtomicBoolean WRITER_STARTED = new AtomicBoolean();
@@ -207,7 +207,7 @@ public final class NbtCopyObserver {
     }
 
     private static boolean isObserverFrame(String className) {
-        return className.startsWith("maki.lagobserver.")
+        return className.startsWith("maki.modsobserver.")
                 || className.startsWith("org.spongepowered.asm.mixin.")
                 || className.equals(Thread.class.getName());
     }
@@ -290,7 +290,7 @@ public final class NbtCopyObserver {
         if (!WRITER_STARTED.compareAndSet(false, true)) {
             return;
         }
-        Thread writer = new Thread(NbtCopyObserver::writerLoop, "maki-nbt-copy-observer-writer");
+        Thread writer = new Thread(NbtCopyObserver::writerLoop, "maki-mods-observer-nbt-writer");
         writer.setDaemon(true);
         writer.setPriority(Thread.MIN_PRIORITY);
         writer.start();
@@ -480,7 +480,7 @@ public final class NbtCopyObserver {
 
     private record Settings(boolean enabled, long slowThresholdNanos, int maxStackFrames) {
         static Settings defaults() {
-            return new Settings(true, 50_000_000L, 192);
+            return new Settings(false, 50_000_000L, 192);
         }
 
         static Settings parse(Properties properties) {

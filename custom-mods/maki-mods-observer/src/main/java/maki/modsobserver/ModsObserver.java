@@ -1,4 +1,4 @@
-package maki.lagobserver;
+package maki.modsobserver;
 
 import com.sun.management.OperatingSystemMXBean;
 import java.io.IOException;
@@ -21,11 +21,11 @@ import java.util.Map;
 import java.util.Properties;
 import net.minecraft.server.MinecraftServer;
 
-public final class LagObserver {
-    private static final System.Logger LOG = System.getLogger("MakiLagObserver");
+public final class ModsObserver {
+    private static final System.Logger LOG = System.getLogger("MakiModsObserver");
     private static final ThreadMXBean THREADS = ManagementFactory.getThreadMXBean();
-    private static final Path CONFIG = Path.of("config/maki-lag-observer.properties");
-    private static final Path LOG_FILE = Path.of("logs/maki-lag-observer.jsonl");
+    private static final Path CONFIG = Path.of("config/maki-mods-observer.properties");
+    private static final Path LOG_FILE = Path.of("logs/maki-mods-observer.jsonl");
     private static final long THREAD_CPU_BASELINE_INTERVAL_NANOS = 1_000_000_000L;
     private static final Object WRITE_LOCK = new Object();
     private static final Map<Long, Long> PREVIOUS_THREAD_CPU = new HashMap<>();
@@ -48,7 +48,7 @@ public final class LagObserver {
     private static volatile long configStamp = Long.MIN_VALUE;
     private static volatile boolean writeWarningLogged;
 
-    private LagObserver() {
+    private ModsObserver() {
     }
 
     public static void tickStart(MinecraftServer server) {
@@ -135,7 +135,7 @@ public final class LagObserver {
             return;
         }
         running = true;
-        Thread thread = new Thread(LagObserver::watchLoop, "maki-lag-observer-watchdog");
+        Thread thread = new Thread(ModsObserver::watchLoop, "maki-mods-observer-watchdog");
         thread.setDaemon(true);
         thread.setPriority(Thread.MIN_PRIORITY);
         primeThreadCpuSnapshot();
@@ -770,7 +770,7 @@ public final class LagObserver {
             int topThreads,
             int maxStackFrames) {
         static Settings defaults() {
-            return new Settings(true, 100L, 500L, 500L, 200L, 500L, 8, 24);
+            return new Settings(false, 100L, 500L, 500L, 200L, 500L, 8, 24);
         }
 
         static Settings parse(Properties p) {

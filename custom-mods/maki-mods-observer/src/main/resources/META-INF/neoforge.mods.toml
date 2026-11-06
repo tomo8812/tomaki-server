@@ -1,0 +1,24 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+
+[[mods]]
+modId="maki_mods_observer"
+version="1.0.0"
+displayName="Maki Mods Observer"
+description="Opt-in bounded diagnostics for Maki custom MODs, including server stalls and slow NBT copies."
+
+[[dependencies.maki_mods_observer]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.262,21.2)"
+side="SERVER"
+
+[[dependencies.maki_mods_observer]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+side="SERVER"
+
+[[mixins]]
+config="maki-mods-observer.mixins.json"
