@@ -106,12 +106,15 @@ tasks.register('verifyDormantDiagnostics') {
             !stall.contains('private static void reloadSettingsIfDue()') ||
             !stall.contains('if (now < nextConfigCheckNanos) return;') ||
             !stall.contains('nextConfigCheckNanos = now + CONFIG_RELOAD_INTERVAL_NANOS;') ||
+            !stall.contains('diagnostic-max-file-mb') ||
+            !stall.contains('Files.size(LOG_FILE) >= settings.maxFileBytes') ||
             !stall.contains('if (!settings.enabled)') ||
             !stall.contains('return;\n        }\n        if (!active)')) {
             throw new GradleException('Issue #62 regression: disabled stall diagnostics must avoid per-tick sampling/I/O')
         }
         if (!nbt.contains('reloadSettingsIfDue();\n        if (!settings.enabled)') ||
-            !nbt.contains('if (!settings.enabled || tag == null) return;')) {
+            !nbt.contains('if (!settings.enabled || tag == null) return;') ||
+            !nbt.contains('Files.size(LOG_FILE) >= settings.maxFileBytes')) {
             throw new GradleException('Issue #62 regression: disabled NBT diagnostics must return before per-tick tracing state or NBT inspection')
         }
     }

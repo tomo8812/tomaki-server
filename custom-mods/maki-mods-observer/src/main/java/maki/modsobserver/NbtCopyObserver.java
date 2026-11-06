@@ -40,6 +40,7 @@ public final class NbtCopyObserver {
     private static final BlockingQueue<String> WRITE_QUEUE = new ArrayBlockingQueue<>(64);
     private static final AtomicBoolean WRITER_STARTED = new AtomicBoolean();
     private static final AtomicBoolean WRITE_WARNING_LOGGED = new AtomicBoolean();
+    private static final AtomicBoolean CAPACITY_WARNING_LOGGED = new AtomicBoolean();
     private static final AtomicLong DROPPED_EVENTS = new AtomicLong();
     private static final ThreadLocal<Trace> ACTIVE = new ThreadLocal<>();
     private static final Map<Integer, Integer> SLOW_ROOTS_THIS_TICK = new HashMap<>();
@@ -305,7 +306,16 @@ public final class NbtCopyObserver {
             try {
                 String line = WRITE_QUEUE.take();
                 Files.createDirectories(LOG_FILE.getParent());
+                if (Files.isRegularFile(LOG_FILE) && Files.size(LOG_FILE) >= settings.maxFileBytes) {
+                    DROPPED_EVENTS.incrementAndGet();
+                    if (CAPACITY_WARNING_LOGGED.compareAndSet(false, true)) {
+                        LOG.warn("Maki Mods Observer NBT diagnostic file reached its {} MiB cap; further events are dropped until the file is rotated or removed",
+                            settings.maxFileBytes / 1048576L);
+                    }
+                    continue;
+                }
                 Files.writeString(LOG_FILE, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                CAPACITY_WARNING_LOGGED.set(false);
                 WRITE_WARNING_LOGGED.set(false);
             } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
@@ -483,9 +493,9 @@ public final class NbtCopyObserver {
     private record StackCapture(String firstCaller, List<String> frames) {
     }
 
-    private record Settings(boolean enabled, long slowThresholdNanos, int maxStackFrames) {
+    private record Settings(boolean enabled, long slowThresholdNanos, int maxStackFrames, long maxFileBytes) {
         static Settings defaults() {
-            return new Settings(false, 50_000_000L, 192);
+            return new Settings(false, 50_000_000L, 192, 16L * 1024L * 1024L);
         }
 
         static Settings parse(Properties properties) {
@@ -496,7 +506,9 @@ public final class NbtCopyObserver {
                     properties, "nbt-copy-threshold-ms", defaults.slowThresholdNanos / 1_000_000L, 1L, 60_000L);
             int maxFrames = (int)boundedLong(
                     properties, "nbt-copy-max-stack-frames", defaults.maxStackFrames, 32L, 512L);
-            return new Settings(enabled, thresholdMs * 1_000_000L, maxFrames);
+            long maxFileMb = boundedLong(
+                    properties, "diagnostic-max-file-mb", defaults.maxFileBytes / 1048576L, 1L, 1024L);
+            return new Settings(enabled, thresholdMs * 1_000_000L, maxFrames, maxFileMb * 1048576L);
         }
 
         private static long boundedLong(Properties properties, String key, long fallback, long min, long max) {

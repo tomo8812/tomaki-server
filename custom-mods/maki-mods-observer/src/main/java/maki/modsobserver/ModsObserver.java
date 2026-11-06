@@ -50,6 +50,7 @@ public final class ModsObserver {
     private static volatile Settings settings = Settings.defaults();
     private static volatile long configStamp = Long.MIN_VALUE;
     private static volatile boolean writeWarningLogged;
+    private static volatile boolean capacityWarningLogged;
     private static volatile boolean active;
     private static volatile long nextConfigCheckNanos;
 
@@ -297,8 +298,17 @@ public final class ModsObserver {
             String line = Json.encode(root) + System.lineSeparator();
             synchronized (WRITE_LOCK) {
                 Files.createDirectories(LOG_FILE.getParent());
+                if (Files.isRegularFile(LOG_FILE) && Files.size(LOG_FILE) >= settings.maxFileBytes) {
+                    if (!capacityWarningLogged) {
+                        capacityWarningLogged = true;
+                        LOG.warn("Maki Mods Observer diagnostic file reached its {} MiB cap; further stall samples are suppressed until the file is rotated or removed",
+                            settings.maxFileBytes / 1048576L);
+                    }
+                    return;
+                }
                 Files.writeString(LOG_FILE, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             }
+            capacityWarningLogged = false;
             writeWarningLogged = false;
         } catch (Throwable error) {
             if (!writeWarningLogged) {
@@ -808,9 +818,10 @@ public final class ModsObserver {
             long longTickThresholdMs,
             long tickStartGapThresholdMs,
             int topThreads,
-            int maxStackFrames) {
+            int maxStackFrames,
+            long maxFileBytes) {
         static Settings defaults() {
-            return new Settings(false, 100L, 500L, 500L, 200L, 500L, 8, 128);
+            return new Settings(false, 100L, 500L, 500L, 200L, 500L, 8, 128, 16L * 1024L * 1024L);
         }
 
         static Settings parse(Properties p) {
@@ -823,7 +834,8 @@ public final class ModsObserver {
                     boundedLong(p, "long-tick-threshold-ms", d.longTickThresholdMs, 50L, 60000L),
                     boundedLong(p, "tick-start-gap-threshold-ms", d.tickStartGapThresholdMs, 100L, 60000L),
                     (int)boundedLong(p, "top-threads", d.topThreads, 1L, 32L),
-                    (int)boundedLong(p, "max-stack-frames", d.maxStackFrames, 4L, 128L));
+                    (int)boundedLong(p, "max-stack-frames", d.maxStackFrames, 4L, 128L),
+                    boundedLong(p, "diagnostic-max-file-mb", d.maxFileBytes / 1048576L, 1L, 1024L) * 1048576L);
         }
 
         private static long boundedLong(Properties p, String key, long fallback, long min, long max) {
