@@ -40,10 +40,6 @@ public final class BackfillGuard {
       return !playerNear(level, pos);
    }
 
-   public static boolean suppressAndRemember(ServerLevel level, ChunkPos pos) {
-      return suppress(level, pos);
-   }
-
    public static boolean activePoi(Object poiManager, ChunkPos pos) {
       if (poiManager != null && pos != null) {
          for (ServerLevel level : BackfillController.levels()) {
@@ -54,6 +50,26 @@ public final class BackfillGuard {
       }
 
       return false;
+   }
+
+   public static boolean scopeAvailable(ServerLevel level, Set<Long> scope) {
+      if (level == null || scope == null || scope.isEmpty()) {
+         return false;
+      }
+
+      try {
+         ChunkMapLifecycleAccessor chunks = (ChunkMapLifecycleAccessor)(Object)level.getChunkSource().chunkMap;
+         for (long packed : scope) {
+            if (chunks.maki$getUpdatingChunkMap().containsKey(packed)
+               || chunks.maki$getVisibleChunkMap().containsKey(packed)
+               || chunks.maki$getPendingUnloads().containsKey(packed)) {
+               return false;
+            }
+         }
+         return true;
+      } catch (Throwable ignored) {
+         return false;
+      }
    }
 
    public static boolean scopeDrained(ServerLevel level, ChunkPos target) {
