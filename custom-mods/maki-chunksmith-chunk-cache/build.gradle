@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.0.2'
+version = '1.0.3'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -80,6 +80,24 @@ tasks.register('verifyMixinAnnotationRetention') {
     }
 }
 
+tasks.register('verifyIssue41BackfillTicketLifecycle') {
+    doLast {
+        def source = file('src/main/java/maki/chunksmithcache/BackfillController.java').getText('UTF-8')
+        if (source =~ /getChunkFuture\([^;]*ChunkStatus\.FULL,\s*true\)/) {
+            throw new GradleException('Issue #41 regression: backfill must not create vanilla UNKNOWN tickets via getChunkFuture(..., FULL, true)')
+        }
+        if (!source.contains('getChunkFuture(pos.x,pos.z,ChunkStatus.FULL,false)')) {
+            throw new GradleException('Issue #41 regression: owned BACKFILL_TICKET lookup is missing')
+        }
+        ['backfillTicketHeld', 'ticketRemovedAt', 'unloadWaitMillis', 'guardActive', 'serverFrozen'].each { field ->
+            if (!source.contains(field)) {
+                throw new GradleException('Issue #41 regression: lifecycle diagnostic ' + field + ' is missing')
+            }
+        }
+    }
+}
+
 tasks.named('check') {
     dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('verifyIssue41BackfillTicketLifecycle')
 }
