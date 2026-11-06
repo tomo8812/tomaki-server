@@ -1,12 +1,16 @@
 package maki.lodcpu.mixin;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 import maki.lodcpu.CpuGovernor;
+import maki.lodcpu.ResourceBudgetApi;
 import maki.lodcpu.TaskOwnership;
 import maki.lodcpu.PlayerCenter;
 import maki.lodcpu.WorkTelemetry;
 import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.Selection;
+import com.kishku7.chunksmith.iterator.ChunkIterator;
+import com.kishku7.chunksmith.util.ChunkCoordinate;
 import com.kishku7.chunksmith.util.ChunkResidency;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.*;
@@ -20,6 +24,7 @@ public abstract class GenerationTaskMixin {
     @Shadow private volatile boolean writeQueueStalled;
     @Shadow private volatile boolean chunkResidencyStalled;
     @Shadow private volatile boolean heapStalled;
+    @Shadow private boolean stopped;
     @Unique private final WorkTelemetry maki$metrics=new WorkTelemetry();
 
     @Unique
@@ -35,12 +40,35 @@ public abstract class GenerationTaskMixin {
         if(maki$owned())PlayerCenter.nativeTaskStopping((GenerationTask)(Object)this,cancelled);
     }
 
+    /**
+     * Establishes a safe boundary without calling GenerationTask.stop().
+     * One iterator coordinate may already have been selected before the
+     * reservation; waiting here until inFlight reaches zero drains that work.
+     * The selected coordinate is retained and dispatch continues unchanged
+     * after the backfill slice releases the shared budget.
+     */
+    @Redirect(
+        method="run()V",
+        at=@At(value="INVOKE",target="Lcom/kishku7/chunksmith/iterator/ChunkIterator;next()Lcom/kishku7/chunksmith/util/ChunkCoordinate;"),
+        require=1
+    )
+    private ChunkCoordinate maki$sharedBackfillBarrier(ChunkIterator iterator) {
+        ChunkCoordinate next=iterator.next();
+        if(!maki$owned())return next;
+        while(!stopped&&ResourceBudgetApi.blockFollowDispatch()) {
+            ResourceBudgetApi.noteFollowInFlight(inFlight.get());
+            LockSupport.parkNanos(1_000_000L);
+        }
+        return next;
+    }
+
     @Unique
     private void maki$clamp(){
         int upper=CpuGovernor.cap(),old;
         do{old=dispatchLimit.get();if(old<=upper)return;}
         while(!dispatchLimit.compareAndSet(old,upper));
     }
+
     @Inject(method="adjustFromTickHealth()V",at=@At("HEAD"),require=1)
     private void maki$beforeHealth(CallbackInfo ci){
         if(!maki$owned())return;
@@ -61,6 +89,7 @@ public abstract class GenerationTaskMixin {
         maki$clamp();
         if(dispatchLimit.get()>=CpuGovernor.cap())ci.cancel();
     }
+
     @Inject(method="adjustFromChunkLatency(J)V",at=@At("HEAD"),require=1)
     private void maki$completion(long elapsed,CallbackInfo ci){if(maki$owned())maki$metrics.completed(elapsed);}
 }
