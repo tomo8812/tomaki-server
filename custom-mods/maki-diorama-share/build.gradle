@@ -27,6 +27,7 @@ dependencies {
     compileOnly files('../../mods/maki-diorama-share-1.0.0.jar')
     compileOnly 'maven.modrinth:kwpTgbCk:0.5.0+neoforge-1.21.1'
 
+    testImplementation files('../../mods/maki-diorama-share-1.0.0.jar')
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
