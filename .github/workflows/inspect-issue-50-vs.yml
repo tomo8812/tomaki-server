@@ -1,0 +1,27 @@
+name: Inspect Issue 50 VS bytecode
+
+on:
+  push:
+    branches: [fix/issue-50]
+    paths:
+      - '.github/workflows/inspect-issue-50-vs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  javap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Inspect FQ postTickGame and queue field
+        run: |
+          JAR='mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar'
+          javap -classpath "$JAR" -p -c -s org.valkyrienskies.core.impl.shadow.FQ
+          javap -classpath "$JAR" -p -c -s org.valkyrienskies.core.impl.shadow.FN
+          javap -classpath "$JAR" -p -c -s org.valkyrienskies.core.impl.shadow.FH
