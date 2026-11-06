@@ -1,5 +1,5 @@
 name: Issue 66 deployment build
-# revision: 2
+# revision: 3
 
 on:
   push:
@@ -34,7 +34,7 @@ jobs:
 
       - name: Refresh resource governor deployment JAR
         run: |
-          rm -f mods/maki-lod-cpu-*.jar
+          find mods -maxdepth 1 -type f -name 'maki-lod-cpu-[0-9]*.jar' -delete
           cp custom-mods/maki-lod-cpu/build/libs/maki-lod-cpu-1.4.0.jar mods/
 
       - name: Build chunk cache
