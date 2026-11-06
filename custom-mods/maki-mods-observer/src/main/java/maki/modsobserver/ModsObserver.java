@@ -19,6 +19,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +34,15 @@ public final class ModsObserver {
     private static final Path LOG_FILE = Path.of("logs/maki-mods-observer.jsonl");
     private static final long THREAD_CPU_BASELINE_INTERVAL_NANOS = 1_000_000_000L;
     private static final long CONFIG_RELOAD_INTERVAL_NANOS = 5_000_000_000L;
-    private static final Object WRITE_LOCK = new Object();
+    private static final BlockingQueue<String> WRITE_QUEUE = new ArrayBlockingQueue<>(64);
+    private static final AtomicBoolean WRITER_STARTED = new AtomicBoolean();
+    private static final AtomicBoolean WRITE_WARNING_LOGGED = new AtomicBoolean();
+    private static final AtomicBoolean CAPTURE_WARNING_LOGGED = new AtomicBoolean();
+    private static final AtomicBoolean QUEUE_WARNING_LOGGED = new AtomicBoolean();
+    private static final AtomicBoolean SESSION_LIMIT_REACHED = new AtomicBoolean();
+    private static final AtomicLong SESSION_STARTED_NANOS = new AtomicLong();
+    private static final AtomicLong ACCEPTED_EVENTS = new AtomicLong();
+    private static final AtomicLong DROPPED_EVENTS = new AtomicLong();
     private static final Map<Long, Long> PREVIOUS_THREAD_CPU = new HashMap<>();
 
     private static volatile MinecraftServer owner;
@@ -49,8 +61,6 @@ public final class ModsObserver {
     private static volatile long threadCpuBaselineNanos;
     private static volatile Settings settings = Settings.defaults();
     private static volatile long configStamp = Long.MIN_VALUE;
-    private static volatile boolean writeWarningLogged;
-    private static volatile boolean capacityWarningLogged;
     private static volatile boolean active;
     private static volatile long nextConfigCheckNanos;
 
@@ -64,7 +74,7 @@ public final class ModsObserver {
         owner = server;
         serverThread = Thread.currentThread();
         reloadSettingsIfDue();
-        if (!settings.enabled) {
+        if (!settings.enabled || SESSION_LIMIT_REACHED.get()) {
             if (active) {
                 active = false;
                 stopWatchdog();
@@ -258,6 +268,7 @@ public final class ModsObserver {
             long serverCpuNanos,
             ThreadInfo info,
             HotThreadSample hotThreadSample) {
+        if (!reserveDiagnosticEvent()) return;
         try {
             Map<String, Object> root = new LinkedHashMap<>();
             root.put("time", Instant.now().toString());
@@ -281,9 +292,7 @@ public final class ModsObserver {
                 root.put("serverThreadBlockedCount", info.getBlockedCount());
                 root.put("serverThreadWaitedCount", info.getWaitedCount());
                 ArrayList<String> stack = new ArrayList<>();
-                for (StackTraceElement frame : info.getStackTrace()) {
-                    stack.add(frame.toString());
-                }
+                for (StackTraceElement frame : info.getStackTrace()) stack.add(frame.toString());
                 root.put("serverThreadStack", stack);
             }
 
@@ -294,26 +303,92 @@ public final class ModsObserver {
             root.put("jvm", jvmMetrics());
             root.put("linux", linuxMetrics());
             root.put("modState", modState());
+            root.put("droppedEventsTotal", DROPPED_EVENTS.get());
 
-            String line = Json.encode(root) + System.lineSeparator();
-            synchronized (WRITE_LOCK) {
+            enqueue(Json.encode(root) + System.lineSeparator());
+            CAPTURE_WARNING_LOGGED.set(false);
+        } catch (Throwable error) {
+            if (CAPTURE_WARNING_LOGGED.compareAndSet(false, true)) {
+                LOG.warn("Could not capture MOD diagnostic sample", error);
+            }
+        }
+    }
+
+    private static boolean reserveDiagnosticEvent() {
+        Settings s = settings;
+        if (!s.enabled || SESSION_LIMIT_REACHED.get()) return false;
+        long now = System.nanoTime();
+        long started = SESSION_STARTED_NANOS.get();
+        if (started == 0L) {
+            SESSION_STARTED_NANOS.compareAndSet(0L, now);
+            started = SESSION_STARTED_NANOS.get();
+        }
+        if (now - started >= s.maxDurationNanos) {
+            markSessionLimit("duration limit " + (s.maxDurationNanos / 60_000_000_000L) + " minute(s) reached");
+            return false;
+        }
+        long accepted = ACCEPTED_EVENTS.incrementAndGet();
+        if (accepted > s.maxEvents) {
+            ACCEPTED_EVENTS.decrementAndGet();
+            markSessionLimit("event limit " + s.maxEvents + " reached");
+            return false;
+        }
+        if (accepted == s.maxEvents) markSessionLimit("event limit " + s.maxEvents + " reached");
+        return true;
+    }
+
+    private static void markSessionLimit(String reason) {
+        if (SESSION_LIMIT_REACHED.compareAndSet(false, true)) {
+            LOG.warn("Maki Mods Observer stall diagnostics stopped for the current config: {}", reason);
+        }
+    }
+
+    private static void resetDiagnosticSession() {
+        SESSION_STARTED_NANOS.set(0L);
+        ACCEPTED_EVENTS.set(0L);
+        DROPPED_EVENTS.set(0L);
+        SESSION_LIMIT_REACHED.set(false);
+        QUEUE_WARNING_LOGGED.set(false);
+    }
+
+    private static void enqueue(String line) {
+        ensureWriter();
+        if (!WRITE_QUEUE.offer(line)) {
+            long dropped = DROPPED_EVENTS.incrementAndGet();
+            if (QUEUE_WARNING_LOGGED.compareAndSet(false, true)) {
+                LOG.warn("Maki Mods Observer diagnostic writer queue is full; dropping samples (dropped={})", dropped);
+            }
+        }
+    }
+
+    private static void ensureWriter() {
+        if (!WRITER_STARTED.compareAndSet(false, true)) return;
+        Thread writer = new Thread(ModsObserver::writerLoop, "maki-mods-observer-writer");
+        writer.setDaemon(true);
+        writer.setPriority(Thread.MIN_PRIORITY);
+        writer.start();
+    }
+
+    private static void writerLoop() {
+        while (true) {
+            try {
+                String line = WRITE_QUEUE.take();
                 Files.createDirectories(LOG_FILE.getParent());
                 if (Files.isRegularFile(LOG_FILE) && Files.size(LOG_FILE) >= settings.maxFileBytes) {
-                    if (!capacityWarningLogged) {
-                        capacityWarningLogged = true;
-                        LOG.warn("Maki Mods Observer diagnostic file reached its {} MiB cap; further stall samples are suppressed until the file is rotated or removed",
-                            settings.maxFileBytes / 1048576L);
-                    }
-                    return;
+                    DROPPED_EVENTS.incrementAndGet();
+                    markSessionLimit("file size cap " + (settings.maxFileBytes / 1048576L) + " MiB reached");
+                    continue;
                 }
                 Files.writeString(LOG_FILE, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            }
-            capacityWarningLogged = false;
-            writeWarningLogged = false;
-        } catch (Throwable error) {
-            if (!writeWarningLogged) {
-                writeWarningLogged = true;
-                LOG.warn("Could not write MOD diagnostic sample", error);
+                WRITE_WARNING_LOGGED.set(false);
+                if (WRITE_QUEUE.remainingCapacity() > 0) QUEUE_WARNING_LOGGED.set(false);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+                return;
+            } catch (Throwable error) {
+                if (WRITE_WARNING_LOGGED.compareAndSet(false, true)) {
+                    LOG.warn("Could not write MOD diagnostic sample", error);
+                }
             }
         }
     }
@@ -730,7 +805,14 @@ public final class ModsObserver {
             }
             settings = Settings.parse(properties);
             configStamp = stamp;
-            LOG.info("Maki Mods Observer stall diagnostics enabled={}; config={}", settings.enabled, CONFIG);
+            resetDiagnosticSession();
+            if (!settings.enabled) WRITE_QUEUE.clear();
+            LOG.info("Maki Mods Observer stall diagnostics enabled={}; maxDurationMinutes={}; maxEvents={}; maxFileMiB={}; config={}",
+                settings.enabled,
+                settings.maxDurationNanos / 60_000_000_000L,
+                settings.maxEvents,
+                settings.maxFileBytes / 1048576L,
+                CONFIG);
         } catch (Exception error) {
             LOG.warn("Invalid Maki Mods Observer config; retaining previous settings", error);
         }
@@ -819,9 +901,12 @@ public final class ModsObserver {
             long tickStartGapThresholdMs,
             int topThreads,
             int maxStackFrames,
-            long maxFileBytes) {
+            long maxFileBytes,
+            long maxDurationNanos,
+            long maxEvents) {
         static Settings defaults() {
-            return new Settings(false, 100L, 500L, 500L, 200L, 500L, 8, 128, 16L * 1024L * 1024L);
+            return new Settings(false, 100L, 500L, 500L, 200L, 500L, 8, 128,
+                    16L * 1024L * 1024L, 30L * 60_000_000_000L, 5000L);
         }
 
         static Settings parse(Properties p) {
@@ -835,7 +920,10 @@ public final class ModsObserver {
                     boundedLong(p, "tick-start-gap-threshold-ms", d.tickStartGapThresholdMs, 100L, 60000L),
                     (int)boundedLong(p, "top-threads", d.topThreads, 1L, 32L),
                     (int)boundedLong(p, "max-stack-frames", d.maxStackFrames, 4L, 128L),
-                    boundedLong(p, "diagnostic-max-file-mb", d.maxFileBytes / 1048576L, 1L, 1024L) * 1048576L);
+                    boundedLong(p, "diagnostic-max-file-mb", d.maxFileBytes / 1048576L, 1L, 1024L) * 1048576L,
+                    boundedLong(p, "diagnostic-max-duration-minutes", d.maxDurationNanos / 60_000_000_000L, 1L, 1440L)
+                            * 60_000_000_000L,
+                    boundedLong(p, "diagnostic-max-events", d.maxEvents, 1L, 1_000_000L));
         }
 
         private static long boundedLong(Properties p, String key, long fallback, long min, long max) {
