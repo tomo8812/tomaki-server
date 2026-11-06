@@ -1,6 +1,6 @@
 # maki-chunksmith-chunk-cache
 
-Version 1.2.0 combines compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
+Version 1.2.1 combines semantic compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
 
 
 Maintained source for the server-only Chunksmith cold-cache/backfill compatibility mod.
@@ -97,3 +97,16 @@ Version 1.2.0 no longer treats every active Chunksmith task as an unconditional 
 
 This design deliberately uses a brief dispatch barrier instead of lifecycle pause/resume. Chunksmith 4.6.0 has no public per-coordinate reservation API, so fully concurrent follow/Backfill would leave dependency-overlap races unless the distributed MOD were patched. Keeping that exclusion in the custom compatibility MOD preserves upstream upgradeability.
 
+
+## Issue #68 semantic compatibility inputs
+
+Version 1.2.1 keeps the #40 manifest/quarantine mechanism but stops using raw file bytes when the installed component's effective semantics can be proven safely.
+
+- `config/zfastnoise.mixin.properties` is parsed with the same `java.util.Properties.load(InputStream)` and `Boolean.parseBoolean` behavior used by zfastnoise 1.0.13. Only the two keys that zfastnoise actually reads are compatibility inputs; comments, generated timestamps, key order, equivalent whitespace and ignored unknown keys remain audit-only raw changes. Missing keys retain zfastnoise's real `true` defaults. Parse failures stay raw/fail-closed.
+- `maki-lod-cpu` 1.3.4/1.4.0 and `maki-lod-cpu-online-fix` 1.0.2/1.0.3 were inspected from the historical/current decompiled artifacts. Their changes control dispatch width, follow/backfill scheduling and adaptive online limits; they do not transform generated chunk contents or chunk serialization.
+- Those four load-control artifacts are exempted only by exact version **and exact audited JAR SHA-256**. A future version, malformed metadata, or same-version JAR with different bytes remains compatibility-relevant and therefore fail-closed.
+- Raw normalized-config/JAR hashes are still stored as `IGNORED` audit entries so logs can distinguish source-format/comment changes and verified non-worldgen JAR changes from effective value/worldgen changes.
+- Compatibility schema v3 can adopt a v2 active generation only when all relevant inputs are semantically equivalent. Historical migration is deliberately narrow: the two zfastnoise byte signatures documented by Issue #68 and the four exact audited load-control JAR hashes are recognized; anything else remains quarantined.
+- `/makichunkcache quarantine restore <id>` now also permits that same audited semantic equivalence, while preserving existing active files on path conflicts. It still refuses unknown/unproven manifest differences.
+
+This does not modify zfastnoise, Chunksmith, or any other distributed MOD.
