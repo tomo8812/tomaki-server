@@ -74,7 +74,7 @@ public final class ClientSharing {
     }
 
     public static List<Waypoint> raw(WaypointStore waypointStore) {
-        return ((StoreAccess) waypointStore).maki$raw();
+        return ((StoreAccess) (Object) waypointStore).maki$raw();
     }
 
     private static UUID me() {
