@@ -20,3 +20,17 @@ Version 1.0.2 keeps backfill ownership in this MOD and adds explicit runtime sta
 - releases the backfill guard and idle-work claim immediately when loading fails before a FULL chunk exists; loaded-chunk failures retain the guarded-unload lifecycle.
 
 This makes non-zero global CSLOD writes explainable even when the follow-owned GenerationTask completion rate is zero.
+
+
+## Issue #41 backfill ticket lifecycle
+
+Version 1.0.3 removes the circular dependency between the backfill idle-work claim and vanilla's expiring `UNKNOWN` chunk ticket.
+
+- the existing `BACKFILL_TICKET` is the sole ticket owned by backfill;
+- FULL acquisition polls `getChunkFuture(..., FULL, false)`, so the lookup does not create an auxiliary vanilla `UNKNOWN` ticket;
+- the custom ticket and idle-work claim are released as soon as durable LOD/cache work is finished, while `BackfillGuard` remains active until the chunk actually unloads or a player takes ownership;
+- pre-FULL loading warns after 30 seconds and aborts safely after five minutes;
+- post-ticket unload delays warn after 30 seconds without force-unloading or deleting another owner's ticket;
+- status schema 2 records phase/progress/ticket timestamps, guard state, server freeze state, unload wait time, and a typed wait reason.
+
+This deliberately does not change Chunksmith 4.6.0, `maki-idle-pregen`, fingerprint rotation (#40), synchronous load scheduling (#44), status-file I/O (#45), or neighboring ProtoChunk persistence (#47).
