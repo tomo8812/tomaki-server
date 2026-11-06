@@ -107,6 +107,7 @@ for active_root in active_runtime_roots:
         text = path.read_text(encoding="utf-8", errors="ignore")
         assert "maki_lag_observer" not in text, f"Retired observer MOD ID in active runtime file {path.relative_to(root)}"
         assert "maki_status_io" not in text, f"Retired status-io MOD ID in active runtime file {path.relative_to(root)}"
+        assert "maki-status-io" not in text, f"Retired status-io artifact reference in active runtime file {path.relative_to(root)}"
         assert "maki-lag-observer.properties" not in text, f"Retired observer config name in active runtime file {path.relative_to(root)}"
 
 print(
