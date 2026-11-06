@@ -25,5 +25,5 @@ custom-mods/**/build/
 Thumbs.db
 desktop.ini
 
-# Chunksmith runtime task progress and maki-lod migration backups
+# Chunksmith runtime task progress (server-owned, not distributed)
 /config/chunksmith/tasks/
