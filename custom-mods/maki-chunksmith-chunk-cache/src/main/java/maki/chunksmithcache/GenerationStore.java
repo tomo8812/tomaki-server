@@ -41,6 +41,7 @@ final class GenerationStore {
 
             migrateExactLegacy(root, snapshot, trigger);
             migratePolicyEquivalent(root, snapshot, trigger);
+            migrateEquivalentQuarantines(root, snapshot, trigger);
             quarantineIncompatible(root, snapshot, trigger);
             Path active = root.resolve(snapshot.fingerprint());
             Files.createDirectories(active);
@@ -196,6 +197,46 @@ final class GenerationStore {
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
             LOG.info("Adopted compatibility-equivalent chunk-cache generation {} as {} for {}; audited effective settings/worldgen/serialization inputs are unchanged; entries={} bytes={} trigger={}",
                 oldFingerprint, snapshot.fingerprint(), root.getFileName(), before.entries(), before.bytes(), trigger);
+        }
+    }
+
+    private static void migrateEquivalentQuarantines(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+        Path quarantineRoot = root.resolve(QUARANTINE_DIR);
+        if (!Files.isDirectory(quarantineRoot)) return;
+
+        FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+        List<Path> candidates;
+        try (Stream<Path> stream = Files.list(quarantineRoot)) {
+            candidates = stream.filter(Files::isDirectory).toList();
+        }
+
+        for (Path candidate : candidates) {
+            FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(candidate.resolve(FingerprintManifest.FILE_NAME));
+            if (old == null) continue;
+            boolean exact = old.fingerprint().equals(snapshot.fingerprint());
+            boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(
+                old,
+                current,
+                Set.of("policy:compatibility")
+            );
+            if (!exact && !semantic) continue;
+
+            Stats before = stats(candidate);
+            Path active = root.resolve(snapshot.fingerprint());
+            FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
+            mergeDirectory(candidate, active);
+            Files.deleteIfExists(active.resolve(QUARANTINE_INFO));
+
+            Set<String> accepted = new LinkedHashSet<>();
+            accepted.add(snapshot.fingerprint());
+            accepted.add(old.fingerprint());
+            accepted.addAll(old.storedFingerprints());
+            if (existing != null) accepted.addAll(existing.storedFingerprints());
+            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
+
+            String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
+            LOG.info("Re-adopted quarantined chunk-cache generation {} as {} for {}; proof={}; entries={} bytes={}; existing active cache entries won path conflicts; trigger={}",
+                old.fingerprint(), snapshot.fingerprint(), root.getFileName(), proof, before.entries(), before.bytes(), trigger);
         }
     }
 
