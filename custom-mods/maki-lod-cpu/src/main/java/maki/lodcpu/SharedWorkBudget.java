@@ -4,6 +4,7 @@ final class SharedWorkBudget {
     record Sample(
         long observedAtNanos,
         int players,
+        double cpu,
         double mspt,
         double heap,
         double gc,
@@ -20,211 +21,181 @@ final class SharedWorkBudget {
         boolean nativeHeld
     ) {}
 
-    record Decision(boolean reserved, boolean ready, String reason, long safeWaitMillis) {}
+    record Decision(boolean reserved, boolean ready, String reason, long waitMillis, int completedInEpoch) {}
 
     private Sample sample;
-    private boolean reserved;
+    private boolean exclusive;
     private long reservationAtNanos;
-    private long workStartedAtNanos;
-    private long nextEligibleAtNanos;
-    private long demandSinceNanos;
-    private double averageBackfillMillis = -1.0;
-    private String lastReason = "warming-up";
+    private long epochStartedAtNanos;
+    private long followSliceUntilNanos;
+    private int completedInEpoch;
+    private String lastReason="warming-up";
 
     synchronized void observe(Sample next) {
-        sample = next;
+        sample=next;
     }
 
-    synchronized Decision reserve(long nowNanos, String taskMode, int baseCap, Settings settings) {
-        if (reserved && workStartedAtNanos != 0L) {
-            lastReason = "backfill-active";
-            return new Decision(true, true, lastReason, safeWaitMillis(nowNanos));
+    synchronized Decision request(long nowNanos,String taskMode,Settings settings) {
+        if("external".equals(taskMode)) {
+            releaseInternal(nowNanos,settings,false);
+            lastReason="external-chunksmith-task";
+            return decision(nowNanos,false,false,lastReason);
         }
 
-        if (!"none".equals(taskMode) && !"follow".equals(taskMode)) {
-            cancelPending();
-            lastReason = "external-chunksmith-task";
-            return new Decision(false, false, lastReason, 0L);
+        if(!exclusive && nowNanos<followSliceUntilNanos) {
+            lastReason="follow-min-slice";
+            return decision(nowNanos,false,false,lastReason);
         }
 
-        String pressure = pressure(nowNanos, settings);
-        if (pressure != null) {
-            cancelPending();
-            lastReason = pressure;
-            return new Decision(false, false, lastReason, 0L);
+        if(!exclusive) {
+            exclusive=true;
+            reservationAtNanos=nowNanos;
+            epochStartedAtNanos=0L;
+            completedInEpoch=0;
         }
 
-        if (demandSinceNanos == 0L) {
-            demandSinceNanos = nowNanos;
+        // A follow-owned task must drain completely before backfill receives the machine.
+        if("follow".equals(taskMode)) {
+            lastReason="pausing-follow";
+            return decision(nowNanos,true,false,lastReason);
         }
 
-        if (!reserved) {
-            if (nowNanos < nextEligibleAtNanos) {
-                lastReason = "dynamic-cooldown";
-                return new Decision(false, false, lastReason, safeWaitMillis(nowNanos));
+        String pressure=pressure(nowNanos,settings);
+        if(pressure!=null) {
+            long wait=elapsedMillis(nowNanos,reservationAtNanos);
+            if(wait>=settings.backfillDrainWaitSeconds*1000L) {
+                releaseInternal(nowNanos,settings,true);
+                lastReason="pressure-timeout-"+pressure;
+                return decision(nowNanos,false,false,lastReason);
             }
-
-            long safeWait = safeWaitMillis(nowNanos);
-            if ("follow".equals(taskMode) && baseCap <= 1
-                && safeWait < settings.backfillMaxSafeWaitSeconds * 1_000L) {
-                lastReason = "follow-width-one-fairness-wait";
-                return new Decision(false, false, lastReason, safeWait);
-            }
-
-            reserved = true;
-            reservationAtNanos = nowNanos;
-            workStartedAtNanos = 0L;
+            lastReason="waiting-"+pressure;
+            return decision(nowNanos,true,false,lastReason);
         }
 
-        int effectiveCap = effectiveFollowCap(baseCap);
-        if ("follow".equals(taskMode) && sample != null && sample.inFlight() > effectiveCap) {
-            lastReason = "follow-draining-to-reserved-cap";
-            return new Decision(true, false, lastReason, safeWaitMillis(nowNanos));
-        }
-
-        lastReason = "granted";
-        return new Decision(true, true, lastReason, safeWaitMillis(nowNanos));
+        if(epochStartedAtNanos==0L)epochStartedAtNanos=nowNanos;
+        lastReason="granted";
+        return decision(nowNanos,true,true,lastReason);
     }
 
-    synchronized void backfillStarted(long nowNanos) {
-        if (reserved && workStartedAtNanos == 0L) {
-            workStartedAtNanos = nowNanos;
-            lastReason = "backfill-active";
+    synchronized boolean completed(long nowNanos,String outcome,Settings settings) {
+        if(!exclusive)return false;
+        completedInEpoch++;
+
+        String pressure=pressure(nowNanos,settings);
+        if(pressure!=null) {
+            releaseInternal(nowNanos,settings,true);
+            lastReason="yield-"+pressure;
+            return false;
         }
+
+        if(outcome==null||!outcome.startsWith("completed")) {
+            releaseInternal(nowNanos,settings,true);
+            lastReason="yield-"+(outcome==null?"unknown-outcome":outcome);
+            return false;
+        }
+
+        int chunkLimit=dynamicChunkLimit(settings);
+        long timeLimitMillis=dynamicTimeLimitMillis(settings);
+        long elapsed=elapsedMillis(nowNanos,epochStartedAtNanos);
+        if(completedInEpoch>=chunkLimit||elapsed>=timeLimitMillis) {
+            releaseInternal(nowNanos,settings,true);
+            lastReason=completedInEpoch>=chunkLimit?"yield-chunk-quota":"yield-time-quota";
+            return false;
+        }
+
+        lastReason="continue-exclusive";
+        return true;
     }
 
-    synchronized void release(long nowNanos, String outcome, Settings settings) {
-        if (!reserved) {
-            return;
-        }
-
-        if (workStartedAtNanos != 0L && nowNanos >= workStartedAtNanos) {
-            double elapsedMillis = (nowNanos - workStartedAtNanos) / 1_000_000.0;
-            averageBackfillMillis = averageBackfillMillis < 0.0
-                ? elapsedMillis
-                : averageBackfillMillis * 0.75 + elapsedMillis * 0.25;
-        }
-
-        double measuredMillis = averageBackfillMillis < 0.0
-            ? settings.backfillMinSpacingSeconds * 1_000.0
-            : averageBackfillMillis;
-        double factor = 1.0;
-
-        if (sample != null) {
-            if (sample.ioPsi() >= 0.0
-                && sample.ioPsi() >= settings.backfillIoPressurePercent * 0.5) {
-                factor *= 1.5;
-            }
-            if (sample.followRequestsPerSecond() > 0.0
-                && sample.lodWritesPerSecond() < sample.followRequestsPerSecond() * 0.8) {
-                factor *= 1.5;
-            }
-        }
-
-        if (outcome != null && !outcome.startsWith("completed") && !outcome.equals("no-candidate")) {
-            factor *= 2.0;
-        }
-
-        long minimum = settings.backfillMinSpacingSeconds * 1_000L;
-        long maximum = settings.backfillMaxSafeWaitSeconds * 1_000L;
-        long dynamicMillis = Math.max(minimum, Math.min(maximum, Math.round(measuredMillis * factor)));
-        nextEligibleAtNanos = nowNanos + dynamicMillis * 1_000_000L;
-
-        reserved = false;
-        reservationAtNanos = 0L;
-        workStartedAtNanos = 0L;
-        demandSinceNanos = 0L;
-        lastReason = "cooldown-after-" + (outcome == null ? "release" : outcome);
+    synchronized void release(long nowNanos,String outcome,Settings settings,boolean giveFollowSlice) {
+        releaseInternal(nowNanos,settings,giveFollowSlice);
+        lastReason="released-"+(outcome==null?"unspecified":outcome);
     }
 
-    synchronized boolean reserved() {
-        return reserved;
+    synchronized boolean reserved(){return exclusive;}
+
+    synchronized String summary(long nowNanos) {
+        Sample current=sample;
+        String p=current==null?"measurement-unavailable":pressure(nowNanos,CpuGovernor.settings());
+        return "state="+(exclusive?(epochStartedAtNanos==0L?"draining":"exclusive"):"follow")
+            +",reason="+lastReason
+            +",completedInEpoch="+completedInEpoch
+            +",epochMs="+elapsedMillis(nowNanos,epochStartedAtNanos)
+            +",followSliceRemainingMs="+Math.max(0L,(followSliceUntilNanos-nowNanos)/1_000_000L)
+            +",pressure="+(p==null?"none":p)
+            +",cpu="+value(current==null?Double.NaN:current.cpu())
+            +",mspt="+value(current==null?Double.NaN:current.mspt())
+            +",heap="+value(current==null?Double.NaN:current.heap())
+            +",gc="+value(current==null?Double.NaN:current.gc())
+            +",memoryHeadroomMb="+value(current==null?Double.NaN:current.memoryHeadroomMb())
+            +",memoryPsi="+value(current==null?Double.NaN:current.memoryPsi())
+            +",ioPsi="+value(current==null?Double.NaN:current.ioPsi())
+            +",lodWritesPerSec="+value(current==null?Double.NaN:current.lodWritesPerSecond())
+            +",followRequestsPerSec="+value(current==null?Double.NaN:current.followRequestsPerSecond())
+            +",inFlight="+(current==null?-1:current.inFlight())
+            +",lodQueue="+(current==null?-1:current.lodQueue())
+            +",worldWriteQueue="+(current==null?-1:current.worldWriteQueue());
     }
 
-    synchronized int effectiveFollowCap(int baseCap) {
-        return reserved && baseCap > 1 ? baseCap - 1 : baseCap;
-    }
-
-    synchronized String summary(long nowNanos, int baseCap) {
-        Sample current = sample;
-        String pressure = current == null ? "measurement-unavailable" : pressure(nowNanos, null);
-        return "state=" + (reserved ? (workStartedAtNanos == 0L ? "reserved" : "active") : "idle")
-            + ",reason=" + lastReason
-            + ",baseCap=" + baseCap
-            + ",followCap=" + effectiveFollowCap(baseCap)
-            + ",safeWaitMs=" + safeWaitMillis(nowNanos)
-            + ",avgBackfillMs=" + rounded(averageBackfillMillis)
-            + ",pressure=" + (pressure == null ? "none" : pressure)
-            + ",ioPsi=" + (current == null ? "unknown" : rounded(current.ioPsi()))
-            + ",memoryPsi=" + (current == null ? "unknown" : rounded(current.memoryPsi()))
-            + ",lodWritesPerSec=" + (current == null ? "unknown" : rounded(current.lodWritesPerSecond()))
-            + ",followRequestsPerSec=" + (current == null ? "unknown" : rounded(current.followRequestsPerSecond()))
-            + ",inFlight=" + (current == null ? -1 : current.inFlight())
-            + ",lodQueue=" + (current == null ? -1 : current.lodQueue())
-            + ",worldWriteQueue=" + (current == null ? -1 : current.worldWriteQueue());
-    }
-
-    private String pressure(long nowNanos, Settings settings) {
-        Sample current = sample;
-        if (current == null) {
-            return "measurement-unavailable";
-        }
-
-        Settings limits = settings == null ? CpuGovernor.settings() : settings;
-        long maxAgeNanos = limits.backfillSampleMaxAgeSeconds * 1_000_000_000L;
-        if (current.observedAtNanos() <= 0L || nowNanos < current.observedAtNanos()
-            || nowNanos - current.observedAtNanos() > maxAgeNanos) {
-            return "measurement-stale";
-        }
-        if (current.players() > 0) {
-            return "players-online";
-        }
-        if (!Double.isFinite(current.mspt()) || current.mspt() >= limits.highMspt) {
-            return "mspt-pressure";
-        }
-        if (!Double.isFinite(current.heap()) || current.heap() >= limits.highHeap) {
-            return "heap-pressure";
-        }
-        if (current.memoryHeadroomMb() >= 0.0
-            && current.memoryHeadroomMb() < limits.memoryReserveMb) {
-            return "memory-headroom";
-        }
-        if (Double.isFinite(current.gc()) && current.gc() >= limits.gcPressurePercent) {
-            return "gc-pressure";
-        }
-        if (current.ioPsi() >= 0.0 && current.ioPsi() >= limits.backfillIoPressurePercent) {
-            return "io-pressure";
-        }
-        if (current.nativeHeld() || current.synchronousWrites() > 0L) {
-            return "native-backpressure";
-        }
-        if (current.lodQueue() >= limits.backfillLodQueueHigh) {
-            return "lod-save-queue";
-        }
-        if (current.worldWriteQueue() >= limits.backfillWriteQueueHigh) {
-            return "chunk-write-queue";
-        }
+    private String pressure(long nowNanos,Settings settings) {
+        Sample current=sample;
+        if(current==null)return "measurement-unavailable";
+        long maxAge=settings.backfillSampleMaxAgeSeconds*1_000_000_000L;
+        if(current.observedAtNanos()<=0L||nowNanos<current.observedAtNanos()
+            ||nowNanos-current.observedAtNanos()>maxAge)return "measurement-stale";
+        if(current.players()>0)return "players-online";
+        if(!Double.isFinite(current.mspt())||current.mspt()>=settings.highMspt)return "mspt-pressure";
+        if(!Double.isFinite(current.heap())||current.heap()>=settings.highHeap)return "heap-pressure";
+        if(current.memoryHeadroomMb()>=0&&current.memoryHeadroomMb()<settings.memoryReserveMb)return "memory-headroom";
+        if(Double.isFinite(current.gc())&&current.gc()>=settings.gcPressurePercent)return "gc-pressure";
+        if(current.ioPsi()>=0&&current.ioPsi()>=settings.backfillIoPressurePercent)return "io-pressure";
+        if(current.nativeHeld()||current.synchronousWrites()>0)return "native-backpressure";
+        if(current.lodQueue()>=settings.backfillLodQueueHigh)return "lod-save-queue";
+        if(current.worldWriteQueue()>=settings.backfillWriteQueueHigh)return "chunk-write-queue";
         return null;
     }
 
-    private long safeWaitMillis(long nowNanos) {
-        return demandSinceNanos == 0L || nowNanos < demandSinceNanos
-            ? 0L
-            : (nowNanos - demandSinceNanos) / 1_000_000L;
+    private int dynamicChunkLimit(Settings settings) {
+        int limit=settings.backfillExclusiveMaxChunks;
+        if(abundant())limit=Math.min(1024,limit*2);
+        return limit;
     }
 
-    private void cancelPending() {
-        if (reserved && workStartedAtNanos == 0L) {
-            reserved = false;
-            reservationAtNanos = 0L;
-        }
-        demandSinceNanos = 0L;
+    private long dynamicTimeLimitMillis(Settings settings) {
+        long limit=settings.backfillExclusiveMaxSeconds*1000L;
+        if(abundant())limit=Math.min(3_600_000L,limit*2L);
+        return limit;
     }
 
-    private static String rounded(double value) {
-        if (!Double.isFinite(value) || value < 0.0) {
-            return "unknown";
-        }
-        return String.format(java.util.Locale.ROOT, "%.1f", value);
+    private boolean abundant() {
+        Sample current=sample;
+        return current!=null
+            &&Double.isFinite(current.cpu())&&current.cpu()<60
+            &&Double.isFinite(current.mspt())&&current.mspt()<25
+            &&current.memoryHeadroomMb()>=CpuGovernor.settings().memoryReserveMb*2
+            &&(current.ioPsi()<0||current.ioPsi()<CpuGovernor.settings().backfillIoPressurePercent*.5)
+            &&current.lodQueue()<Math.max(1,CpuGovernor.settings().backfillLodQueueHigh/2)
+            &&current.worldWriteQueue()<Math.max(1,CpuGovernor.settings().backfillWriteQueueHigh/2);
+    }
+
+    private void releaseInternal(long nowNanos,Settings settings,boolean giveFollowSlice) {
+        exclusive=false;
+        reservationAtNanos=0L;
+        epochStartedAtNanos=0L;
+        completedInEpoch=0;
+        if(giveFollowSlice)followSliceUntilNanos=nowNanos+settings.backfillFollowMinSliceSeconds*1_000_000_000L;
+    }
+
+    private Decision decision(long nowNanos,boolean reserved,boolean ready,String reason) {
+        long wait=exclusive?elapsedMillis(nowNanos,reservationAtNanos):Math.max(0L,(followSliceUntilNanos-nowNanos)/1_000_000L);
+        return new Decision(reserved,ready,reason,wait,completedInEpoch);
+    }
+
+    private static long elapsedMillis(long now,long then) {
+        return then<=0L||now<then?0L:(now-then)/1_000_000L;
+    }
+
+    private static String value(double v) {
+        return Double.isFinite(v)?String.format(java.util.Locale.ROOT,"%.1f",v):"unknown";
     }
 }
