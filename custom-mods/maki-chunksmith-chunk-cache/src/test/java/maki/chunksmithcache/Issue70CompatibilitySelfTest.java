@@ -220,16 +220,16 @@ public final class Issue70CompatibilitySelfTest {
             List.of(CompatibilityInput.zfastnoiseCanonicalEntry(true, true))
         );
         FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), activeManifest);
-        require(GenerationStore.acceptsStoredFingerprint(active, CURRENT, OLD_5688),
+        require(StoredFingerprintAcceptance.accepts(active, CURRENT, OLD_5688),
             "old 5,688-generation NBT fingerprint must be accepted after manifest adoption");
-        require(GenerationStore.acceptsStoredFingerprint(active, CURRENT, OLD_921),
+        require(StoredFingerprintAcceptance.accepts(active, CURRENT, OLD_921),
             "old 921-generation NBT fingerprint must be accepted after manifest adoption");
-        require(!GenerationStore.acceptsStoredFingerprint(active, CURRENT, "444444444444444444444444"),
+        require(!StoredFingerprintAcceptance.accepts(active, CURRENT, "444444444444444444444444"),
             "unadopted stored fingerprints must remain rejected");
 
         Path missingManifest = mergeRoot.resolve("missing-manifest");
         Files.createDirectories(missingManifest);
-        require(!GenerationStore.acceptsStoredFingerprint(missingManifest, CURRENT, OLD_5688),
+        require(!StoredFingerprintAcceptance.accepts(missingManifest, CURRENT, OLD_5688),
             "manifest-missing data must not gain stored-fingerprint trust");
     }
 
