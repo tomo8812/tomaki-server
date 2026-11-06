@@ -14,7 +14,20 @@ public final class IdlePregenHooks {
         IdlePregenController.shutdown(server);
     }
 
-    public static boolean suppressVsGameFrame() {
-        return IdlePregenController.ownsVsPhysicsPause();
+    public static double adjustVsPhysicsDelta(Object pipeline, double deltaSeconds) {
+        if (!IdlePregenController.isActive()) {
+            return deltaSeconds;
+        }
+        return VsPhysicsPauseController.adjustPhysicsDelta(pipeline, deltaSeconds);
+    }
+
+    public static void afterVsGameFrame(Object pipeline) {
+        if (IdlePregenController.isActive()) {
+            VsPhysicsPauseController.afterGameFrame(pipeline);
+        }
+    }
+
+    public static void completeVsPhysicsStep(Object pipeline) {
+        VsPhysicsPauseController.completePhysicsStep(pipeline);
     }
 }
