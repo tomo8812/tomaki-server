@@ -1,0 +1,23 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+group = 'maki.statusio'
+version = '1.0.0'
+base { archivesName = 'maki-status-io' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+neoForge { version = '21.1.262' }
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+tasks.named('jar') {
+    manifest { attributes('Implementation-Title': 'Maki Status I/O', 'Implementation-Version': project.version) }
+    from(sourceSets.main.allJava) { into 'META-INF/sources' }
+}
+tasks.register('statusIoTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.statusio.StatusIoTestMain'
+}
+tasks.named('check') { dependsOn tasks.named('statusIoTest') }

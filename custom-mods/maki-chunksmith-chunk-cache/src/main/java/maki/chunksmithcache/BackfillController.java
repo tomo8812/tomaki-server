@@ -23,6 +23,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
+import maki.statusio.StatusIo;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -403,11 +404,7 @@ public final class BackfillController {
          data.put("backfillsHandedOff",state.backfillsHandedOff);
          data.put("lodOffersSubmitted",state.lodOffersSubmitted);
          data.put("lodRefreshCompleted",state.lodRefreshCompleted);
-         Path tmp=Path.of("logs/maki-chunk-cache-backfill-status.json.tmp");
-         Path dest=Path.of("logs/maki-chunk-cache-backfill-status.json");
-         Files.writeString(tmp,JSON.toJson(data)+"\n");
-         try{Files.move(tmp,dest,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}
-         catch(AtomicMoveNotSupportedException e){Files.move(tmp,dest,StandardCopyOption.REPLACE_EXISTING);}
+         StatusIo.publish(Path.of("logs/maki-chunk-cache-backfill-status.json"),JSON.toJson(data)+"\n");
       } catch(Exception e) {
          LOG.debug("Could not report chunk-cache backfill status",e);
       }

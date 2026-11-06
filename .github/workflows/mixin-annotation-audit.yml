@@ -31,19 +31,23 @@ jobs:
         with:
           gradle-version: '8.10.2'
 
-<<<<<<< HEAD
       - name: Build and check maki-diorama-share
         run: gradle -p custom-mods/maki-diorama-share clean check jar
-=======
+
       - name: Build and check maki-idle-pregen
         run: gradle -p custom-mods/maki-idle-pregen clean check jar
->>>>>>> origin/fix/issue-42
+
+      - name: Build and check maki-millenaire-lod-compat
+        run: gradle -p custom-mods/maki-millenaire-lod-compat clean check jar
+
+      - name: Build and check maki-status-io
+        run: gradle -p custom-mods/maki-status-io clean check jar
 
       - name: Build and check maki-chunksmith-chunk-cache
         run: gradle -p custom-mods/maki-chunksmith-chunk-cache clean check jar
 
-      - name: Build and check maki-idle-pregen
-        run: gradle -p custom-mods/maki-idle-pregen clean check jar
+      - name: Build and check maki-lod-cpu
+        run: gradle -p custom-mods/maki-lod-cpu clean check jar
 
       - name: Build and check maki-ship-anchor-fix
         run: gradle -p custom-mods/maki-ship-anchor-fix clean check jar
@@ -53,13 +57,6 @@ jobs:
 
       - name: Build and check maki-lag-observer
         run: gradle -p custom-mods/maki-lag-observer clean check jar
-
-      - name: Upload maki-diorama-share JAR
-        uses: actions/upload-artifact@v4
-        with:
-          name: maki-diorama-share-jar
-          path: custom-mods/maki-diorama-share/build/libs/maki-diorama-share-1.0.1.jar
-          retention-days: 14
 
       - name: Audit rebuilt JARs
         run: |

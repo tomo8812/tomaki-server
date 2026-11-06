@@ -1,8 +1,44 @@
 # maki-idle-pregen
 
-Server-only idle pre-generation coordinator introduced for Issue #7 and maintained as the authoritative owner of the dedicated-server zero-player simulation phase.
+Server-only idle pre-generation coordinator originally introduced for Issue #7.
 
-<<<<<<< HEAD
+Version 1.1.1 combines bounded Millenaire initialization and VS physics pause ownership.
+
+## Issue #42: bounded Millenaire initialization
+
+Millenaire 9.0.3 initializes derived village state from Village.tick. Two startup paths are especially expensive:
+
+- BuildingInstance.backfillBedPositions scans every block in a building plan and can synchronously request chunks through ServerLevel.getBlockState.
+- VillageWaypointGraph.rebuild validates many waypoint pairs with full path searches, so a single graph rebuild can perform many MillWalkNodeEvaluator block-state lookups.
+
+Version 1.1.0 keeps those operations synchronous on the server thread, but changes admission:
+
+- with zero players, waypoint graph rebuilds and bed-position backfills are deferred even before a Chunksmith task has started;
+- Millenaire's `ServerStartedEvent` rehydration rebuild is routed through the same guarded stale-rebuild path instead of calling the graph rebuild directly;
+- with players online, at most one heavy Millenaire initialization operation is admitted per server tick;
+- bed backfill runs only when every chunk intersecting the building volume is already loaded;
+- waypoint graph rebuild runs only when chunks within the path-search radius around the village center and all building navigation anchors are already loaded;
+- graph chunk-envelope scanning occurs only after Millenaire's own `WaypointRebuildThrottle.tryAcquire` grants a rebuild; clean/throttled attempts do not rescan the village;
+- if that post-throttle preflight defers the rebuild, the throttle's request/backoff state is restored so the custom guard does not create artificial upstream backoff;
+- a missing-chunk preflight is retried at most once per second for each operation, avoiding a new polling hotspot;
+- deferred operations retain Millenaire's existing dirty/uninitialized state, so they are retried by the normal owner instead of being marked complete or moved off-thread.
+
+The graph preflight uses Millenaire's 64-block maximum waypoint edge/search range plus one chunk of safety margin. It does not call Village.computeVillageChunks, avoiding the protection-cache hot path fixed by Issue #3.
+
+### Diagnostics
+
+Each admitted operation reports its wall time and, while it runs:
+
+- waypoint traversal search count;
+- MillWalkNodeEvaluator.getPathType calls;
+- PathNavigationRegion accesses that returned EmptyLevelChunk;
+- actual EmptyLevelChunk constructor calls during the rebuild;
+- ServerChunkCache.getChunk calls;
+- calls that requested loading;
+- load-request calls whose chunk was not already loaded at method entry.
+
+The guard also periodically reports zero-player, per-tick-budget, and missing-chunk deferral counters. This instrumentation is scoped to the synchronous initialization call stack and does not add background world access.
+
 ## Issue #50 fix (1.0.2)
 
 Vanilla tick freeze does not stop Valkyrien Skies' independent physics pipeline. A keep-active ship can therefore keep moving while the server is empty and idle pre-generation is active.
@@ -58,36 +94,15 @@ The distributed Valkyrien Skies JAR is not modified. The integration is version-
 A VS update that changes these internals must fail the build-time compatibility check and be re-reviewed rather than silently using an invalid hook.
 
 ## Issue #27 fix (1.0.1)
-=======
-## Issue #42: bounded Millenaire initialization
->>>>>>> origin/fix/issue-42
 
-Millenaire 9.0.3 initializes derived village state from Village.tick. Two startup paths are especially expensive:
+Version 1.0.0 was compiled with an incompatible hand-written `@Mixin` annotation stub. The shipped class files stored class-level `@Mixin` in `RuntimeVisibleAnnotations`; Sponge Mixin 0.8.7 reads `@Mixin` from the class-retained/invisible annotation table during PREPARE, so the required mixin config failed with `missing an @Mixin annotation`.
 
-<<<<<<< HEAD
 Version 1.0.1 moved the maintained source into this Gradle/NeoForge project and compiles against the real NeoForge/Mixin dependency set rather than defining Mixin annotation ABI by hand.
 
 The build includes `verifyMixinAnnotationRetention`, which checks every mixin class with `javap -v` and fails `check` unless class-level `@Mixin` is runtime-invisible and injector annotations are runtime-visible.
-=======
-- BuildingInstance.backfillBedPositions scans every block in a building plan and can synchronously request chunks through ServerLevel.getBlockState.
-- VillageWaypointGraph.rebuild validates many waypoint pairs with full path searches, so a single graph rebuild can perform many MillWalkNodeEvaluator block-state lookups.
 
-Version 1.1.0 keeps those operations synchronous on the server thread, but changes admission:
+## Runtime behavior
 
-- with zero players, waypoint graph rebuilds and bed-position backfills are deferred even before a Chunksmith task has started;
-- Millenaire's `ServerStartedEvent` rehydration rebuild is routed through the same guarded stale-rebuild path instead of calling the graph rebuild directly;
-- with players online, at most one heavy Millenaire initialization operation is admitted per server tick;
-- bed backfill runs only when every chunk intersecting the building volume is already loaded;
-- waypoint graph rebuild runs only when chunks within the path-search radius around the village center and all building navigation anchors are already loaded;
-- graph chunk-envelope scanning occurs only after Millenaire's own `WaypointRebuildThrottle.tryAcquire` grants a rebuild; clean/throttled attempts do not rescan the village;
-- if that post-throttle preflight defers the rebuild, the throttle's request/backoff state is restored so the custom guard does not create artificial upstream backoff;
-- a missing-chunk preflight is retried at most once per second for each operation, avoiding a new polling hotspot;
-- deferred operations retain Millenaire's existing dirty/uninitialized state, so they are retried by the normal owner instead of being marked complete or moved off-thread.
->>>>>>> origin/fix/issue-42
-
-The graph preflight uses Millenaire's 64-block maximum waypoint edge/search range plus one chunk of safety margin. It does not call Village.computeVillageChunks, avoiding the protection-cache hot path fixed by Issue #3.
-
-<<<<<<< HEAD
 The coordinator:
 
 - enters idle pregen only on a dedicated server with zero players and active Chunksmith/external idle work;
@@ -96,34 +111,6 @@ The coordinator:
 - leaves immediately when a player appears or idle work stops;
 - pauses Millenaire village progression and spawn queue execution while preserving candidate admission/deferred recording;
 - never starts, stops, replaces, or recenters Chunksmith tasks.
-=======
-### Diagnostics
-
-Each admitted operation reports its wall time and, while it runs:
-
-- waypoint traversal search count;
-- MillWalkNodeEvaluator.getPathType calls;
-- PathNavigationRegion accesses that returned EmptyLevelChunk;
-- actual EmptyLevelChunk constructor calls during the rebuild;
-- ServerChunkCache.getChunk calls;
-- calls that requested loading;
-- load-request calls whose chunk was not already loaded at method entry.
-
-The guard also periodically reports zero-player, per-tick-budget, and missing-chunk deferral counters. This instrumentation is scoped to the synchronous initialization call stack and does not add background world access.
-
-## Existing idle-pregen behavior
-
-When a dedicated server has zero players and Chunksmith or another registered external idle job is active:
-
-- freeze vanilla simulation without taking ownership of a pre-existing administrator freeze;
-- leave immediately when a player appears or idle work stops;
-- pause Millenaire village progression and spawn queue execution while preserving deferred candidate recording;
-- never start, stop, replace, or recenter Chunksmith tasks.
->>>>>>> origin/fix/issue-42
-
-## Issue #27 build fix
-
-Version 1.0.1 moved this MOD to NeoForge ModDev and the real Sponge Mixin API after the original hand-built JAR placed class-level @Mixin in the wrong annotation-retention table. verifyMixinAnnotationRetention remains part of check and now covers every registered mixin.
 
 ## Dependencies
 
@@ -134,7 +121,6 @@ Version 1.0.1 moved this MOD to NeoForge ModDev and the real Sponge Mixin API af
 - Java 21
 - optional runtime integration: the currently bundled Valkyrien Skies build
 
-<<<<<<< HEAD
 The local Chunksmith and Millenaire JARs in `../../mods` are compile-only dependencies. Valkyrien Skies is accessed reflectively at runtime and is checked from the bundled JAR during `check`, avoiding a hard class-link dependency from the always-on idle coordinator.
 
 ## Validation
@@ -147,8 +133,3 @@ The local Chunksmith and Millenaire JARs in `../../mods` are compile-only depend
 - a Java harness covering async owned pause/pulse/re-pause/resume, pre-existing pause preservation, synchronized zero-delta behavior, late pipeline availability, external resume ownership release, and async/synchronized mode transitions.
 
 Minecraft/NeoForge end-to-end validation with a real keep-active ship remains an environment-level test. It must compare actual ship transform/velocity, Chunksmith progress, and VS worker CPU across a real idle-generation interval. In synchronized mode, correctness is covered by the zero-delta boundary but a comparable CPU reduction is not expected because VS still executes synchronized passes.
-=======
-The local Chunksmith and Millenaire JARs in ../../mods are compile-only dependencies. NeoForge ModDev supplies the real Minecraft, NeoForge, and Sponge Mixin APIs.
-
-A full Minecraft/NeoForge dedicated-server end-to-end test with the production world remains a deployment-environment validation step.
->>>>>>> origin/fix/issue-42
