@@ -62,8 +62,10 @@ tasks.register('verifyMixinAnnotationRetention') {
             if (classAnnotationIndex < 0 || invisibleIndex < 0 || invisibleIndex > classAnnotationIndex) {
                 throw new GradleException("${className}: @Mixin is not RuntimeInvisibleAnnotations")
             }
-            if (!text.contains('RuntimeVisibleAnnotations:') ||
-                !text.contains('org.spongepowered.asm.mixin.injection.Inject(')) {
+            def hasRuntimeInjector =
+                text.contains('org.spongepowered.asm.mixin.injection.Inject(') ||
+                text.contains('org.spongepowered.asm.mixin.injection.Redirect(')
+            if (!text.contains('RuntimeVisibleAnnotations:') || !hasRuntimeInjector) {
                 throw new GradleException("${className}: injector annotations are not runtime-visible")
             }
         }
