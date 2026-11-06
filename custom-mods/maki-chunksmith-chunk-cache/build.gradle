@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.2.0'
+version = '1.2.1'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -202,7 +202,14 @@ tasks.register('backfillScopesTest', JavaExec) {
     mainClass = 'maki.chunksmithcache.BackfillScopesSelfTest'
 }
 
+tasks.register('issue68CompatibilityTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.CompatibilityInputSelfTest'
+}
+
 tasks.named('check') {
+    dependsOn tasks.named('issue68CompatibilityTest')
     dependsOn tasks.named('verifyIssue66CacheVisibility')
     dependsOn tasks.named('backfillScopesTest')
     dependsOn tasks.named('verifyMixinAnnotationRetention')
