@@ -68,11 +68,13 @@ public final class BackfillController {
       if (state.busy) {
          if (state.activeLevel != null && state.activePos != null && playerNear(state.activeLevel, state.activePos)) {
             handoffToPlayer(state);
-         } else if (state.awaitingScopeDrain && state.activeLevel != null && state.activePos != null
-            && BackfillGuard.scopeDrained(state.activeLevel, state.activePos)) {
-            BackfillGuard.clear(state.activeLevel, state.activePos);
-            state.phase="dependency-scope-drained";
-            clearActive(state);
+         } else if (state.activeLevel != null && state.activePos != null) {
+            state.playerOwnedDependenciesReleased += BackfillGuard.releasePlayerOwnedDependencies(state.activeLevel, state.activePos);
+            if (state.awaitingScopeDrain && BackfillGuard.scopeDrained(state.activeLevel, state.activePos)) {
+               BackfillGuard.clear(state.activeLevel, state.activePos);
+               state.phase="dependency-scope-drained";
+               clearActive(state);
+            }
          }
          report(server,state,false);
          return;
@@ -441,6 +443,7 @@ public final class BackfillController {
          data.put("backfillsCompleted",state.backfillsCompleted);
          data.put("backfillsFailed",state.backfillsFailed);
          data.put("backfillsHandedOff",state.backfillsHandedOff);
+         data.put("playerOwnedDependenciesReleased",state.playerOwnedDependenciesReleased);
          data.put("lodOffersSubmitted",state.lodOffersSubmitted);
          data.put("lodRefreshCompleted",state.lodRefreshCompleted);
          Path tmp=Path.of("logs/maki-chunk-cache-backfill-status.json.tmp");
@@ -714,6 +717,7 @@ public final class BackfillController {
       long backfillsCompleted;
       long backfillsFailed;
       long backfillsHandedOff;
+      long playerOwnedDependenciesReleased;
       long lodOffersSubmitted;
       long lodRefreshCompleted;
       boolean idlePregenClaimed;
