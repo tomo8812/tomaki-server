@@ -3,9 +3,9 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_chunksmith_chunk_cache"
-version="1.0.2"
+version="1.0.3"
 displayName="Maki Chunksmith Chunk Cache"
-description="Caches disposable Chunksmith FULL chunks outside normal region storage, promotes them on real loads, and reports/coordinates legacy CSLOD backfill while idle."
+description="Caches disposable Chunksmith FULL chunks outside normal region storage, promotes them on real loads, and schedules legacy CSLOD backfill through the Chunksmith ticket-safe chunk pipeline."
 [[dependencies.maki_chunksmith_chunk_cache]]
 modId="neoforge"
 type="required"
