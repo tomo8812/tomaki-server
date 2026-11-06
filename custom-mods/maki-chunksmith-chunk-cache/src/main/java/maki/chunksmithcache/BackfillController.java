@@ -133,7 +133,10 @@ public final class BackfillController {
                return;
             }
             if (candidate == null) {
-               state.phase=state.normalStateUnknown == 0L ? "waiting-no-candidate" : "waiting-normal-state-unknown";
+               long now=System.currentTimeMillis();
+               state.phase=state.normalStateUnknown != 0L
+                  ? "waiting-normal-state-unknown"
+                  : state.candidateDeferredUntil > now ? "waiting-dependency-scope-loaded" : "waiting-no-candidate";
                report(server,state,true);
                return;
             }
@@ -164,10 +167,12 @@ public final class BackfillController {
             ChunkPos pos=target.pos();
             if (level.getChunkSource().hasChunk(pos.x,pos.z)) {
                state.phase="candidate-already-loaded";
+               state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
                advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
                report(server,state,true);
             } else if (!BackfillGuard.scopeAvailable(level,candidate.suppressed())) {
                state.phase="candidate-dependency-scope-loaded";
+               state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
                advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
                report(server,state,true);
             } else {
@@ -430,6 +435,7 @@ public final class BackfillController {
          data.put("scansStarted",state.scansStarted);
          data.put("scanFailures",state.scanFailures);
          data.put("normalStateUnknown",state.normalStateUnknown);
+         data.put("candidateDeferredUntil",state.candidateDeferredUntil==0L?null:java.time.Instant.ofEpochMilli(state.candidateDeferredUntil).toString());
          data.put("candidatesFound",state.candidatesFound);
          data.put("backfillsStarted",state.backfillsStarted);
          data.put("backfillsCompleted",state.backfillsCompleted);
@@ -702,6 +708,7 @@ public final class BackfillController {
       long scansStarted;
       long scanFailures;
       long normalStateUnknown;
+      long candidateDeferredUntil;
       long candidatesFound;
       long backfillsStarted;
       long backfillsCompleted;
