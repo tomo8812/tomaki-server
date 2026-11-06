@@ -107,6 +107,7 @@ public final class BackfillController {
          return;
       }
       if (server.getPlayerCount() != 0) {
+         releaseResourceBudget(state,"players-online");
          state.phase="waiting-players";
          report(server,state,false);
          return;
