@@ -4,6 +4,7 @@ import net.minecraft.world.entity.MoverType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3dc;
 import org.valkyrienskies.core.api.ships.Ship;
 import org.valkyrienskies.mod.common.VSGameUtilsKt;
 import org.valkyrienskies.mod.common.util.EntityDragger;
@@ -22,10 +23,11 @@ public final class ShipEdgeContact {
         // Age zero stays with VS; older contact is never extended after leaving a ship.
         if (!dragging.isEntityBeingDraggedByAShip() || dragging.getLastShipStoodOn()==null
                 || dragging.getTicksSinceStoodOnShip()!=1) return null;
-        var world=VSGameUtilsKt.getShipObjectWorld(player.level());
-        if (world==null) return null;
-        Ship ship=world.getLoadedShips().getById(dragging.getLastShipStoodOn());
-        if (ship==null) return null;
+        Vector3dc relative=dragging.getRelativePositionOnShip();
+        if (relative==null) return null;
+        Ship ship=VSGameUtilsKt.getLoadedShipManagingPos(player.level(),
+                BlockPos.containing(relative.x(), relative.y(), relative.z()));
+        if (ship==null || ship.getId()!=dragging.getLastShipStoodOn()) return null;
         Vec3 adjusted=EntityDragger.backOff(movement, ship, player, player.level());
         return Double.isFinite(adjusted.x) && Double.isFinite(adjusted.y) && Double.isFinite(adjusted.z) ? adjusted : null;
     }
