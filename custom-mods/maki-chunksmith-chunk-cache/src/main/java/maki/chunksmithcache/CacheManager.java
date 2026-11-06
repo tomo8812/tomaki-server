@@ -7,8 +7,11 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,6 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
@@ -36,6 +40,9 @@ public final class CacheManager {
    private static final int SCHEMA = 1;
    private static final AtomicLong LAST_QUEUE_WARNING = new AtomicLong();
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
+   private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
+   private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
+   private static final long MAINTENANCE_RETRY_MS = TimeUnit.MINUTES.toMillis(1L);
    private static final ThreadPoolExecutor WRITE_IO = new ThreadPoolExecutor(
       1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(128), daemonFactory("maki-chunk-cache-write"), new AbortPolicy()
    );
@@ -250,6 +257,31 @@ public final class CacheManager {
          return true;
       } catch (RejectedExecutionException ignored) {
          return false;
+      }
+   }
+
+   static void maintenanceTick(MinecraftServer server) {
+      long now = System.currentTimeMillis();
+      synchronized (NEXT_MAINTENANCE) {
+         long next = NEXT_MAINTENANCE.getOrDefault(server, 0L);
+         if (now < next) {
+            return;
+         }
+         NEXT_MAINTENANCE.put(server, now + MAINTENANCE_INTERVAL_MS);
+      }
+
+      ArrayList<ServerLevel> levels = new ArrayList<>();
+      server.getAllLevels().forEach(levels::add);
+      boolean queued = submitMaintenance(() -> {
+         FingerprintPolicy policy = FingerprintPolicy.load(server.getServerDirectory());
+         for (ServerLevel level : levels) {
+            GenerationStore.prune(level, policy);
+         }
+      });
+      if (!queued) {
+         synchronized (NEXT_MAINTENANCE) {
+            NEXT_MAINTENANCE.put(server, now + MAINTENANCE_RETRY_MS);
+         }
       }
    }
 
