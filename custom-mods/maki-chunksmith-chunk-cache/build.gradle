@@ -49,11 +49,16 @@ def registeredMixins = [
     'maki.chunksmithcache.mixin.MinecraftServerMixin'
 ]
 
+def issue47ControllerSource = file('src/main/java/maki/chunksmithcache/BackfillController.java')
+def issue47GuardSource = file('src/main/java/maki/chunksmithcache/BackfillGuard.java')
+def issue47StorageSource = file('src/main/java/maki/chunksmithcache/NormalChunkStorage.java')
+
 tasks.register('verifyIssue47BackfillOwnership') {
+    inputs.files(issue47ControllerSource, issue47GuardSource, issue47StorageSource)
     doLast {
-        def controller = file('src/main/java/maki/chunksmithcache/BackfillController.java').getText('UTF-8')
-        def guard = file('src/main/java/maki/chunksmithcache/BackfillGuard.java').getText('UTF-8')
-        def storage = file('src/main/java/maki/chunksmithcache/NormalChunkStorage.java').getText('UTF-8')
+        def controller = issue47ControllerSource.getText('UTF-8')
+        def guard = issue47GuardSource.getText('UTF-8')
+        def storage = issue47StorageSource.getText('UTF-8')
         if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('snapshotBackfillOwnership')) {
             throw new GradleException('Issue #47 regression: status-aware candidate scan is missing')
         }
