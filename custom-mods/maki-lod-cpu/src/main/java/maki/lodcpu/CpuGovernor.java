@@ -102,7 +102,7 @@ public final class CpuGovernor {
             LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}; shared budget [{}]",
                 previous,cap,fmt(used),fmt(capacity),fmt(mspt),fmt(heap),players,POLICY.reason,
                 fmt(writes/seconds),writes,fmt(batch.completions()/seconds),batch.completions(),fmt(gcPercent),
-                sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase,SHARED_BUDGET.summary(now,cap));
+                sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase,SHARED_BUDGET.summary(now));
             lastReport=now;
         }
     }
