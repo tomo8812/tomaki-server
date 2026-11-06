@@ -10,7 +10,6 @@ import maki.lodcpu.WorkTelemetry;
 import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.Selection;
 import com.kishku7.chunksmith.iterator.ChunkIterator;
-import com.kishku7.chunksmith.util.ChunkCoordinate;
 import com.kishku7.chunksmith.util.ChunkResidency;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.*;
@@ -49,11 +48,11 @@ public abstract class GenerationTaskMixin {
      */
     @Redirect(
         method="run()V",
-        at=@At(value="INVOKE",target="Lcom/kishku7/chunksmith/iterator/ChunkIterator;next()Lcom/kishku7/chunksmith/util/ChunkCoordinate;"),
+        at=@At(value="INVOKE",target="Lcom/kishku7/chunksmith/iterator/ChunkIterator;next()Ljava/lang/Object;"),
         require=1
     )
-    private ChunkCoordinate maki$sharedBackfillBarrier(ChunkIterator iterator) {
-        ChunkCoordinate next=iterator.next();
+    private Object maki$sharedBackfillBarrier(ChunkIterator iterator) {
+        Object next=iterator.next();
         if(!maki$owned())return next;
         while(!stopped&&ResourceBudgetApi.blockFollowDispatch()) {
             ResourceBudgetApi.noteFollowInFlight(inFlight.get());
