@@ -16,22 +16,22 @@ final class ExternalTaskMigration {
 
     record Result(boolean ok,String message,TaskMigrationStore.Backup backup){}
 
-    static Result backup(Chunksmith chunky,String actor){
+    static Result backup(Chunksmith chunky,MinecraftServer server,String actor){
         try{
             String blocked=preflightExternalPersisted(chunky);
             if(blocked!=null)return new Result(false,blocked,null);
-            var backup=TaskMigrationStore.backup(taskFile(chunky),backupRoot(chunky),"backup",actor);
+            var backup=TaskMigrationStore.backup(taskFile(chunky),backupRoot(server),"backup",actor);
             return new Result(true,"Preserved external task as backup "+backup.id()+" (sha256 "+backup.sha256()+").",backup);
         }catch(IOException|RuntimeException e){
             return new Result(false,"Could not back up external task: "+e.getMessage(),null);
         }
     }
 
-    static Result stash(Chunksmith chunky,String actor,String action){
+    static Result stash(Chunksmith chunky,MinecraftServer server,String actor,String action){
         try{
             String blocked=preflightExternalPersisted(chunky);
             if(blocked!=null)return new Result(false,blocked,null);
-            var backup=TaskMigrationStore.stash(taskFile(chunky),backupRoot(chunky),action,actor);
+            var backup=TaskMigrationStore.stash(taskFile(chunky),backupRoot(server),action,actor);
             forgetCachedTask(chunky);
             return new Result(true,"External task was preserved and removed from the live task slot as backup "+backup.id()+" (sha256 "+backup.sha256()+").",backup);
         }catch(IOException|RuntimeException e){
@@ -39,14 +39,14 @@ final class ExternalTaskMigration {
         }
     }
 
-    static Result resumeExternal(Chunksmith chunky,String actor){
+    static Result resumeExternal(Chunksmith chunky,MinecraftServer server,String actor){
         try{
             String blocked=preflightExternalPersisted(chunky);
             if(blocked!=null)return new Result(false,blocked,null);
             var snapshot=TaskOwnership.snapshot(chunky,WORLD);
             if(Boolean.TRUE.equals(snapshot.cancelled()))
                 return new Result(false,"The persisted external task is already cancelled/completed. Use /makilod task switch-follow or /makilod task stash.",null);
-            var backup=TaskMigrationStore.backup(taskFile(chunky),backupRoot(chunky),"resume-external",actor);
+            var backup=TaskMigrationStore.backup(taskFile(chunky),backupRoot(server),"resume-external",actor);
             refreshCachedTask(chunky);
             var world=chunky.getServer().getWorld(WORLD);
             if(world.isEmpty())return new Result(false,"minecraft:overworld is not available.",backup);
@@ -65,13 +65,13 @@ final class ExternalTaskMigration {
         }
     }
 
-    static Result restoreLatest(Chunksmith chunky,String actor){
+    static Result restoreLatest(Chunksmith chunky,MinecraftServer server,String actor){
         try{
             if(chunky.getGenerationTasks().get(WORLD)!=null)
                 return new Result(false,"An active minecraft:overworld task exists; refusing to restore over it.",null);
             if(Files.exists(taskFile(chunky)))
                 return new Result(false,"A live persisted task exists; stash it first rather than overwriting it.",null);
-            var backup=TaskMigrationStore.restoreLatest(taskFile(chunky),backupRoot(chunky),actor);
+            var backup=TaskMigrationStore.restoreLatest(taskFile(chunky),backupRoot(server),actor);
             refreshCachedTask(chunky);
             return new Result(true,"Restored backup "+backup.id()+" to the live external task slot. Follow is not started automatically.",backup);
         }catch(IOException|RuntimeException e){
@@ -79,8 +79,8 @@ final class ExternalTaskMigration {
         }
     }
 
-    static String latestBackupId(Chunksmith chunky){
-        try{return TaskMigrationStore.latestBackupId(backupRoot(chunky));}
+    static String latestBackupId(Chunksmith chunky,MinecraftServer server){
+        try{return TaskMigrationStore.latestBackupId(backupRoot(server));}
         catch(IOException e){return null;}
     }
 
