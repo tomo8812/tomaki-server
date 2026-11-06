@@ -24,3 +24,7 @@ custom-mods/**/build/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Chunksmith runtime task progress and maki-lod migration backups
+/config/chunksmith/tasks/
+/config/chunksmith/task-backups/
