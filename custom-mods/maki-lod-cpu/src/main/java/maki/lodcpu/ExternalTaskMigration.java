@@ -66,15 +66,37 @@ final class ExternalTaskMigration {
     }
 
     static Result restoreLatest(Chunksmith chunky,MinecraftServer server,String actor){
+        TaskMigrationStore.Backup displacedFollow=null;
         try{
             if(chunky.getGenerationTasks().get(WORLD)!=null)
-                return new Result(false,"An active minecraft:overworld task exists; refusing to restore over it.",null);
-            if(Files.exists(taskFile(chunky)))
-                return new Result(false,"A live persisted task exists; stash it first rather than overwriting it.",null);
-            var backup=TaskMigrationStore.restoreLatest(taskFile(chunky),backupRoot(server),actor);
+                return new Result(false,"An active minecraft:overworld task exists; refusing to restore over it. Stop the follow task first.",null);
+            Path root=backupRoot(server);
+            String targetId=TaskMigrationStore.latestBackupId(root);
+            if(targetId==null)return new Result(false,"No external task backup is available.",null);
+            Path live=taskFile(chunky);
+            if(Files.exists(live)){
+                var owner=TaskOwnership.persistedOwner(chunky,WORLD);
+                if(owner==TaskOwnership.PersistedOwner.EXTERNAL)
+                    return new Result(false,"A live external persisted task exists; stash it first rather than overwriting it.",null);
+                if(owner==TaskOwnership.PersistedOwner.CURRENT_SESSION||owner==TaskOwnership.PersistedOwner.PREVIOUS_SESSION){
+                    displacedFollow=TaskMigrationStore.stash(live,followBackupRoot(server),"restore-replaced-follow",actor);
+                    forgetCachedTask(chunky);
+                }
+            }
+            var backup=TaskMigrationStore.restore(live,root,targetId,actor);
             refreshCachedTask(chunky);
-            return new Result(true,"Restored backup "+backup.id()+" to the live external task slot. Follow is not started automatically.",backup);
+            String preserved=displacedFollow==null?"":" The displaced follow-owned state was also preserved as "+displacedFollow.id()+".";
+            return new Result(true,"Restored external backup "+backup.id()+" to the live task slot."+preserved+" Follow is not started automatically.",backup);
         }catch(IOException|RuntimeException e){
+            if(displacedFollow!=null&&!Files.exists(taskFile(chunky))){
+                try{
+                    TaskMigrationStore.restore(taskFile(chunky),followBackupRoot(server),displacedFollow.id(),actor+"-rollback");
+                    refreshCachedTask(chunky);
+                    return new Result(false,"External restore failed and the displaced follow state was rolled back: "+e.getMessage(),null);
+                }catch(IOException|RuntimeException rollback){
+                    return new Result(false,"External restore failed; displaced follow backup "+displacedFollow.id()+" is preserved but automatic rollback also failed: "+rollback.getMessage(),null);
+                }
+            }
             return new Result(false,"Could not restore latest task backup: "+e.getMessage(),null);
         }
     }
@@ -95,6 +117,9 @@ final class ExternalTaskMigration {
 
     private static Path backupRoot(MinecraftServer server){
         return server.getWorldPath(LevelResource.ROOT).resolve("data").resolve("maki_lod_task_backups").resolve("v1").resolve("minecraft").resolve("overworld");
+    }
+    private static Path followBackupRoot(MinecraftServer server){
+        return server.getWorldPath(LevelResource.ROOT).resolve("data").resolve("maki_lod_task_backups").resolve("v1").resolve("minecraft").resolve("overworld-follow");
     }
 
     private static String preflightExternalPersisted(Chunksmith chunky){
