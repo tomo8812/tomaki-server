@@ -49,7 +49,9 @@ tasks.register('verifyMixinAnnotationRetention') {
             'maki.idlepregen.mixin.MinecraftServerMixin',
             'maki.idlepregen.mixin.VillageManagerMixin',
             'maki.idlepregen.mixin.VillageSpawnQueueMixin',
-            'maki.idlepregen.mixin.VsPipelineMixin'
+            'maki.idlepregen.mixin.VsPipelineMixin',
+            'maki.idlepregen.mixin.VsPhysShipMixin',
+            'maki.idlepregen.mixin.VsPhysLevelMixin'
         ].each { className ->
             def output = new ByteArrayOutputStream()
             exec {
@@ -120,6 +122,27 @@ tasks.register('verifyValkyrienSkiesPauseApi') {
         if (!physicsStage.contains('a(double, boolean)') ||
             !physicsStage.contains('java/util/concurrent/ConcurrentLinkedQueue.remove:()Ljava/lang/Object;')) {
             throw new GradleException('Bundled Valkyrien Skies game-frame drain path changed')
+        }
+
+        def physShip = inspect('org.valkyrienskies.core.impl.game.ships.PhysShipImpl')
+        [
+            'java.util.ArrayDeque invForces;',
+            'java.util.ArrayDeque invTorques;',
+            'java.util.ArrayDeque rotForces;',
+            'java.util.ArrayDeque rotTorques;',
+            'java.util.ArrayDeque invPosForces;',
+            'java.util.ArrayDeque invPosPositions;',
+            'getPhysicsListeners$impl();',
+            'applyQueuedForces();'
+        ].each { needle ->
+            if (!physShip.contains(needle)) {
+                throw new GradleException("Bundled Valkyrien Skies PhysShipImpl ABI changed: missing ${needle}")
+            }
+        }
+
+        def physLevel = inspect('org.valkyrienskies.core.impl.shadow.FU')
+        if (!physLevel.contains('physTick(double);')) {
+            throw new GradleException('Bundled Valkyrien Skies physTick ABI changed')
         }
     }
 }
