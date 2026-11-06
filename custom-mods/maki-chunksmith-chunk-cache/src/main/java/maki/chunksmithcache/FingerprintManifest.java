@@ -172,6 +172,28 @@ final class FingerprintManifest {
         return true;
     }
 
+    static boolean sameCompatibilityInputsExcept(Manifest oldManifest, Manifest newManifest, Set<String> excludedKeys) {
+        Map<String, Entry> oldEntries = compatibilityByKey(oldManifest.entries(), excludedKeys);
+        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys);
+        if (oldEntries == null || newEntries == null || !oldEntries.keySet().equals(newEntries.keySet())) return false;
+        for (String key : oldEntries.keySet()) {
+            if (!equivalent(oldEntries.get(key), newEntries.get(key))) return false;
+        }
+        return true;
+    }
+
+    private static Map<String, Entry> compatibilityByKey(List<Entry> entries, Set<String> excludedKeys) {
+        Map<String, Entry> result = new LinkedHashMap<>();
+        for (Entry original : entries) {
+            if (excludedKeys.contains(original.key())) continue;
+            Entry entry = CompatibilityInput.normalizeHistoricalEntry(original);
+            if (entry == null || entry.impact() != Impact.RELEVANT) continue;
+            Entry previous = result.putIfAbsent(entry.key(), entry);
+            if (previous != null && !equivalent(previous, entry)) return null;
+        }
+        return result;
+    }
+
     private static Map<String, Entry> byKey(List<Entry> entries) {
         Map<String, Entry> result = new LinkedHashMap<>();
         for (Entry entry : entries) result.put(entry.key(), entry);
@@ -183,9 +205,21 @@ final class FingerprintManifest {
     }
 
     private static String changeSuffix(Entry oldEntry, Entry newEntry) {
+        Entry present = newEntry != null ? newEntry : oldEntry;
+        String key = present == null ? "" : present.key();
+        if (key.equals(CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH)) {
+            return "(source-format/comment changed; effective values unchanged)";
+        }
+        if (key.startsWith(CompatibilityInput.RAW_AUDIT_PREFIX + "mods/maki-lod-cpu")) {
+            return "(verified non-worldgen JAR changed; compatibility contract unchanged)";
+        }
+        if (key.equals(CompatibilityInput.ZFASTNOISE_PATH) && oldEntry != null && newEntry != null) {
+            return "(effective values changed)";
+        }
         if (oldEntry == null) return "(added)";
         if (newEntry == null) return "(removed)";
         if (oldEntry.impact() != newEntry.impact()) return "(classification " + oldEntry.impact() + "->" + newEntry.impact() + ")";
+        if (present.reason().contains("fail-closed")) return "(changed; fail-closed relevant)";
         return "(changed)";
     }
 
