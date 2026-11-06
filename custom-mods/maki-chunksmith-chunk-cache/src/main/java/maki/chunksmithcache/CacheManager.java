@@ -49,7 +49,7 @@ public final class CacheManager {
    }
 
    public static void captureFromChunksmith(ServerLevel var0, LevelChunk var1) {
-      if (var0 != null && var1 != null && !BackfillGuard.active(var0, var1.getPos())) {
+      if (var0 != null && var1 != null && !BackfillGuard.suppress(var0, var1.getPos())) {
          if (HorizonGuard.drop(var0, var1.getPos())) {
             capture(var0, var1, false);
          }
@@ -109,7 +109,7 @@ public final class CacheManager {
    }
 
    public static CompletableFuture<Optional<CompoundTag>> loadIfPresent(ServerLevel var0, ChunkPos var1) {
-      if (!BackfillGuard.active(var0, var1) && promotionAllowed(var0, var1)) {
+      if (!BackfillGuard.suppress(var0, var1) && promotionAllowed(var0, var1)) {
          String var2 = Fingerprint.forLevel(var0);
          if (var2 == null) {
             return CompletableFuture.completedFuture(Optional.empty());
@@ -176,7 +176,7 @@ public final class CacheManager {
    }
 
    public static void onNormalSave(ServerLevel var0, ChunkAccess var1, boolean var2) {
-      if (var2 && var0 != null && var1 != null && !BackfillGuard.active(var0, var1.getPos())) {
+      if (var2 && var0 != null && var1 != null && !BackfillGuard.suppress(var0, var1.getPos())) {
          String var3 = Fingerprint.forLevel(var0);
          if (var3 != null) {
             Path var4 = path(var0, var1.getPos(), var3);
