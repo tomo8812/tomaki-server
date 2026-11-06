@@ -74,6 +74,119 @@ jobs:
           path: reports/rebuilt-mixin-audit.json
           retention-days: 14
 
+  runtime-smoke-issue62:
+    if: github.event_name == 'pull_request' && github.head_ref == 'fix/issue-62'
+    needs: source-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Download audited rebuilt custom MOD JARs
+        uses: actions/download-artifact@v4
+        with:
+          name: rebuilt-custom-mod-jars
+          path: /tmp/maki-rebuilt
+      - name: Install isolated NeoForge server
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p /tmp/issue62-server
+          cd /tmp/issue62-server
+          curl --fail --location --retry 3 -o neoforge-installer.jar \
+            'https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.262/neoforge-21.1.262-installer.jar'
+          java -jar neoforge-installer.jar --installServer
+          echo 'eula=true' > eula.txt
+          cat > server.properties <<'PROPERTIES'
+          online-mode=false
+          server-port=25565
+          view-distance=2
+          simulation-distance=2
+          max-tick-time=-1
+          level-name=world
+          PROPERTIES
+          cp -a "$GITHUB_WORKSPACE/mods" .
+          rm -f mods/maki-*.jar
+          cp /tmp/maki-rebuilt/maki-*.jar mods/
+          cp -a "$GITHUB_WORKSPACE/config" .
+          mkdir -p world/serverconfig
+          cp -a "$GITHUB_WORKSPACE/serverconfig/." world/serverconfig/
+      - name: Start, inspect logs, save and stop
+        shell: bash
+        working-directory: /tmp/issue62-server
+        run: |
+          set -euo pipefail
+          chmod +x run.sh
+          coproc MCSERVER { ./run.sh nogui > console.log 2>&1; }
+          ready=0
+          for _ in $(seq 1 240); do
+            if [[ -f logs/latest.log ]] && grep -q 'Done (' logs/latest.log; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$MCSERVER_PID" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != 1 ]]; then
+            cat console.log || true
+            cat logs/latest.log || true
+            kill "$MCSERVER_PID" 2>/dev/null || true
+            exit 1
+          fi
+
+          log=logs/latest.log
+          required=(
+            'Maki Airship Compatibility initialized'
+            'Maki Airship Foundation Compatibility initialized'
+            'Maki Assembly Tracking initialized'
+            'Maki Chunksmith Chunk Cache initialized'
+            'Maki Diorama Share initialized'
+            'Maki Idle Pregen initialized'
+            'Maki LOD CPU initialized'
+            'Maki LOD CPU Online Fix initialized'
+            'Maki Millenaire Chunksmith Compatibility initialized'
+            'Maki Mods Observer initialized'
+            'Maki Ship Anchor Fix initialized'
+            'Maki Ship Edge initialized'
+            'Maki Ship Footsteps initialized'
+            'Ship save protection 1.0.2 loaded'
+          )
+          for needle in "${required[@]}"; do
+            grep -F "$needle" "$log" >/dev/null || {
+              echo "Missing startup log: $needle"
+              cat "$log"
+              exit 1
+            }
+          done
+
+          ! grep -E 'maki_status_io|maki_lag_observer|NoClassDefFoundError|NoSuchMethodError|NoSuchFieldError|MixinApplyError' "$log"
+          [[ ! -e logs/maki-mods-observer.jsonl ]]
+          [[ ! -e logs/maki-mods-observer-nbt.jsonl ]]
+          [[ ! -e logs/maki-lod-cpu-status.json ]]
+          [[ ! -e logs/maki-lod-follow-status.json ]]
+          [[ ! -e logs/maki-chunk-cache-backfill-status.json ]]
+
+          echo 'save-all flush' >&"${MCSERVER[1]}"
+          sleep 2
+          echo 'stop' >&"${MCSERVER[1]}"
+          wait "$MCSERVER_PID"
+          test "$?" -eq 0
+      - name: Upload isolated server log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: issue62-runtime-smoke-log
+          path: |
+            /tmp/issue62-server/logs/latest.log
+            /tmp/issue62-server/console.log
+          retention-days: 14
+
   publish-issue62:
     if: github.event_name == 'pull_request' && github.head_ref == 'fix/issue-62' && github.event.pull_request.head.repo.full_name == github.repository
     needs: source-build
