@@ -12,7 +12,7 @@ public final class Settings {
     public String followPlayer="tomo8812", followUuid="9845d198-4c17-4be1-a109-b96b7e42aef9";
     public int windowSeconds=30,settleSeconds=8,retrySeconds=60,minimumEvents=8,maxStep=8,noProgressSeconds=60;
     public double minimumGainPercent=5,memoryReserveMb=512,gcPressurePercent=20;
-    public double backfillIoPressurePercent=25;
+    public double backfillIoPressurePercent=25,backfillMemoryPsiPressurePercent=25;
     public int backfillLodQueueHigh=64,backfillWriteQueueHigh=32;
     public int backfillMinSpacingSeconds=2,backfillMaxSafeWaitSeconds=30,backfillDrainWaitSeconds=30,backfillSampleMaxAgeSeconds=10;
 
@@ -41,6 +41,7 @@ public final class Settings {
         s.memoryReserveMb=number(p,"minimum-system-headroom-mb",512,256,4096);
         s.gcPressurePercent=number(p,"gc-pressure-percent",20,10,50);
         s.backfillIoPressurePercent=number(p,"backfill-io-pressure-percent",25,1,100);
+        s.backfillMemoryPsiPressurePercent=number(p,"backfill-memory-psi-pressure-percent",25,1,100);
         s.backfillLodQueueHigh=integer(p,"backfill-lod-queue-high",64,1,100000);
         s.backfillWriteQueueHigh=integer(p,"backfill-write-queue-high",32,1,100000);
         s.backfillMinSpacingSeconds=integer(p,"backfill-min-spacing-seconds",2,0,60);
