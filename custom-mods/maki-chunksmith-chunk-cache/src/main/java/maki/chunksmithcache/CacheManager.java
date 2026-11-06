@@ -7,9 +7,11 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
+import java.util.ArrayList;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,10 +21,10 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ThreadPoolExecutor.AbortPolicy;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.stream.Stream;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
@@ -38,6 +40,9 @@ public final class CacheManager {
    private static final int SCHEMA = 1;
    private static final AtomicLong LAST_QUEUE_WARNING = new AtomicLong();
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
+   private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
+   private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
+   private static final long MAINTENANCE_RETRY_MS = TimeUnit.MINUTES.toMillis(1L);
    private static final ThreadPoolExecutor WRITE_IO = new ThreadPoolExecutor(
       1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(128), daemonFactory("maki-chunk-cache-write"), new AbortPolicy()
    );
@@ -57,10 +62,11 @@ public final class CacheManager {
    }
 
    static CompletableFuture<Boolean> capture(ServerLevel var0, LevelChunk var1, boolean var2) {
-      String var3 = Fingerprint.forLevel(var0);
-      if (var3 == null) {
+      Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
+      if (snapshot == null) {
          return CompletableFuture.completedFuture(false);
       }
+      String var3 = snapshot.fingerprint();
 
       CompoundTag var4;
       try {
@@ -71,15 +77,15 @@ public final class CacheManager {
       }
 
       CompoundTag var5 = new CompoundTag();
-      var5.putInt("schema", 1);
+      var5.putInt("schema", SCHEMA);
       var5.putString("fingerprint", var3);
       var5.putString("dimension", var0.dimension().location().toString());
       var5.putInt("x", var1.getPos().x);
       var5.putInt("z", var1.getPos().z);
       CompoundTagBridge.put(var5, "chunk", var4);
-      rotateGenerations(var0, var3);
+      rotateGenerations(var0, snapshot, "capture");
       Path var6 = path(var0, var1.getPos(), var3);
-      CompletableFuture var7 = new CompletableFuture();
+      CompletableFuture<Boolean> var7 = new CompletableFuture<>();
       Runnable var8 = () -> {
          try {
             Files.createDirectories(var6.getParent());
@@ -101,21 +107,20 @@ public final class CacheManager {
          if (var10 - var12 > 30000L && LAST_QUEUE_WARNING.compareAndSet(var12, var10)) {
             LOG.warn("Chunk cache write queue is full; skipping cache entries until it drains", new Object[0]);
          }
-
          var7.complete(false);
       }
-
       return var7;
    }
 
    public static CompletableFuture<Optional<CompoundTag>> loadIfPresent(ServerLevel var0, ChunkPos var1) {
       if (!BackfillGuard.active(var0, var1) && promotionAllowed(var0, var1)) {
-         String var2 = Fingerprint.forLevel(var0);
-         if (var2 == null) {
+         Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
+         if (snapshot == null) {
             return CompletableFuture.completedFuture(Optional.empty());
          }
+         String var2 = snapshot.fingerprint();
 
-         rotateGenerations(var0, var2);
+         rotateGenerations(var0, snapshot, "load");
          Path var3 = path(var0, var1, var2);
          if (!Files.isRegularFile(var3)) {
             return CompletableFuture.completedFuture(Optional.empty());
@@ -126,8 +131,10 @@ public final class CacheManager {
                () -> {
                   try {
                      CompoundTag var4 = NbtIo.readCompressed(var3, NbtAccounter.unlimitedHeap());
-                     if (var4.getInt("schema") == 1
-                        && var2.equals(var4.getString("fingerprint"))
+                     String storedFingerprint = var4.getString("fingerprint");
+                     Path generationDirectory = var3.getParent().getParent();
+                     if (var4.getInt("schema") == SCHEMA
+                        && GenerationStore.acceptsStoredFingerprint(generationDirectory, var2, storedFingerprint)
                         && var0.dimension().location().toString().equals(var4.getString("dimension"))
                         && var4.getInt("x") == var1.x
                         && var4.getInt("z") == var1.z
@@ -139,8 +146,8 @@ public final class CacheManager {
                         return Optional.empty();
                      }
                   } catch (Throwable var6) {
-                     quarantine(var3);
-                     LOG.warn("Ignoring corrupt chunk cache {}; vanilla worldgen will be used", new Object[]{var3, var6});
+                     Path quarantined = GenerationStore.quarantineCorrupt(var3);
+                     LOG.warn("Ignoring corrupt chunk cache {}; quarantinedAs={}; vanilla worldgen will be used", new Object[]{var3, quarantined, var6});
                      return Optional.empty();
                   }
                },
@@ -165,7 +172,6 @@ public final class CacheManager {
                   return true;
                }
             }
-
             return false;
          } else {
             return true;
@@ -180,27 +186,29 @@ public final class CacheManager {
          String var3 = Fingerprint.forLevel(var0);
          if (var3 != null) {
             Path var4 = path(var0, var1.getPos(), var3);
-
             try {
                WRITE_IO.execute(() -> {
                   try {
                      Files.deleteIfExists(var4);
-                  } catch (IOException var2x) {
+                  } catch (IOException ignored) {
                   }
                });
-            } catch (RejectedExecutionException var6) {
+            } catch (RejectedExecutionException ignored) {
             }
          }
       }
    }
 
    static boolean cacheExists(ServerLevel var0, ChunkPos var1) {
-      String var2 = Fingerprint.forLevel(var0);
-      return var2 != null && cacheExists(var0, var1, var2);
+      Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
+      return snapshot != null && cacheExists(var0, var1, snapshot.fingerprint());
    }
 
    static boolean cacheExists(ServerLevel var0, ChunkPos var1, String var2) {
-      rotateGenerations(var0, var2);
+      Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
+      if (snapshot != null && snapshot.fingerprint().equals(var2)) {
+         rotateGenerations(var0, snapshot, "scan");
+      }
       return Files.isRegularFile(path(var0, var1, var2));
    }
 
@@ -214,18 +222,15 @@ public final class CacheManager {
       if ("minecraft:overworld".equals(var2)) {
          return var1.resolve("region");
       }
-
       if (var2.startsWith("minecraft:")) {
          String var3 = var2.substring("minecraft:".length());
          if ("the_nether".equals(var3)) {
             return var1.resolve("DIM-1").resolve("region");
          }
-
          if ("the_end".equals(var3)) {
             return var1.resolve("DIM1").resolve("region");
          }
       }
-
       String[] var4 = var2.split(":", 2);
       return var4.length == 2 ? var1.resolve("dimensions").resolve(var4[0]).resolve(var4[1]).resolve("region") : var1.resolve("region");
    }
@@ -246,49 +251,48 @@ public final class CacheManager {
       return var0.dimension().location().toString().replace(':', '_').replace('/', '_');
    }
 
-   private static void rotateGenerations(ServerLevel var0, String var1) {
-      String var2 = dimensionKey(var0) + "|" + var1;
+   static boolean submitMaintenance(Runnable task) {
+      try {
+         WRITE_IO.execute(task);
+         return true;
+      } catch (RejectedExecutionException ignored) {
+         return false;
+      }
+   }
+
+   static void maintenanceTick(MinecraftServer server) {
+      long now = System.currentTimeMillis();
+      synchronized (NEXT_MAINTENANCE) {
+         long next = NEXT_MAINTENANCE.getOrDefault(server, 0L);
+         if (now < next) {
+            return;
+         }
+         NEXT_MAINTENANCE.put(server, now + MAINTENANCE_INTERVAL_MS);
+      }
+
+      ArrayList<ServerLevel> levels = new ArrayList<>();
+      server.getAllLevels().forEach(levels::add);
+      boolean queued = submitMaintenance(() -> {
+         FingerprintPolicy policy = FingerprintPolicy.load(server.getServerDirectory());
+         for (ServerLevel level : levels) {
+            GenerationStore.prune(level, policy);
+         }
+      });
+      if (!queued) {
+         synchronized (NEXT_MAINTENANCE) {
+            NEXT_MAINTENANCE.put(server, now + MAINTENANCE_RETRY_MS);
+         }
+      }
+   }
+
+   private static void rotateGenerations(ServerLevel var0, Fingerprint.Snapshot snapshot, String trigger) {
+      String var2 = dimensionKey(var0) + "|" + snapshot.fingerprint();
       if (ROTATED.add(var2)) {
-         Path var3 = var0.getServer().getWorldPath(LevelResource.ROOT).resolve("chunksmith_chunk_cache").resolve(dimensionKey(var0));
-
          try {
-            WRITE_IO.execute(() -> {
-               try {
-                  if (!Files.isDirectory(var3)) {
-                     return;
-                  }
-
-                  try (Stream<Path> var3x = Files.list(var3)) {
-                     for (Path var5x : var3x.toList()) {
-                        String var6 = var5x.getFileName().toString();
-                        if (Files.isDirectory(var5x) && !var6.equals(var1) && var6.matches("[0-9a-f]{24}")) {
-                           deleteTree(var5x);
-                           LOG.info("Removed stale chunk-cache generation {} for {}", new Object[]{var6, dimensionKey(var0)});
-                        }
-                     }
-                  }
-               } catch (Throwable var9) {
-                  LOG.warn("Could not rotate stale chunk-cache generations for {}", new Object[]{dimensionKey(var0), var9});
-               }
-            });
+            WRITE_IO.execute(() -> GenerationStore.reconcile(var0, snapshot, trigger));
          } catch (RejectedExecutionException var5) {
             ROTATED.remove(var2);
          }
-      }
-   }
-
-   private static void deleteTree(Path var0) throws IOException {
-      try (Stream<Path> var1 = Files.walk(var0)) {
-         for (Path var3 : var1.sorted(Comparator.reverseOrder()).toList()) {
-            Files.deleteIfExists(var3);
-         }
-      }
-   }
-
-   private static void quarantine(Path var0) {
-      try {
-         Files.move(var0, var0.resolveSibling(var0.getFileName() + ".corrupt"), StandardCopyOption.REPLACE_EXISTING);
-      } catch (IOException var2) {
       }
    }
 

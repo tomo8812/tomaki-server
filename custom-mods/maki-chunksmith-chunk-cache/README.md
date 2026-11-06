@@ -20,3 +20,24 @@ Version 1.0.2 keeps backfill ownership in this MOD and adds explicit runtime sta
 - releases the backfill guard and idle-work claim immediately when loading fails before a FULL chunk exists; loaded-chunk failures retain the guarded-unload lifecycle.
 
 This makes non-zero global CSLOD writes explainable even when the follow-owned GenerationTask completion rate is zero.
+
+
+## Issue #40 compatibility manifests and quarantine
+
+Version 1.1.0 replaces the old "hash every file, then recursively delete every other generation" policy with an auditable compatibility boundary:
+
+- unknown MODs, configs, serverconfigs, datapacks, level.dat worldgen state, seed, dimension, generator class and Minecraft DataVersion remain fail-closed compatibility inputs;
+- maki_chunksmith_chunk_cache itself is keyed by the explicit compatibility schema instead of its JAR bytes, so maintenance-only releases do not invalidate chunk data accidentally;
+- maki_lag_observer is classified as observation-only from its MOD id, and its hot-reload config is ignored by default because it only controls diagnostics;
+- additional observation-only MOD ids or non-worldgen paths require an explicit administrator policy in config/maki-chunksmith-chunk-cache.properties;
+- config/chunksmith/tasks/** remains excluded exactly as before; mutable Chunksmith task progress is not a compatibility input;
+- every v2 generation gets manifest-v2.txt containing per-input digest, size, compatibility classification and reason;
+- a previous v2 manifest is compared with the current one so logs identify old/new fingerprints, changed inputs, trigger (capture, load, or scan), entry count and bytes;
+- incompatible generations are moved atomically to .quarantine rather than immediately deleted and are never used for promotion while incompatible;
+- quarantines have retention/count/byte limits, but automatic capacity pruning protects freshly quarantined data for the configured minimum age;
+- /makichunkcache quarantine list, discard <id>, and restore <id> run maintenance on the cache I/O executor. Restore is refused unless the quarantined manifest exactly matches the current compatibility fingerprint;
+- a 1.0.x generation can be adopted without regeneration only when its exact legacy fingerprint still matches the current full input set. Otherwise it is quarantined because compatibility cannot be proven.
+
+The compatibility classification is intentionally conservative. A diagnostic MOD should be added to the observation-only list only when its code is known not to alter generated/serialized chunk contents. If a future cache release changes serialization or promotion semantics, CompatibilityFingerprint.SCHEMA must be bumped.
+
+check also runs FingerprintPolicySelfTest, covering observation-only JAR changes, explicitly ignored non-worldgen config, real worldgen MOD changes, datapack changes, seed changes, the existing Chunksmith task exclusion, and corrupt manifest fail-closed behavior.
