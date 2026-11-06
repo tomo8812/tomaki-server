@@ -13,4 +13,8 @@ public final class IdlePregenHooks {
     public static void shutdown(MinecraftServer server) {
         IdlePregenController.shutdown(server);
     }
+
+    public static boolean suppressVsGameFrame() {
+        return IdlePregenController.ownsVsPhysicsPause();
+    }
 }
