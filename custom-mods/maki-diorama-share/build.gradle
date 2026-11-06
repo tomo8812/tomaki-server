@@ -24,10 +24,8 @@ neoForge {
 }
 
 dependencies {
-    compileOnly files('../../mods/maki-diorama-share-1.0.0.jar')
     compileOnly 'maven.modrinth:kwpTgbCk:0.5.0+neoforge-1.21.1'
 
-    testImplementation files('../../mods/maki-diorama-share-1.0.0.jar')
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
@@ -42,19 +40,16 @@ tasks.named('test') {
 }
 
 tasks.named('jar') {
-    from(zipTree(file('../../mods/maki-diorama-share-1.0.0.jar'))) {
-        exclude 'maki/mapshare/ClientSharing.class'
-        exclude 'META-INF/neoforge.mods.toml'
-        exclude 'META-INF/MANIFEST.MF'
-        exclude 'META-INF/sources/maki/mapshare/ClientSharing.java'
-    }
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+
     manifest {
         attributes(
             'Implementation-Title': 'Maki Diorama Sharing',
             'Implementation-Version': project.version
         )
     }
+
     from(sourceSets.main.allJava) {
         into 'META-INF/sources'
     }
