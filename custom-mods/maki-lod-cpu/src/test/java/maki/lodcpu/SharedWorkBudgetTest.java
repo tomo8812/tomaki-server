@@ -159,4 +159,22 @@ final class SharedWorkBudgetTest {
         assertEquals("follow-drain-timeout",decision.reason());
         assertFalse(budget.blockFollowDispatch());
     }
+
+    @Test
+    void transitionSerialMarksPauseThatFitsBetweenGovernorSamples() {
+        SharedWorkBudget budget=new SharedWorkBudget();
+        Settings s=settings();
+        long now=100_000_000_000L;
+        budget.observe(safe(now,0,40));
+        long before=budget.transitionSerial();
+
+        assertTrue(budget.request(now,"none",s).ready());
+        long reserved=budget.transitionSerial();
+        assertTrue(reserved>before);
+
+        budget.backfillStarted(now+100_000_000L);
+        budget.release(now+500_000_000L,"completed",s);
+        assertTrue(budget.transitionSerial()>reserved);
+        assertFalse(budget.reserved());
+    }
 }
