@@ -88,6 +88,16 @@ for path in projects_dir.rglob("*"):
         assert "maki-lod-follow-status.json" not in text, f"Retired status JSON reference in {path.relative_to(root)}"
         assert "maki-chunk-cache-backfill-status.json" not in text, f"Retired status JSON reference in {path.relative_to(root)}"
 
+
+active_runtime_roots = [projects_dir, root / "config", root / ".github/workflows"]
+for active_root in active_runtime_roots:
+    for path in active_root.rglob("*"):
+        if not path.is_file() or path.suffix not in {".java", ".gradle", ".toml", ".json", ".properties", ".yml", ".yaml"}:
+            continue
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        assert "maki_lag_observer" not in text, f"Retired observer MOD ID in active runtime file {path.relative_to(root)}"
+        assert "maki-lag-observer.properties" not in text, f"Retired observer config name in active runtime file {path.relative_to(root)}"
+
 print(
     f"Deployment checks: {len(seen_ids)} unique custom MOD IDs; "
     f"{len(matched_projects)} source-owned JARs; {checked_sources} embedded maintained sources match"
