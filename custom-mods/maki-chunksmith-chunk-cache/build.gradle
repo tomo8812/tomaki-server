@@ -20,7 +20,6 @@ neoForge {
 dependencies {
     compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
     compileOnly files('../../mods/maki-idle-pregen-1.1.1.jar')
-    testRuntimeOnly 'org.slf4j:slf4j-api:2.0.16'
 }
 
 tasks.withType(JavaCompile).configureEach {
