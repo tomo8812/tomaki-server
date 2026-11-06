@@ -1,0 +1,45 @@
+name: issue62 restore embedded custom sources
+
+on:
+  push:
+    branches: [fix/issue-62]
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/issue-62
+          fetch-depth: 0
+      - name: Restore authoritative embedded sources
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import zipfile
+          mapping = {
+              'mods/maki-assembly-tracking-1.0.0.jar': 'custom-mods/maki-assembly-tracking',
+              'mods/maki-ship-edge-1.0.0.jar': 'custom-mods/maki-ship-edge',
+              'mods/maki-ship-save-1.0.2.jar': 'custom-mods/maki-ship-save',
+          }
+          for jar_name, project_name in mapping.items():
+              with zipfile.ZipFile(jar_name) as zf:
+                  entries = [n for n in zf.namelist() if n.startswith('META-INF/sources/') and n.endswith('.java')]
+                  if not entries:
+                      raise SystemExit(f'No embedded maintained sources in {jar_name}')
+                  for entry in entries:
+                      rel = entry[len('META-INF/sources/'):]
+                      target = Path(project_name) / 'src/main/java' / rel
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      target.write_bytes(zf.read(entry))
+                      print(jar_name, '->', target)
+          PY
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add custom-mods/maki-assembly-tracking custom-mods/maki-ship-edge custom-mods/maki-ship-save
+          git commit -m 'build: restore embedded maintained custom MOD sources'
+          git push origin HEAD:fix/issue-62
