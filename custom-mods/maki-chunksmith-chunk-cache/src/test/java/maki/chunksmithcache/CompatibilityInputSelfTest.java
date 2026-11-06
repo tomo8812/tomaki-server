@@ -68,10 +68,20 @@ public final class CompatibilityInputSelfTest {
         writeModJar(lodNew, "maki_lod_cpu", "1.4.0", "new-shared-budget");
         writeModJar(lodUnknown, "maki_lod_cpu", "1.4.1", "future-unknown");
 
-        List<FingerprintManifest.Entry> oldEntries = jarEntries("mods/maki-lod-cpu-1.3.4.jar", lodOld);
-        List<FingerprintManifest.Entry> newEntries = jarEntries("mods/maki-lod-cpu-1.4.0.jar", lodNew);
+        List<FingerprintManifest.Entry> oldEntries = jarEntries(
+            "mods/maki-lod-cpu-1.3.4.jar",
+            lodOld,
+            CompatibilityInput.trustedArtifactSha("maki_lod_cpu", "1.3.4")
+        );
+        List<FingerprintManifest.Entry> newEntries = jarEntries(
+            "mods/maki-lod-cpu-1.4.0.jar",
+            lodNew,
+            CompatibilityInput.trustedArtifactSha("maki_lod_cpu", "1.4.0")
+        );
+        List<FingerprintManifest.Entry> alteredSameVersion = jarEntries("mods/maki-lod-cpu-1.4.0.jar", lodNew);
         List<FingerprintManifest.Entry> unknownEntries = jarEntries("mods/maki-lod-cpu-1.4.1.jar", lodUnknown);
         require(fingerprint(oldEntries).equals(fingerprint(newEntries)), "audited 1.3.4 -> 1.4.0 load-control update must keep compatibility");
+        require(!fingerprint(newEntries).equals(fingerprint(alteredSameVersion)), "same version with unverified JAR bytes must fail closed");
         require(!fingerprint(newEntries).equals(fingerprint(unknownEntries)), "unknown future maki_lod_cpu version must fail closed");
 
         Path fixOld = temp.resolve("maki-lod-cpu-online-fix-1.0.2.jar");
@@ -79,8 +89,15 @@ public final class CompatibilityInputSelfTest {
         writeModJar(fixOld, "maki_lod_cpu_online_fix", "1.0.2", "adaptive-cap-a");
         writeModJar(fixNew, "maki_lod_cpu_online_fix", "1.0.3", "adaptive-cap-b");
         require(
-            fingerprint(jarEntries("mods/maki-lod-cpu-online-fix-1.0.2.jar", fixOld))
-                .equals(fingerprint(jarEntries("mods/maki-lod-cpu-online-fix-1.0.3.jar", fixNew))),
+            fingerprint(jarEntries(
+                "mods/maki-lod-cpu-online-fix-1.0.2.jar",
+                fixOld,
+                CompatibilityInput.trustedArtifactSha("maki_lod_cpu_online_fix", "1.0.2")
+            )).equals(fingerprint(jarEntries(
+                "mods/maki-lod-cpu-online-fix-1.0.3.jar",
+                fixNew,
+                CompatibilityInput.trustedArtifactSha("maki_lod_cpu_online_fix", "1.0.3")
+            ))),
             "audited 1.0.2 -> 1.0.3 online cap update must keep compatibility"
         );
 
@@ -107,8 +124,20 @@ public final class CompatibilityInputSelfTest {
             FingerprintManifest.Impact.RELEVANT,
             "worldgen/serialization input by default"
         ));
-        old.add(entry("mods/maki-lod-cpu-1.3.4.jar", "old-lod-bytes", FingerprintManifest.Impact.RELEVANT));
-        old.add(entry("mods/maki-lod-cpu-online-fix-1.0.2.jar", "old-fix-bytes", FingerprintManifest.Impact.RELEVANT));
+        old.add(new FingerprintManifest.Entry(
+            "mods/maki-lod-cpu-1.3.4.jar",
+            1L,
+            CompatibilityInput.trustedArtifactSha("maki_lod_cpu", "1.3.4"),
+            FingerprintManifest.Impact.RELEVANT,
+            "mod ids=maki_lod_cpu; fail-closed relevant"
+        ));
+        old.add(new FingerprintManifest.Entry(
+            "mods/maki-lod-cpu-online-fix-1.0.2.jar",
+            1L,
+            CompatibilityInput.trustedArtifactSha("maki_lod_cpu_online_fix", "1.0.2"),
+            FingerprintManifest.Impact.RELEVANT,
+            "mod ids=maki_lod_cpu_online_fix; fail-closed relevant"
+        ));
         old.add(entry("mods/worldgen.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
 
         List<FingerprintManifest.Entry> current = new ArrayList<>();
@@ -162,6 +191,11 @@ public final class CompatibilityInputSelfTest {
     private static List<FingerprintManifest.Entry> jarEntries(String key, Path jar) throws Exception {
         byte[] bytes = Files.readAllBytes(jar);
         return CompatibilityInput.entries(key, jar, bytes.length, sha256(bytes), POLICY);
+    }
+
+    private static List<FingerprintManifest.Entry> jarEntries(String key, Path jar, String trustedSha256) throws Exception {
+        byte[] bytes = Files.readAllBytes(jar);
+        return CompatibilityInput.entries(key, jar, bytes.length, trustedSha256, POLICY);
     }
 
     private static FingerprintManifest.Entry contractEntry(String key, String contract) {
