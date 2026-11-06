@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.0.2'
+version = '1.1.0'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -63,23 +63,30 @@ tasks.register('verifyMixinAnnotationRetention') {
             def text = process.inputStream.getText('UTF-8')
             def exitCode = process.waitFor()
             if (exitCode != 0) {
-                throw new GradleException("${className}: javap failed (exit ${exitCode})\n${text}")
+                throw new GradleException("\${className}: javap failed (exit \${exitCode})\n\${text}")
             }
 
             def mixinIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
             def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', mixinIndex)
             def visibleIndex = text.lastIndexOf('RuntimeVisibleAnnotations:', mixinIndex)
             if (mixinIndex < 0 || invisibleIndex < 0 || visibleIndex > invisibleIndex) {
-                throw new GradleException("${className}: @Mixin is not class-retained/invisible")
+                throw new GradleException("\${className}: @Mixin is not class-retained/invisible")
             }
             if (text.contains('org.spongepowered.asm.mixin.injection.Inject(') &&
                 !text.contains('RuntimeVisibleAnnotations:')) {
-                throw new GradleException("${className}: injector annotations are not runtime-visible")
+                throw new GradleException("\${className}: injector annotations are not runtime-visible")
             }
         }
     }
 }
 
+tasks.register('issue40RegressionTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.FingerprintPolicySelfTest'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('issue40RegressionTest')
 }
