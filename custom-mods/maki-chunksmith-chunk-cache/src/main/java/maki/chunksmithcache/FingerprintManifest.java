@@ -241,8 +241,8 @@ final class FingerprintManifest {
         if (key.equals(CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH)) {
             return "(source-format/comment changed; effective values unchanged)";
         }
-        if (key.startsWith(CompatibilityInput.RAW_AUDIT_PREFIX + "mods/maki-lod-cpu")) {
-            return "(verified non-worldgen JAR changed; compatibility contract unchanged)";
+        if (key.startsWith(AuditedModCompatibility.RAW_AUDIT_PREFIX)) {
+            return "(audited generation-neutral JAR changed; compatibility contract unchanged)";
         }
         if (key.equals(CompatibilityInput.ZFASTNOISE_PATH) && oldEntry != null && newEntry != null) {
             return "(effective values changed)";
