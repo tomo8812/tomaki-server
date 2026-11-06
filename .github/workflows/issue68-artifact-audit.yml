@@ -1,0 +1,63 @@
+name: Issue 68 artifact audit
+
+on:
+  push:
+    branches:
+      - fix/issue-68
+    paths:
+      - '.github/workflows/issue68-artifact-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Compute canonical JAR digests
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import hashlib, io, pathlib, subprocess, zipfile
+
+          CURRENT = [
+              "mods/maki-lod-cpu-1.4.0.jar",
+              "mods/maki-lod-cpu-online-fix-1.0.3.jar",
+              "mods/maki-diorama-share-1.0.1.jar",
+              "mods/maki-mods-observer-1.0.0.jar",
+              "mods/Jade-1.21.1-NeoForge-15.10.6.jar",
+              "mods/emi-1.1.24+1.21.1+neoforge.jar",
+              "mods/clientsort-neoforge-3.89.2+1.21.1.jar",
+              "mods/sound-physics-remastered-neoforge-1.21.1-1.5.2.jar",
+          ]
+          HISTORICAL = [
+              ("e5b4d959473865a59f5213c3f6abc1a275f265da", "mods/maki-lod-cpu-1.3.4.jar"),
+              ("e5b4d959473865a59f5213c3f6abc1a275f265da", "mods/maki-lod-cpu-online-fix-1.0.2.jar"),
+              ("c1de3e1840c93494b024de1ba86ab5cbb59dd1e8", "mods/maki-diorama-share-1.0.0.jar"),
+          ]
+
+          def canonical(data):
+              out = hashlib.sha256()
+              with zipfile.ZipFile(io.BytesIO(data)) as z:
+                  names = sorted(i.filename for i in z.infolist() if not i.is_dir())
+                  for name in names:
+                      upper = name.upper()
+                      if upper.startswith("META-INF/") and upper.endswith((".SF", ".RSA", ".DSA", ".EC")):
+                          continue
+                      payload = z.read(name)
+                      nb = name.encode("utf-8")
+                      out.update(len(nb).to_bytes(4, "big")); out.update(nb)
+                      out.update(len(payload).to_bytes(8, "big")); out.update(payload)
+              return out.hexdigest()
+
+          for p in CURRENT:
+              data = pathlib.Path(p).read_bytes()
+              print(f"CURRENT\t{p}\traw={hashlib.sha256(data).hexdigest()}\tcanonical={canonical(data)}")
+          for ref, p in HISTORICAL:
+              data = subprocess.check_output(["git","show",f"{ref}:{p}"])
+              print(f"HISTORICAL\t{ref}\t{p}\traw={hashlib.sha256(data).hexdigest()}\tcanonical={canonical(data)}")
+          PY
