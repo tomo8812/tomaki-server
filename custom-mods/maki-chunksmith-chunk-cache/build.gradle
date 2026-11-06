@@ -91,7 +91,7 @@ tasks.register('verifyIssue41BackfillTicketLifecycle') {
         if (source =~ /getChunkFuture\([^;]*ChunkStatus\.FULL,\s*true\)/) {
             throw new GradleException('Issue #41 regression: backfill must not create vanilla UNKNOWN tickets via getChunkFuture(..., FULL, true)')
         }
-        if (!source.contains('getChunkFuture(pos.x,pos.z,ChunkStatus.FULL,false)')) {
+        if (!source.contains('invokeGetChunkFutureMainThread(pos.x, pos.z, ChunkStatus.FULL, createMissingChunk)') || !source.contains('boolean createMissingChunk = false;')) {
             throw new GradleException('Issue #41 regression: owned BACKFILL_TICKET lookup is missing')
         }
         ['backfillTicketHeld', 'ticketRemovedAt', 'unloadWaitMillis', 'guardActive', 'serverFrozen', 'retiredGuardCount', 'MAX_RETIRED_GUARDS', 'fullLoadTimeoutReached', 'pre-full-timeout-awaiting-future'].each { field ->

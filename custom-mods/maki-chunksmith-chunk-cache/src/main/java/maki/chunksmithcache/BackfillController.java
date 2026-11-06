@@ -1,4 +1,15 @@
 package maki.chunksmithcache;
+import net.minecraft.world.level.chunk.storage.IOWorker;
+import net.minecraft.world.level.chunk.ChunkAccess;
+import net.minecraft.server.level.ServerChunkCache;
+import net.minecraft.server.level.ChunkResult;
+import java.lang.management.ThreadMXBean;
+import java.lang.management.ManagementFactory;
+import com.kishku7.chunksmith.mixin.ServerChunkCacheMixin;
+import com.kishku7.chunksmith.mixin.IOWorkerAccessor;
+import com.kishku7.chunksmith.mixin.ChunkStorageAccessor;
+import com.kishku7.chunksmith.ducks.MinecraftServerExtension;
+import com.kishku7.chunksmith.PlatformCompat;
 
 import com.google.gson.Gson;
 import com.kishku7.chunksmith.ChunksmithProvider;
@@ -37,6 +48,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public final class BackfillController {
+   private static final ThreadMXBean THREAD_CPU = ManagementFactory.getThreadMXBean();
    private static final TicketType<Unit> BACKFILL_TICKET = TicketType.create("maki_chunk_cache_backfill", (var0, var1) -> 0);
    private static final Logger LOG = LoggerFactory.getLogger("MakiChunkCache");
    private static final Gson JSON = new Gson();
@@ -253,11 +265,8 @@ public final class BackfillController {
             IdlePregenBridge.setBackfillActive(true);
             var2.idlePregenClaimed=IdlePregenBridge.isClaimed();
             LOG.debug("Backfilling cached chunk {} in {}", new Object[]{var3, var0.dimension().location()});
-            var0.getChunkSource().addRegionTicket(BACKFILL_TICKET, var3, 0, Unit.INSTANCE);
-            var2.backfillTicketHeld=true;
-            var2.ticketAddedAt=System.currentTimeMillis();
-            markProgress(var2);
-            var2.waitReason="owned-ticket-propagation";
+            var2.lastRequestQueuedAt=System.currentTimeMillis();
+            var2.waitReason="ticket-safe-point";
             enterPhase(var2,"waiting-owned-ticket");
             report(var0.getServer(),var2,true);
          }
@@ -268,7 +277,7 @@ public final class BackfillController {
       ServerLevel level=state.activeLevel;
       BackfillController.Target target=state.activeTarget;
       ChunkPos pos=state.activePos;
-      if(level==null||target==null||pos==null||!state.backfillTicketHeld)return;
+      if(level==null||target==null||pos==null)return;
 
       long now=System.currentTimeMillis();
       long elapsed=now-state.activeSince;
@@ -300,13 +309,14 @@ public final class BackfillController {
       if(state.loadFuturePending)return;
 
       long token=state.token;
-      var future=level.getChunkSource().getChunkFuture(pos.x,pos.z,ChunkStatus.FULL,false);
+      var future=requestChunkFuture(level,pos,state,token,System.nanoTime());
       state.loadFuturePending=true;
       state.waitReason="owned-ticket-full-generation";
       enterPhase(state,"waiting-full-chunk");
       future.whenComplete((result,error) -> level.getServer().execute(() -> {
          if(!active(state,token,level,pos))return;
          state.loadFuturePending=false;
+         state.lastChunkFutureWaitWallMs=state.chunkFutureStartedAtNanos==0L?-1.0:elapsedMillis(state.chunkFutureStartedAtNanos);
          if(error!=null) {
             LOG.warn("Chunk-cache backfill {} failed while waiting for the owned ticket to reach FULL",pos,error);
             failBeforeFull(level,pos,state,state.previousSuppression,token);
@@ -332,6 +342,119 @@ public final class BackfillController {
          handleFullChunk(level,target,state,state.previousSuppression,token,chunk);
       }));
    }
+
+   private static CompletableFuture<ChunkResult<ChunkAccess>> requestChunkFuture(
+      ServerLevel level,
+      ChunkPos pos,
+      BackfillController.State state,
+      long token,
+      long queuedAt
+   ) {
+      MinecraftServer server = level.getServer();
+      CompletableFuture<ChunkResult<ChunkAccess>> requested = new CompletableFuture<>();
+
+      try {
+         ((MinecraftServerExtension)server).chunksmith$atTicketSafePoint(() -> {
+            if (!active(state, token, level, pos)) {
+               requested.cancel(false);
+               return;
+            }
+
+            ServerChunkCache chunkSource = level.getChunkSource();
+            long setupStartedAt = System.nanoTime();
+            long cpuStartedAt = currentThreadCpuNanos();
+            state.lastTicketSafePointDelayMs = elapsedMillis(queuedAt);
+            state.lastLoadedBeforeRequest = chunkSource.hasChunk(pos.x, pos.z);
+            state.lastPendingChunkTasksBefore = chunkSource.getPendingTasksCount();
+            state.lastPendingChunkWritesBefore = pendingChunkWrites(level);
+
+            try {
+               if (!state.backfillTicketHeld) {
+                  chunkSource.addRegionTicket(BACKFILL_TICKET, pos, 0, Unit.INSTANCE);
+                  state.backfillTicketHeld = true;
+                  state.ticketAddedAt=System.currentTimeMillis();
+                  markProgress(state);
+               }
+
+               long distanceManagerStartedAt = System.nanoTime();
+               if (!PlatformCompat.ENABLE_C2ME_TICKET_COMPAT) {
+                  ((ServerChunkCacheMixin)chunkSource).invokeRunDistanceManagerUpdates();
+               }
+               state.lastDistanceManagerUpdateWallMs = elapsedMillis(distanceManagerStartedAt);
+
+               boolean createMissingChunk = false; // BACKFILL_TICKET alone owns loading; never create UNKNOWN tickets.
+               state.lastCreateMissingChunk = createMissingChunk;
+               long futureCallStartedAt = System.nanoTime();
+               state.chunkFutureStartedAtNanos = futureCallStartedAt;
+               CompletableFuture<ChunkResult<ChunkAccess>> nativeFuture = ((ServerChunkCacheMixin)chunkSource)
+                  .invokeGetChunkFutureMainThread(pos.x, pos.z, ChunkStatus.FULL, createMissingChunk);
+               state.lastGetChunkFutureCallWallMs = elapsedMillis(futureCallStartedAt);
+               state.lastRequestSetupWallMs = elapsedMillis(setupStartedAt);
+               state.lastRequestSetupCpuMs = elapsedCpuMillis(cpuStartedAt);
+               state.lastPendingChunkTasksAfter = chunkSource.getPendingTasksCount();
+               state.lastPendingChunkWritesAfter = pendingChunkWrites(level);
+               state.phase = "waiting-chunk-future";
+
+               nativeFuture.whenComplete((result, error) -> {
+                  ((MinecraftServerExtension)server).chunksmith$markChunkSystemHousekeeping();
+                  if (error != null) {
+                     requested.completeExceptionally(error);
+                  } else {
+                     requested.complete(result);
+                  }
+               });
+            } catch (Throwable error) {
+               state.lastRequestSetupWallMs = elapsedMillis(setupStartedAt);
+               state.lastRequestSetupCpuMs = elapsedCpuMillis(cpuStartedAt);
+               state.lastPendingChunkTasksAfter = chunkSource.getPendingTasksCount();
+               state.lastPendingChunkWritesAfter = pendingChunkWrites(level);
+               requested.completeExceptionally(error);
+            }
+         });
+      } catch (Throwable error) {
+         requested.completeExceptionally(error);
+      }
+
+      return requested;
+   }
+
+   private static long pendingChunkWrites(ServerLevel level) {
+      try {
+         IOWorker worker = ((ChunkStorageAccessor)level.getChunkSource().chunkMap).chunksmith$getWorker();
+         if (worker == null) {
+            return -1L;
+         }
+
+         Map<?, ?> pending = ((IOWorkerAccessor)worker).chunksmith$getPendingWrites();
+         return pending == null ? -1L : pending.size();
+      } catch (Throwable ignored) {
+         return -1L;
+      }
+   }
+
+   private static long currentThreadCpuNanos() {
+      try {
+         return THREAD_CPU.isCurrentThreadCpuTimeSupported() && THREAD_CPU.isThreadCpuTimeEnabled()
+            ? THREAD_CPU.getCurrentThreadCpuTime()
+            : -1L;
+      } catch (UnsupportedOperationException | SecurityException ignored) {
+         return -1L;
+      }
+   }
+
+   private static double elapsedCpuMillis(long startedAt) {
+      if (startedAt < 0L) {
+         return -1.0;
+      }
+
+      long endedAt = currentThreadCpuNanos();
+      return endedAt < startedAt ? -1.0 : (endedAt - startedAt) / 1_000_000.0;
+   }
+
+   private static double elapsedMillis(long startedAt) {
+      return (System.nanoTime() - startedAt) / 1_000_000.0;
+   }
+
 
    private static LevelChunk levelChunk(net.minecraft.server.level.ChunkResult result) {
       if(result==null)return null;
@@ -675,10 +798,27 @@ public final class BackfillController {
          data.put("backfillsHandedOff",state.backfillsHandedOff);
          data.put("lodOffersSubmitted",state.lodOffersSubmitted);
          data.put("lodRefreshCompleted",state.lodRefreshCompleted);
+         data.put("lastRequestQueuedAt",state.lastRequestQueuedAt==0L?null:java.time.Instant.ofEpochMilli(state.lastRequestQueuedAt).toString());
+         data.put("lastTicketSafePointDelayMs",metric(state.lastTicketSafePointDelayMs));
+         data.put("lastDistanceManagerUpdateWallMs",metric(state.lastDistanceManagerUpdateWallMs));
+         data.put("lastGetChunkFutureCallWallMs",metric(state.lastGetChunkFutureCallWallMs));
+         data.put("lastRequestSetupWallMs",metric(state.lastRequestSetupWallMs));
+         data.put("lastRequestSetupCpuMs",metric(state.lastRequestSetupCpuMs));
+         data.put("lastChunkFutureWaitWallMs",metric(state.lastChunkFutureWaitWallMs));
+         data.put("lastLoadedBeforeRequest",state.lastLoadedBeforeRequest);
+         data.put("lastCreateMissingChunk",state.lastCreateMissingChunk);
+         data.put("lastPendingChunkTasksBefore",state.lastPendingChunkTasksBefore<0?null:state.lastPendingChunkTasksBefore);
+         data.put("lastPendingChunkTasksAfter",state.lastPendingChunkTasksAfter<0?null:state.lastPendingChunkTasksAfter);
+         data.put("lastPendingChunkWritesBefore",state.lastPendingChunkWritesBefore<0L?null:state.lastPendingChunkWritesBefore);
+         data.put("lastPendingChunkWritesAfter",state.lastPendingChunkWritesAfter<0L?null:state.lastPendingChunkWritesAfter);
          StatusIo.publish(Path.of("logs/maki-chunk-cache-backfill-status.json"),JSON.toJson(data)+"\n");
       } catch(Exception e) {
          LOG.debug("Could not report chunk-cache backfill status",e);
       }
+   }
+
+   private static Double metric(double value) {
+      return value < 0.0 || !Double.isFinite(value) ? null : Math.round(value * 1000.0) / 1000.0;
    }
 
    private static String instant(long millis) {
@@ -958,6 +1098,20 @@ public final class BackfillController {
       long retiredGuardsReleasedExternally;
       long retiredGuardWarnings;
       boolean idlePregenClaimed;
+      long lastRequestQueuedAt;
+      double lastTicketSafePointDelayMs = -1.0;
+      double lastDistanceManagerUpdateWallMs = -1.0;
+      double lastGetChunkFutureCallWallMs = -1.0;
+      double lastRequestSetupWallMs = -1.0;
+      double lastRequestSetupCpuMs = -1.0;
+      double lastChunkFutureWaitWallMs = -1.0;
+      long chunkFutureStartedAtNanos;
+      int lastPendingChunkTasksBefore = -1;
+      int lastPendingChunkTasksAfter = -1;
+      long lastPendingChunkWritesBefore = -1L;
+      long lastPendingChunkWritesAfter = -1L;
+      Boolean lastLoadedBeforeRequest;
+      Boolean lastCreateMissingChunk;
       boolean backfillTicketHeld;
       boolean loadFuturePending;
       boolean loadWarningLogged;

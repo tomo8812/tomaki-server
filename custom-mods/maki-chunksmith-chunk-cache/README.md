@@ -54,3 +54,13 @@ Version 1.0.3 removes the circular dependency between the backfill idle-work cla
 - status schema 2 records phase/progress/ticket timestamps, active and detached guard state, server freeze state, unload wait time, and typed wait reasons.
 
 This deliberately does not change Chunksmith 4.6.0, `maki-idle-pregen`, fingerprint rotation (#40), synchronous load scheduling (#44), status-file I/O (#45), or neighboring ProtoChunk persistence (#47).
+## Issue #44 non-blocking backfill chunk acquisition
+
+Version 1.0.3 removes the public `ServerChunkCache.getChunkFuture(...)` call from the server-thread backfill start path.
+
+- Backfill requests are queued onto Chunksmith 4.6.0's existing ticket safe point.
+- The request uses Chunksmith's `ServerChunkCacheMixin.invokeGetChunkFutureMainThread` path, matching Chunksmith's own `NeoForgeWorld.getChunkAtAsync` lifecycle instead of entering vanilla `managedBlock`.
+- `BACKFILL_TICKET`, `BackfillGuard`, Millenaire spawn suppression, player handoff and cold-cache persistence remain owned by this MOD.
+- Ticket installation is tracked explicitly so a player handoff that happens before the queued safe-point request runs cannot leave or later create an orphan backfill ticket.
+- Backfill status records safe-point delay, distance-manager update wall time, private future-call wall time, setup CPU/wall time, future wait time, pending chunk tasks and pending chunk writes.
+- The separate post-success unload lifecycle from Issue #41 and synchronous status-file I/O from Issue #45 are intentionally not changed here.
