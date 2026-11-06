@@ -298,7 +298,7 @@ public final class PlayerCenter {
             int players=server.getPlayerCount();
             boolean onlineBlocked=players>0&&!settings().generateWhileOnline;
             boolean graceBlocked=now-boot<10_000L||players==0&&now-emptySince<settings().emptyGraceSeconds*1000L;
-            boolean policyReady=enabled()&&!manualPause&&!loadPause&&!onlineBlocked&&!graceBlocked&&saved.x!=null&&saved.z!=null;
+            boolean policyReady=enabled()&&!manualPause&&!loadPause&&!backfillExclusivePause&&!onlineBlocked&&!graceBlocked&&saved.x!=null&&saved.z!=null;
             boolean canRun=policyReady&&(
                 current!=null&&TaskOwnership.isOwned(current)&&!current.isStopping()
                 ||current==null&&requested&&persistedOwner!=TaskOwnership.PersistedOwner.EXTERNAL&&!LodHorizon.isArmed(WORLD));
