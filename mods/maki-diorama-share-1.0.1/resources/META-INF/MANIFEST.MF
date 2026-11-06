@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Implementation-Title: Maki Diorama Sharing
+Implementation-Version: 1.0.1
+

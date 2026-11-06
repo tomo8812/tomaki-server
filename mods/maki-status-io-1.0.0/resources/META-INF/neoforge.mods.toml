@@ -1,0 +1,18 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="maki_status_io"
+version="1.0.0"
+displayName="Maki Status I/O"
+description="Shared server-side asynchronous, bounded and coalescing writer for diagnostic status snapshots."
+[[dependencies.maki_status_io]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.262,21.2)"
+side="SERVER"
+[[dependencies.maki_status_io]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+side="SERVER"

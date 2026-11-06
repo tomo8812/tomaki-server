@@ -125,40 +125,40 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "134af4d11ee35c3884307ef110f349b2e78d95bf39b5cebd88a5e625ec5555ee"
     },
-    "mods/maki-chunksmith-chunk-cache-1.0.2.jar": {
-      "blob_oid": "3f3d298bac52bb0d36a3efd350683942d83895ef",
-      "output": "mods/maki-chunksmith-chunk-cache-1.0.2",
-      "sha256": "376065b2fb0643a58a8f1965d75f24e9fd641c00b5651372fefd74b0e54af850"
+    "mods/maki-chunksmith-chunk-cache-1.1.1.jar": {
+      "blob_oid": "0e3be9ab4e213033370fa654f8dc690e9164e276",
+      "output": "mods/maki-chunksmith-chunk-cache-1.1.1",
+      "sha256": "4de9bd403c6383e299afe7c0faa93a1788d9371568781d2d4b65315cf4b7a051"
     },
-    "mods/maki-diorama-share-1.0.0.jar": {
-      "blob_oid": "43f22449492d7d1cd3a4f09c7034a7e2801aa5b7",
-      "output": "mods/maki-diorama-share-1.0.0",
-      "sha256": "43a3d604ff3b65c1f198d877575cafa539bdf6972281cb4afbe9980675aa2939"
+    "mods/maki-diorama-share-1.0.1.jar": {
+      "blob_oid": "ee57fd3d533bc688a2580af408c913cca07178e2",
+      "output": "mods/maki-diorama-share-1.0.1",
+      "sha256": "80aa1d6a00b778bb534ceb90d72d34b848904de22dece20201f7bc8e3bd215e2"
     },
-    "mods/maki-idle-pregen-1.0.1.jar": {
-      "blob_oid": "8068b134f8071b16edd33e27c44db9fb6664c3cc",
-      "output": "mods/maki-idle-pregen-1.0.1",
-      "sha256": "29c9b8699aba8278b3c334a1b6166c353fdeafff316956588286de25341bc5d9"
+    "mods/maki-idle-pregen-1.1.1.jar": {
+      "blob_oid": "7bf4a17853c714471edc60c27259c80658f74d4b",
+      "output": "mods/maki-idle-pregen-1.1.1",
+      "sha256": "d0dee5d517f4d791999488f47003593dc89772d4bf655fa8b52076715258bcc7"
     },
-    "mods/maki-lag-observer-1.0.0.jar": {
-      "blob_oid": "544efa486b15311230b3b0132b21cd600b79c22c",
-      "output": "mods/maki-lag-observer-1.0.0",
-      "sha256": "9761b74434864fac4964048787a7ba6ee18e5854b1811bce52aac38ceded7dd9"
+    "mods/maki-lag-observer-1.1.0.jar": {
+      "blob_oid": "f1be42ee1314068a0add88192232b44713c72d98",
+      "output": "mods/maki-lag-observer-1.1.0",
+      "sha256": "9b0be3d4ec41d85df231f4665ea6d0401cc94d03e40accf40b74e9e9f2b83820"
     },
-    "mods/maki-lod-cpu-1.3.2.jar": {
-      "blob_oid": "05dc8d59eb009bbcb25443f152ce08cccd980e15",
-      "output": "mods/maki-lod-cpu-1.3.2",
-      "sha256": "9c9af6179198de2014324f04ea10f6aa70f1e7882db82ecb2a7388dc39e1795f"
+    "mods/maki-lod-cpu-1.3.4.jar": {
+      "blob_oid": "334bcc9d8f433496886345b1e636c3770718d3dc",
+      "output": "mods/maki-lod-cpu-1.3.4",
+      "sha256": "26bb878f8cac06e3b591b0b39d6a1b3df62e0b02f85831f0707af22c7e2d4585"
     },
     "mods/maki-lod-cpu-online-fix-1.0.2.jar": {
       "blob_oid": "e38c90e8e5f384be44596b6deb9ff7460d730ced",
       "output": "mods/maki-lod-cpu-online-fix-1.0.2",
       "sha256": "7ff011e71149398c98a633b8a6e2c3ba94ccd1793b80ab7e9508d41c7746b911"
     },
-    "mods/maki-millenaire-lod-compat-1.0.4.jar": {
-      "blob_oid": "a75c9d0a9122f2618a6338d866b79c5a7cb26771",
-      "output": "mods/maki-millenaire-lod-compat-1.0.4",
-      "sha256": "cdbd70cf4e3e803e4a74e14c60d75793b1ae894e34c01f23b02f9e330db9b9a6"
+    "mods/maki-millenaire-lod-compat-1.0.5.jar": {
+      "blob_oid": "60e83efc361be396150f30337e1137d4bc74b4d6",
+      "output": "mods/maki-millenaire-lod-compat-1.0.5",
+      "sha256": "ca7f1501cec1cae43fa29c3bd5e4f6816513ceff7648a62cb78542cdaa5c62a0"
     },
     "mods/maki-ship-anchor-fix-1.1.1.jar": {
       "blob_oid": "b8de8637363e58e34ce9fd125155bf6b0e3b803d",
@@ -179,6 +179,11 @@
       "blob_oid": "ef0a5695a8e5c3ae5674a9935bc5801f9db540c4",
       "output": "mods/maki-ship-save-1.0.2",
       "sha256": "4c218f4d8ebcbb320854f6100bd1b26e8d2746021ba3ff5b56f9041f68bcf50d"
+    },
+    "mods/maki-status-io-1.0.0.jar": {
+      "blob_oid": "9b7165893475513f183b528fde069d3c579c405e",
+      "output": "mods/maki-status-io-1.0.0",
+      "sha256": "27ddde95e888d6acf42e39dc99dbaa85c17352f2536607820aae519332e60300"
     },
     "mods/millenaire-9.0.3.jar": {
       "blob_oid": "f6d20e23e076014077670a344218478e9911014d",

@@ -1,0 +1,8 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "maki.millenairelod.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": ["MillenaireMixin", "LoneCandidateAccessor", "SpawnQueueMixin", "VillageSpawnerMixin", "VillageManagerMixin", "VillageMixin", "BuildingInstanceMixin", "HorizonGuardMixin", "ExploredLodMixin", "LodSupportLifecycleMixin"],
+  "injectors": {"defaultRequire": 1}
+}
