@@ -55,6 +55,14 @@ final class GenerationStore {
         }
     }
 
+    static void prune(ServerLevel level, FingerprintPolicy policy) {
+        try {
+            pruneQuarantine(dimensionRoot(level), policy);
+        } catch (Throwable error) {
+            LOG.warn("Could not prune chunk-cache quarantine for {}", CacheManager.dimensionKey(level), error);
+        }
+    }
+
     static boolean acceptsStoredFingerprint(Path generationDirectory, String expectedFingerprint, String storedFingerprint) {
         if (expectedFingerprint.equals(storedFingerprint)) return true;
         FingerprintManifest.Manifest manifest = FingerprintManifest.readIfValid(generationDirectory.resolve(FingerprintManifest.FILE_NAME));
