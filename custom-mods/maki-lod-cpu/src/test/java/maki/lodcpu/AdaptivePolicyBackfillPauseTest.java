@@ -38,6 +38,20 @@ final class AdaptivePolicyBackfillPauseTest {
     }
 
     @Test
+    void transientPressureDuringBackfillDoesNotDiscardExperiment() {
+        AdaptivePolicy policy=new AdaptivePolicy();
+        Settings s=settings();
+        policy.cap=6;
+        policy.phase="probe";
+
+        int cap=policy.updateSafetyOnly(safe(60),0,s);
+
+        assertEquals(6,cap);
+        assertEquals("probe",policy.phase);
+        assertEquals("tick-pressure",policy.reason);
+    }
+
+    @Test
     void emergencyTickPressureStillReducesCapDuringBackfillPause() {
         AdaptivePolicy policy=new AdaptivePolicy();
         Settings s=settings();
