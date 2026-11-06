@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.lagobserver'
-version = '1.0.0'
+version = '1.1.0'
 
 base {
     archivesName = 'maki-lag-observer'
@@ -39,27 +39,61 @@ tasks.register('verifyMixinAnnotationRetention') {
         def javap = javaToolchains.launcherFor {
             languageVersion = JavaLanguageVersion.of(21)
         }.get().metadata.installationPath.file('bin/javap').asFile
-        def process = new ProcessBuilder(
-            javap.absolutePath,
-            '-classpath', sourceSets.main.output.classesDirs.asPath,
-            '-p', '-v', 'maki.lagobserver.mixin.MinecraftServerMixin'
-        ).redirectErrorStream(true).start()
-        def text = process.inputStream.getText('UTF-8')
-        if (process.waitFor() != 0) {
-            throw new GradleException('javap failed: ' + text)
+        [
+            'maki.lagobserver.mixin.CompoundTagMixin',
+            'maki.lagobserver.mixin.ListTagMixin',
+            'maki.lagobserver.mixin.MinecraftServerMixin'
+        ].each { className ->
+            def process = new ProcessBuilder(
+                javap.absolutePath,
+                '-classpath', sourceSets.main.output.classesDirs.asPath,
+                '-p', '-v', className
+            ).redirectErrorStream(true).start()
+            def text = process.inputStream.getText('UTF-8')
+            if (process.waitFor() != 0) {
+                throw new GradleException('javap failed for ' + className + ': ' + text)
+            }
+            def classAnnotationIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
+            def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', classAnnotationIndex)
+            if (classAnnotationIndex < 0 || invisibleIndex < 0 || invisibleIndex > classAnnotationIndex) {
+                throw new GradleException('@Mixin is not RuntimeInvisibleAnnotations for ' + className)
+            }
+            if (!text.contains('RuntimeVisibleAnnotations:') ||
+                !text.contains('org.spongepowered.asm.mixin.injection.Inject(')) {
+                throw new GradleException('injector annotations are not runtime-visible for ' + className)
+            }
         }
-        def classAnnotationIndex = text.lastIndexOf('org.spongepowered.asm.mixin.Mixin(')
-        def invisibleIndex = text.lastIndexOf('RuntimeInvisibleAnnotations:', classAnnotationIndex)
-        if (classAnnotationIndex < 0 || invisibleIndex < 0 || invisibleIndex > classAnnotationIndex) {
-            throw new GradleException('@Mixin is not RuntimeInvisibleAnnotations')
-        }
-        if (!text.contains('RuntimeVisibleAnnotations:') ||
-            !text.contains('org.spongepowered.asm.mixin.injection.Inject(')) {
-            throw new GradleException('injector annotations are not runtime-visible')
+    }
+}
+
+tasks.register('verifyNbtCopyTargets') {
+    dependsOn tasks.named('classes')
+    doLast {
+        def javap = javaToolchains.launcherFor {
+            languageVersion = JavaLanguageVersion.of(21)
+        }.get().metadata.installationPath.file('bin/javap').asFile
+        def classpath = sourceSets.main.compileClasspath.asPath
+        [
+            'net.minecraft.nbt.CompoundTag': 'public net.minecraft.nbt.CompoundTag copy();',
+            'net.minecraft.nbt.ListTag': 'public net.minecraft.nbt.ListTag copy();'
+        ].each { className, expected ->
+            def process = new ProcessBuilder(
+                javap.absolutePath,
+                '-classpath', classpath,
+                '-p', className
+            ).redirectErrorStream(true).start()
+            def text = process.inputStream.getText('UTF-8')
+            if (process.waitFor() != 0) {
+                throw new GradleException('javap failed for target ' + className + ': ' + text)
+            }
+            if (!text.contains(expected)) {
+                throw new GradleException('Expected NBT copy target not found in ' + className + ': ' + expected)
+            }
         }
     }
 }
 
 tasks.named('check') {
     dependsOn tasks.named('verifyMixinAnnotationRetention')
+    dependsOn tasks.named('verifyNbtCopyTargets')
 }
