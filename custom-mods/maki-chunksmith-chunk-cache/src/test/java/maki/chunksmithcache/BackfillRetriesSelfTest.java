@@ -17,7 +17,10 @@ public final class BackfillRetriesSelfTest {
             require(slices<=529,"all yields still reach the ready transition");
         }
         require(slices==529 && positions.contains("-14,-4") && positions.contains("8,18"),"complete exact dependency footprint");
+        var directory=Files.createTempDirectory("backfill-retry-test");
+        var path=directory.resolve("retries.properties");
         BackfillRetries ledger=new BackfillRetries();
+        require(ledger.load(path),"missing initial retry ledger is a confirmed empty state");
         String dimension="minecraft_overworld@epoch";
         ledger.defer(dimension,1,1000,"bad-target");
         ledger.defer(dimension,2,1000,"busy-target");
@@ -25,8 +28,6 @@ public final class BackfillRetriesSelfTest {
         require(ledger.due(dimension,6000).size()==2,"failed targets become ready again");
         ledger.defer(dimension,1,6000,"again");
         require(ledger.waiting(dimension,1,15000) && !ledger.waiting(dimension,2,15000),"per-coordinate backoff");
-        var directory=Files.createTempDirectory("backfill-retry-test");
-        var path=directory.resolve("retries.properties");
         ledger.save(path);
         BackfillRetries restored=new BackfillRetries(); restored.load(path);
         require(restored.waiting(dimension,1,15000),"restart retains debt");
