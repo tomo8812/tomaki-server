@@ -17,6 +17,7 @@ final class PromotionClaim {
     private boolean chunkWritten;
     private boolean entitiesWritten;
     private boolean failed;
+    private int pendingPublications;
 
     private PromotionClaim(Path claimed, boolean needsEntityWrite) {
         this.claimed = claimed;
@@ -84,6 +85,8 @@ final class PromotionClaim {
 
     synchronized void failed() { failed = true; }
     synchronized void entitiesRestored() { entitiesRestored = true; }
+    synchronized void publicationPending() { pendingPublications++; }
+    synchronized void publicationResolved() { if (pendingPublications > 0) pendingPublications--; }
     synchronized boolean acceptsEntityWrite() { return entitiesRestored && !failed; }
     synchronized boolean beginClassification() {
         if(entityCountKnown || classifying || failed) return false;
@@ -97,7 +100,7 @@ final class PromotionClaim {
         if(explicitlyEmpty) needsEntityWrite=false;
     }
     synchronized boolean canRetire() {
-        return loaded && !failed && chunkWritten && (!needsEntityWrite || entitiesWritten);
+        return loaded && !failed && chunkWritten && pendingPublications == 0 && (!needsEntityWrite || entitiesWritten);
     }
     Path path() { return claimed; }
 }

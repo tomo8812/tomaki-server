@@ -24,11 +24,28 @@ public final class PromotionLedger {
         return true;
     }
 
-    static void adoptLive(ServerLevel level, ChunkPos pos, Path file, boolean capturePending) throws IOException {
+    static void adoptLive(ServerLevel level, ChunkPos pos, Path file, CompletableFuture<Boolean> pendingCapture) throws IOException {
         Key key=new Key(level,pos.toLong());
-        if(ACTIVE.containsKey(key)) return;
-        PromotionClaim claim=PromotionClaim.adoptLive(file,capturePending);
-        if(claim!=null) { ACTIVE.put(key,claim); classify(key,claim); }
+        PromotionClaim claim=ACTIVE.get(key);
+        if(claim!=null) {
+            holdUntilCaptureEnds(key,claim,pendingCapture);
+            return;
+        }
+        claim=PromotionClaim.adoptLive(file,pendingCapture!=null);
+        if(claim!=null) {
+            ACTIVE.put(key,claim);
+            classify(key,claim);
+            holdUntilCaptureEnds(key,claim,pendingCapture);
+        }
+    }
+
+    private static void holdUntilCaptureEnds(Key key, PromotionClaim claim, CompletableFuture<Boolean> pendingCapture) {
+        if(pendingCapture==null) return;
+        claim.publicationPending();
+        pendingCapture.whenComplete((ignored,error) -> {
+            claim.publicationResolved();
+            retire(key,claim);
+        });
     }
 
     public static boolean consume(ServerLevel level, ChunkPos pos) {

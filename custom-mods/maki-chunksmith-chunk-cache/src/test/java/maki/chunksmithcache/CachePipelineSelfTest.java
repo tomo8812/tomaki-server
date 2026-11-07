@@ -83,9 +83,13 @@ public final class CachePipelineSelfTest {
             require(!adopted.canRetire() && PromotionClaim.take(live,true)==null,"failed handoff save cannot replay old snapshot");
             Path pending=directory.resolve("pending.nbt.gz");
             PromotionClaim marker=PromotionClaim.adoptLive(pending,true);
+            marker.publicationPending();
             require(marker!=null && !PromotionClaim.publish(temporary,pending),"normal save closes pending-capture publication race");
             marker.chunkWrite(true);
-            require(marker.canRetire(),"payload-free pending marker retires with native chunk ACK");
+            require(!marker.canRetire(),"native FULL ACK cannot retire the ownership barrier while an older capture can still publish");
+            require(!PromotionClaim.publish(temporary,pending),"delayed LOD ACK still cannot reopen stale cache after normal FULL ACK");
+            marker.publicationResolved();
+            require(marker.canRetire(),"payload-free marker retires only after native FULL ACK and pending capture termination");
 
             Path emptyLive=directory.resolve("empty-live.nbt.gz");
             Files.writeString(emptyLive,"schema3 empty fixture");

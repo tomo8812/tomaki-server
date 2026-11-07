@@ -472,12 +472,14 @@ public final class CacheManager {
       Fingerprint.Snapshot fingerprint=Fingerprint.snapshotForLevel(level);
       if(fingerprint==null) return;
       Path file=path(level,pos,fingerprint.fingerprint());
-      boolean pending=CAPTURE_PENDING.containsKey(captureKey(level,pos));
-      if(!pending && !Files.isRegularFile(file)) return;
+      CaptureFlight pending=CAPTURE_PENDING.get(captureKey(level,pos));
+      if(pending==null && !Files.isRegularFile(file)) return;
       try {
          // A generated chunk can pass directly to a player without a cache read. Close that
-         // rollback route too. Only atomic metadata moves occur here, never an NBT/disk scan.
-         PromotionLedger.adoptLive(level,pos,file,pending);
+         // rollback route too. If a detached capture is already in flight, keep the .in-use
+         // ownership barrier until that exact Future is terminal so its delayed LOD ACK cannot
+         // reopen pre-save state after the native FULL write has committed.
+         PromotionLedger.adoptLive(level,pos,file,pending==null?null:pending.result());
       } catch(IOException error) {
          throw new IllegalStateException("Cannot claim chunk-cache snapshot before normal save at "+file+"; payload retained; repair cache-directory access before retrying save",error);
       }
