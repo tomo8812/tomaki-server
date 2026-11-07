@@ -35,6 +35,8 @@ final class SharedWorkBudget {
     private long transitionSerial;
     private double averageBackfillMillis=-1.0;
     private String lastReason="warming-up";
+    private String pipelinePressure;
+    synchronized void pipelinePressure(String reason) { pipelinePressure = reason; }
 
     synchronized void observe(Sample next) {
         sample=next;
@@ -47,7 +49,7 @@ final class SharedWorkBudget {
             return decision(nowNanos,false,false,lastReason);
         }
 
-        String pressure=pressure(nowNanos,settings);
+        String pressure=pipelinePressure == null ? pressure(nowNanos,settings) : "pipeline-"+pipelinePressure;
         if(pressure!=null) {
             cancelPending(nowNanos,settings);
             lastReason=pressure;
@@ -145,15 +147,20 @@ final class SharedWorkBudget {
             if(current.followRequestsPerSecond()>0
                 &&current.lodWritesPerSecond()<current.followRequestsPerSecond()*.8)factor*=1.5;
         }
-        if(outcome!=null&&!outcome.startsWith("completed")&&!outcome.equals("no-candidate"))factor*=2.0;
+        if(outcome!=null&&!outcome.startsWith("completed")&&!outcome.equals("no-candidate")&&!outcome.equals("snapshot-complete"))factor*=2.0;
 
         // The first governor sample after release is intentionally excluded because
         // it contains the barrier transition. Keep enough follow-only time for
         // at least one subsequent complete sample before another Backfill may reserve.
         long configuredMin=settings.backfillMinSpacingSeconds*1000L;
-        long min=Math.max(configuredMin,cleanFollowWindowMillis(settings));
+        long min=followWasPresent ? Math.max(configuredMin,cleanFollowWindowMillis(settings)) : configuredMin;
         long max=settings.backfillMaxSafeWaitSeconds*1000L;
         long cooldown=Math.max(min,Math.min(max,Math.round(measured*factor)));
+        // Repay the actual exclusive service (including drain), not only an
+        // average clamped to maxSafeWait. A long indivisible job must not make
+        // Backfill the majority owner of sustained generation time.
+        if (followWasPresent) cooldown = Math.max(cooldown,
+            Math.round(elapsedMillis(nowNanos,reservationAtNanos) * factor));
         nextEligibleAtNanos=nowNanos+cooldown*1_000_000L;
 
         transitionSerial++;
@@ -171,7 +178,7 @@ final class SharedWorkBudget {
 
     synchronized String summary(long nowNanos) {
         Sample current=sample;
-        String p=current==null?"measurement-unavailable":pressure(nowNanos,CpuGovernor.settings());
+        String p=pipelinePressure!=null ? "pipeline-"+pipelinePressure : current==null?"measurement-unavailable":pressure(nowNanos,CpuGovernor.settings());
         return "state="+(reserved?(workStartedAtNanos==0L?"draining":"backfill"):"follow")
             +",reason="+lastReason
             +",safeWaitMs="+elapsedMillis(nowNanos,demandSinceNanos)

@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.2.2'
+version = '1.4.0'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -40,7 +40,6 @@ tasks.named('jar') {
 }
 
 def registeredMixins = [
-    'maki.chunksmithcache.mixin.LodSupportMixin',
     'maki.chunksmithcache.mixin.ChunkMapReadMixin',
     'maki.chunksmithcache.mixin.ChunkMapLifecycleAccessor',
     'maki.chunksmithcache.mixin.ChunkMapSaveMixin',
@@ -48,7 +47,13 @@ def registeredMixins = [
     'maki.chunksmithcache.mixin.EntityStorageMixin',
     'maki.chunksmithcache.mixin.ServerLevelUnloadMixin',
     'maki.chunksmithcache.mixin.MinecraftServerMixin',
-    'maki.chunksmithcache.mixin.NeoForgeWorldMixin'
+    'maki.chunksmithcache.mixin.NeoForgeWorldMixin',
+    'maki.chunksmithcache.mixin.GenerationRequestMixin',
+    'maki.chunksmithcache.mixin.LodStoreCommitMixin',
+    'maki.chunksmithcache.mixin.ServerLevelEntityAccessor',
+    'maki.chunksmithcache.mixin.EntitySectionManagerAccessor',
+    'maki.chunksmithcache.mixin.EntityStorageWriteAckMixin',
+    'maki.chunksmithcache.mixin.LevelChunkPostLoadMixin'
 ]
 
 def issue47ControllerSource = file('src/main/java/maki/chunksmithcache/BackfillController.java')
@@ -62,7 +67,7 @@ tasks.register('verifyIssue47BackfillOwnership') {
         def guard = issue47GuardSource.getText('UTF-8')
         def storage = issue47StorageSource.getText('UTF-8')
         if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('waiting-dependency-scope-loaded')
-                || !controller.contains('candidateDeferredUntil') || !controller.contains('snapshotBackfillOwnership')
+                || !controller.contains('candidateDeferredUntil') || !controller.contains('continueScope')
                 || !controller.contains('releaseIdlePregenClaim')) {
             throw new GradleException('Issue #47 regression: status-aware scan / deferred candidate visibility / drain claim release is missing')
         }
@@ -146,7 +151,7 @@ tasks.register('verifyIssue66SharedBudget') {
             throw new GradleException('Issue #66 regression: unconditional Chunksmith-task backfill blocking returned')
         }
         ['pendingCandidate', 'tryStartPending', 'reserveResourceBudget', 'waiting-shared-budget-',
-         'candidate-generated-during-drain', 'LodResourceBudgetBridge.started()', 'releaseResourceBudget', 'budgetReason'].each { token ->
+         'generated-or-pending', 'BackfillAdmission.evaluate', 'LodResourceBudgetBridge.started()', 'releaseResourceBudget', 'budgetReason'].each { token ->
             if (!controller.contains(token)) {
                 throw new GradleException('Issue #66 regression: shared backfill budget lifecycle is missing ' + token)
             }
@@ -226,3 +231,30 @@ tasks.named('check') {
     dependsOn tasks.named('verifyIssue41BackfillTicketLifecycle')
     dependsOn tasks.named('verifyIssue66SharedBudget')
 }
+
+tasks.register('issue74Test', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.Issue74SelfTest'
+    systemProperty 'issue74.chunksmithJar', file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar').absolutePath
+}
+tasks.named('check') { dependsOn tasks.named('issue74Test') }
+
+tasks.register('backfillRetriesTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.BackfillRetriesSelfTest'
+}
+tasks.named('check') { dependsOn tasks.named('backfillRetriesTest') }
+
+tasks.register('cachePipelineTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.CachePipelineSelfTest'
+    systemProperty 'cachePipeline.minecraftJar', file('build/moddev/artifacts/neoforge-21.1.262.jar').absolutePath
+}
+tasks.named('check') { dependsOn tasks.named('cachePipelineTest') }
+
+// Pipeline tests exercise vanilla NBT and the installed native record ABI.
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath

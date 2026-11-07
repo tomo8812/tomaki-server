@@ -35,6 +35,7 @@ public abstract class ChunkMapReadMixin {
       CompletableFuture<ChunkAccess> var3 = var2.getReturnValue();
       if (var3 != null) {
          var2.setReturnValue(var3.<ChunkAccess>thenApply(var2x -> {
+            PromotionLedger.requireUnambiguousLoad(this.level, var1);
             if (var2x != null && PromotionLedger.consume(this.level, var1)) {
                var2x.setUnsaved(true);
             }

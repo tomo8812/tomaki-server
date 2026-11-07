@@ -37,6 +37,13 @@ final class Fingerprint {
         return snapshot == null ? null : snapshot.fingerprint();
     }
 
+    static CompletableFuture<Snapshot> whenReady(ServerLevel level) {
+        kick(level.getServer());
+        CompletableFuture<SharedState> shared;
+        synchronized(Fingerprint.class) { shared=SHARED.get(level.getServer()); }
+        return shared.thenApply(ignored -> snapshotForLevel(level));
+    }
+
     static Snapshot snapshotForLevel(ServerLevel level) {
         MinecraftServer server = level.getServer();
         kick(server);
@@ -51,6 +58,7 @@ final class Fingerprint {
             SharedState shared = future.join();
             if (shared == null) return null;
             List<FingerprintManifest.Entry> entries = new ArrayList<>(shared.entries());
+            addValue(entries, "cache:envelope-schema", Integer.toString(CacheEnvelope.SCHEMA), "cache persistence protocol");
             addValue(entries, "level:seed", Long.toString(level.getSeed()), "world seed");
             addValue(entries, "level:dimension", level.dimension().location().toString(), "dimension identity");
             addValue(entries, "level:generator-class", level.getChunkSource().getGenerator().getClass().getName(), "chunk generator implementation");

@@ -22,6 +22,7 @@ public final class CpuGovernor {
     private static long lastTime,lastCpu,lastGc=-1,lastOom=-1,lastThrottled=-1,lastStamp=Long.MIN_VALUE,lastReport;
     private static long reportedExperiment;
     private static long lastBudgetTransition;
+    private static volatile String pipelinePressure;
     private static boolean configGood=true;
     private static double capacity=detectCapacity();
     private static double observedCpu=Double.NaN,observedMspt=Double.NaN,observedHeap=100;
@@ -31,6 +32,26 @@ public final class CpuGovernor {
     public static boolean onlineOverload(){return !configGood||!Double.isFinite(observedCpu)||observedCpu>=98||observedMspt>=45||observedHeap>=settings.highHeap;}
     public static boolean recovered(){return configGood&&Double.isFinite(observedCpu)&&observedCpu<80&&observedMspt<25&&observedHeap<settings.highHeap-10;}
     public static int cap(){return cap;}
+
+    // Observation only: source MODs retain authoritative queue/memory ownership.
+    // Missing optional MODs do not block startup or a healthy standalone governor.
+    static void refreshPipelinePressure() {
+        String reason = null;
+        for (String source : new String[]{"maki.chunksmithcache.CacheManager", "maki.millenairelod.LodRefreshQueue"}) {
+            try {
+                Object value = Class.forName(source).getMethod("resourcePressure").invoke(null);
+                if (value instanceof String text && !text.isEmpty()) { reason=text; break; }
+            } catch (ClassNotFoundException absent) {
+                // Optional provider is not installed.
+            } catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) {
+                // A broken observation provider must not deadlock all generation.
+                // Its own bounded admission still protects its storage pipeline.
+                LOG.debug("Pipeline pressure source unavailable: {}",source,unavailable);
+            }
+        }
+        pipelinePressure=reason;
+        SHARED_BUDGET.pipelinePressure(reason);
+    }
 
     static SharedWorkBudget.Decision reserveBackfill(String taskMode){
         if(!configGood)return new SharedWorkBudget.Decision(false,false,"invalid-config",0L);
@@ -53,7 +74,7 @@ public final class CpuGovernor {
         long cpu=cpuTime(),gc=gcMillis();
         if(lastTime==0){
             lastTime=now;lastCpu=cpu;lastGc=gc;
-            LOG.info("Throughput governor 1.4.0 ready: allocated {} cores, ceiling {}..{}; follow dispatch and real-chunk backfill share one pressure-aware time budget, and CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);
+            LOG.info("Throughput governor 1.4.1 ready: allocated {} cores, ceiling {}..{}; follow dispatch and real-chunk backfill share one pressure-aware time budget, and CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);
             return;
         }
 
@@ -82,12 +103,14 @@ public final class CpuGovernor {
         boolean active=stateFresh&&taskActivity!=0&&now-taskActivity<10_000_000_000L;
         WorkTelemetry.Batch batch=work==null?new WorkTelemetry.Batch(0,0):work.drain();
 
+        refreshPipelinePressure();
         int previous=cap;
         if(work!=previousWork){POLICY.reset(settings,"new-generation-task");previousWork=work;}
         AdaptiveSample sample=new AdaptiveSample(seconds,used,mspt,heap,gcPercent,budget.headroomMb(),batch.completions(),writes,
             comparable,stateFresh?state.width():0,stateFresh?state.inFlight():0,lod.queue(),stateFresh?state.worldWrites():-1,
-            sync,stateFresh&&state.held(),batch.latencyP95Ms(),oom);
+            sync,(stateFresh&&state.held()) || pipelinePressure!=null,batch.latencyP95Ms(),oom);
 
+        refreshPipelinePressure();
         SHARED_BUDGET.observe(new SharedWorkBudget.Sample(
             now,players,used,mspt,heap,gcPercent,budget.headroomMb(),budget.memoryPsi(),budget.ioPsi(),
             writes/seconds,batch.completions()/seconds,stateFresh?state.width():0,stateFresh?state.inFlight():0,

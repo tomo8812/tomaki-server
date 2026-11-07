@@ -12,6 +12,7 @@ public final class ResourceBudgetApi {
     private ResourceBudgetApi() {}
 
     public static String reserveBackfill() {
+        CpuGovernor.refreshPipelinePressure();
         SharedWorkBudget.Decision decision=CpuGovernor.reserveBackfill(activeTaskMode());
         return decision.reserved()&&decision.ready()?"granted":decision.reason();
     }

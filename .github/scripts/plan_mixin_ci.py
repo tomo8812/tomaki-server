@@ -26,7 +26,9 @@ def projects_and_inputs(root):
             if path.startswith('mods/'):
                 inputs.add(path)
             match = re.match(r'custom-mods/([^/]+)/build/', path)
-            if match:
+            if match and match[1] != project:
+                # Own generated artifacts (e.g. the mapped Minecraft JAR inspected
+                # by ABI tests) are task inputs, not cross-project build edges.
                 upstream.add(match[1])
         projects[project] = {'inputs': inputs, 'upstream': upstream}
     return projects

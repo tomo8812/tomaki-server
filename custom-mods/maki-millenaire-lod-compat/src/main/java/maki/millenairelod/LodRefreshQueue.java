@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -52,6 +53,10 @@ public final class LodRefreshQueue {
     private static volatile MinecraftServer currentServer;
     private static volatile boolean accepting;
     private static volatile boolean stopping;
+    private static volatile long epoch;
+
+    private static final SnapshotBudget MEMORY = new SnapshotBudget(32,64L*1024*1024);
+    public static String resourcePressure() { return MEMORY.pressured() ? "millenaire-snapshot-backlog" : null; }
 
     private static final AtomicInteger ACTIVE = new AtomicInteger();
     private static final AtomicInteger PENDING = new AtomicInteger();
@@ -82,15 +87,21 @@ public final class LodRefreshQueue {
                 LOG.warn("LOD refresh worker was still alive while a new server was installed; stopping the old worker");
                 worker.shutdownNow();
             }
+            for (Slot old:SLOTS.values()) {
+                Snapshot abandoned=old.latest.getAndSet(null);
+                if (abandoned!=null && abandoned.lease!=null) abandoned.lease.close();
+            }
+            epoch++;
             SLOTS.clear();
             PENDING.set(0);
             currentServer = server;
-            worker = Executors.newSingleThreadExecutor(task -> {
+            worker = new java.util.concurrent.ThreadPoolExecutor(1,1,0L,TimeUnit.SECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(32),task -> {
                 Thread thread = new Thread(task, "maki-millenaire-lod-refresh");
                 thread.setDaemon(true);
                 thread.setPriority(Math.max(Thread.MIN_PRIORITY, Thread.NORM_PRIORITY - 1));
                 return thread;
-            });
+            },new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
             stopping = false;
             accepting = true;
         }
@@ -158,15 +169,30 @@ public final class LodRefreshQueue {
 
     private static boolean capture(ServerLevel level, LevelChunk chunk, boolean existing) {
         if (!ensureStarted(level.getServer())) return false;
-        SinkPlan plan = SinkPlan.capture(level, chunk);
-        if (plan.stores.isEmpty()) return true;
-
+        // Reserve before allocating the snapshot. Existing caller fallback
+        // preserves initial/update LODs when bounded asynchronous admission fails.
+        long reservation=Math.max(64*1024L,chunk.getSections().length*64*1024L);
+        SnapshotBudget.Lease lease=MEMORY.tryAcquire(reservation);
+        if (lease==null) return false;
         long started = System.nanoTime();
-        Snapshot snapshot = Snapshot.capture(level, chunk, plan);
-        long elapsed = System.nanoTime() - started;
+        Snapshot snapshot;
+        SinkPlan plan;
+        try {
+            plan=SinkPlan.plan(level);
+            if (plan.stores.isEmpty()) {
+                lease.close();
+                plan.dispatchRenderers(level,chunk);
+                return true;
+            }
+            snapshot=Snapshot.capture(level,chunk,plan);
+            if (!lease.resize(snapshot.estimatedBytes())) { lease.close(); return false; }
+            snapshot.lease=lease;
+        } catch (Throwable error) { lease.close(); throw error; }
+        long elapsed=System.nanoTime()-started;
 
         synchronized (LIFECYCLE_LOCK) {
             if (stopping || !accepting || currentServer != level.getServer() || worker == null || worker.isShutdown()) {
+                snapshot.lease.close();
                 return false;
             }
 
@@ -176,6 +202,7 @@ public final class LodRefreshQueue {
             Slot slot = SLOTS.computeIfAbsent(key, ignored -> new Slot());
             synchronized (slot) {
                 Snapshot previous = slot.latest.getAndSet(snapshot);
+                if (previous!=null) previous.lease.close();
                 if (previous != null || slot.scheduled.get()) COALESCED.incrementAndGet();
 
                 if (!slot.scheduled.get()) {
@@ -186,7 +213,7 @@ public final class LodRefreshQueue {
                     } catch (RejectedExecutionException rejected) {
                         slot.scheduled.set(false);
                         PENDING.decrementAndGet();
-                        slot.latest.compareAndSet(snapshot, null);
+                        if (slot.latest.compareAndSet(snapshot, null)) snapshot.lease.close();
                         FAILED.incrementAndGet();
                         LOG.warn("LOD refresh worker rejected {} during lifecycle transition", key);
                         return false;
@@ -194,6 +221,11 @@ public final class LodRefreshQueue {
                 }
             }
         }
+
+        // No false/fallback return remains after this point. Renderer side effects
+        // happen only after lifecycle admission and worker acceptance, so caller
+        // fallback cannot duplicate renderer/Voxy offers.
+        snapshot.installRenderers(plan.dispatchRenderers(level,chunk));
 
         CAPTURED.incrementAndGet();
         if (existing) EXISTING_CAPTURED.incrementAndGet();
@@ -230,7 +262,7 @@ public final class LodRefreshQueue {
                             snapshot = slot.latest.getAndSet(null);
                             if (snapshot == null) {
                                 slot.scheduled.set(false);
-                                PENDING.decrementAndGet();
+                                if (slot.epoch==epoch) PENDING.decrementAndGet();
                                 SLOTS.remove(key, slot);
                                 return;
                             }
@@ -239,6 +271,8 @@ public final class LodRefreshQueue {
                 }
 
                 try {
+                    snapshot.awaitRenderers();
+                    if (snapshot.server!=currentServer) continue;
                     long buildStart = System.nanoTime();
                     CsLodChunk record = build(snapshot);
                     BUILD_NANOS.addAndGet(System.nanoTime() - buildStart);
@@ -252,7 +286,7 @@ public final class LodRefreshQueue {
                 } catch (Throwable error) {
                     FAILED.incrementAndGet();
                     LOG.error("Could not asynchronously refresh village LOD for {}", key, error);
-                }
+                } finally { snapshot.lease.close(); }
             }
         } finally {
             ACTIVE.decrementAndGet();
@@ -377,6 +411,8 @@ public final class LodRefreshQueue {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("source", "millenaire-protected-explored-lod");
         out.put("pending", PENDING.get());
+        out.put("snapshotBytes",MEMORY.bytes());
+        out.put("snapshotCount",MEMORY.count());
         out.put("active", ACTIVE.get());
         out.put("captured", CAPTURED.get());
         out.put("initialCaptured", INITIAL_CAPTURED.get());
@@ -399,34 +435,47 @@ public final class LodRefreshQueue {
 
     private static final class SinkPlan {
         final List<CsLodStoreSink> stores;
-        final List<RendererReceipt> renderers;
+        final List<LodSink> rendererSinks;
         final Path storeRoot;
         final MinecraftServer server;
 
-        SinkPlan(List<CsLodStoreSink> stores, List<RendererReceipt> renderers, Path storeRoot, MinecraftServer server) {
+        SinkPlan(List<CsLodStoreSink> stores, List<LodSink> rendererSinks, Path storeRoot, MinecraftServer server) {
             this.stores = stores;
-            this.renderers = renderers;
+            this.rendererSinks = rendererSinks;
             this.storeRoot = storeRoot;
             this.server = server;
         }
 
-        static SinkPlan capture(ServerLevel level, LevelChunk chunk) {
+        static SinkPlan plan(ServerLevel level) {
             LodSink root = LodSupport.sinkFor(level);
             List<CsLodStoreSink> stores = new ArrayList<>();
-            List<RendererReceipt> renderers = new ArrayList<>();
+            List<LodSink> renderers = new ArrayList<>();
             for (LodSink leaf : leaves(root)) {
-                if (leaf instanceof CsLodStoreSink store) {
-                    stores.add(store);
-                } else {
-                    long started = System.nanoTime();
-                    boolean accepted = leaf.offer(chunk);
-                    boolean voxy = VOXY_SINK.equals(leaf.getClass().getName());
-                    boolean directFed = voxy && accepted && leaf.feedsRendererDirectly();
-                    RENDERER_OFFER_NANOS.addAndGet(System.nanoTime() - started);
-                    renderers.add(new RendererReceipt(leaf, directFed, voxy));
-                }
+                if (leaf instanceof CsLodStoreSink store) stores.add(store);
+                else renderers.add(leaf);
             }
             return new SinkPlan(List.copyOf(stores), List.copyOf(renderers), LodSupport.storeRoot(level), level.getServer());
+        }
+
+        List<RendererReceipt> dispatchRenderers(ServerLevel level, LevelChunk chunk) {
+            List<RendererReceipt> receipts = new ArrayList<>(rendererSinks.size());
+            for (LodSink leaf : rendererSinks) {
+                long started = System.nanoTime();
+                boolean voxy = VOXY_SINK.equals(leaf.getClass().getName());
+                boolean directFed = false;
+                try {
+                    boolean accepted = leaf.offer(chunk);
+                    directFed = voxy && accepted && leaf.feedsRendererDirectly();
+                } catch (RuntimeException | LinkageError error) {
+                    // Store work is already admitted; returning fallback after any renderer
+                    // side effect would re-offer the composite and duplicate earlier sinks.
+                    LOG.warn("Could not offer live protected chunk to non-store LOD sink {}",leaf.getClass().getName(),error);
+                } finally {
+                    RENDERER_OFFER_NANOS.addAndGet(System.nanoTime() - started);
+                }
+                receipts.add(new RendererReceipt(leaf, directFed, voxy));
+            }
+            return List.copyOf(receipts);
         }
     }
 
@@ -434,11 +483,24 @@ public final class LodRefreshQueue {
     private record WorkKey(String dimension, int chunkX, int chunkZ) {}
 
     private static final class Slot {
+        final long epoch=LodRefreshQueue.epoch;
         final AtomicReference<Snapshot> latest = new AtomicReference<>();
         final AtomicBoolean scheduled = new AtomicBoolean();
     }
 
     private static final class Snapshot {
+        SnapshotBudget.Lease lease;
+        long estimatedBytes() {
+            long bytes=512;
+            for (SectionSnapshot section:sections) {
+                bytes+=256L+section.blockIds.length*2L+section.biomeIds.length*2L;
+                for (String state:section.blockPalette) bytes+=48L+state.length()*2L;
+                for (String biome:section.biomePalette) bytes+=48L+biome.length()*2L;
+                if (section.skyLight!=null) bytes+=section.skyLight.length;
+                if (section.blockLight!=null) bytes+=section.blockLight.length;
+            }
+            return bytes;
+        }
         final MinecraftServer server;
         final String dimension;
         final int chunkX;
@@ -446,7 +508,8 @@ public final class LodRefreshQueue {
         final int minSectionY;
         final SectionSnapshot[] sections;
         final List<CsLodStoreSink> stores;
-        final List<RendererReceipt> renderers;
+        volatile List<RendererReceipt> renderers = List.of();
+        final CompletableFuture<Void> renderersReady = new CompletableFuture<>();
         final Path storeRoot;
         final long blockSamples;
         final long uniqueBlockStates;
@@ -460,10 +523,18 @@ public final class LodRefreshQueue {
             this.minSectionY = minSectionY;
             this.sections = sections;
             this.stores = plan.stores;
-            this.renderers = plan.renderers;
             this.storeRoot = plan.storeRoot;
             this.blockSamples = blockSamples;
             this.uniqueBlockStates = uniqueBlockStates;
+        }
+
+        void installRenderers(List<RendererReceipt> receipts) {
+            this.renderers=receipts;
+            this.renderersReady.complete(null);
+        }
+
+        void awaitRenderers() {
+            this.renderersReady.join();
         }
 
         static Snapshot capture(ServerLevel level, LevelChunk chunk, SinkPlan plan) {

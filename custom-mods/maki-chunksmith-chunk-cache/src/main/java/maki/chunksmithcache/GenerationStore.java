@@ -26,9 +26,10 @@ final class GenerationStore {
 
     private GenerationStore() {}
 
-    static void reconcile(ServerLevel level, Fingerprint.Snapshot snapshot, String trigger) {
+    static boolean reconcile(ServerLevel level, Fingerprint.Snapshot snapshot, String trigger) {
         Path root = dimensionRoot(level);
         try {
+            RecoveryClaims.initialize(root);
             Files.createDirectories(root);
             FingerprintManifest.Manifest currentState = snapshot.manifest(Set.of(snapshot.fingerprint()));
             FingerprintManifest.Manifest previousState = FingerprintManifest.readIfValid(root.resolve(FingerprintManifest.CURRENT_FILE_NAME));
@@ -58,8 +59,10 @@ final class GenerationStore {
             );
             FingerprintManifest.writeAtomic(root.resolve(FingerprintManifest.CURRENT_FILE_NAME), currentState);
             pruneQuarantine(root, snapshot.policy());
+            return true;
         } catch (Throwable error) {
             LOG.warn("Could not reconcile chunk-cache generations for {} trigger={}", CacheManager.dimensionKey(level), trigger, error);
+            return false;
         }
     }
 
@@ -105,6 +108,7 @@ final class GenerationStore {
 
     static String discardQuarantine(ServerLevel level, String id) {
         try {
+            RecoveryClaims.initialize(dimensionRoot(level));
             Path target = quarantineTarget(level, id);
             if (!Files.isDirectory(target)) return "quarantine not found: " + id;
             Stats stats = stats(target);
@@ -120,6 +124,7 @@ final class GenerationStore {
 
     static String restoreQuarantine(ServerLevel level, String id, Fingerprint.Snapshot snapshot) {
         try {
+            RecoveryClaims.initialize(dimensionRoot(level));
             Path source = quarantineTarget(level, id);
             if (!Files.isDirectory(source)) return "quarantine not found: " + id;
             FingerprintManifest.Manifest manifest = FingerprintManifest.readIfValid(source.resolve(FingerprintManifest.FILE_NAME));
@@ -338,6 +343,7 @@ final class GenerationStore {
     }
 
     private static void pruneQuarantine(Path root, FingerprintPolicy policy) throws IOException {
+        RecoveryClaims.initialize(root);
         Path quarantine = root.resolve(QUARANTINE_DIR);
         if (!Files.isDirectory(quarantine)) return;
         long now = System.currentTimeMillis();
