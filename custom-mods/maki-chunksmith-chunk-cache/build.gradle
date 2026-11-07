@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.2.2'
+version = '1.3.0'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -40,7 +40,6 @@ tasks.named('jar') {
 }
 
 def registeredMixins = [
-    'maki.chunksmithcache.mixin.LodSupportMixin',
     'maki.chunksmithcache.mixin.ChunkMapReadMixin',
     'maki.chunksmithcache.mixin.ChunkMapLifecycleAccessor',
     'maki.chunksmithcache.mixin.ChunkMapSaveMixin',
@@ -48,7 +47,8 @@ def registeredMixins = [
     'maki.chunksmithcache.mixin.EntityStorageMixin',
     'maki.chunksmithcache.mixin.ServerLevelUnloadMixin',
     'maki.chunksmithcache.mixin.MinecraftServerMixin',
-    'maki.chunksmithcache.mixin.NeoForgeWorldMixin'
+    'maki.chunksmithcache.mixin.NeoForgeWorldMixin',
+    'maki.chunksmithcache.mixin.GenerationRequestMixin'
 ]
 
 def issue47ControllerSource = file('src/main/java/maki/chunksmithcache/BackfillController.java')
@@ -146,7 +146,7 @@ tasks.register('verifyIssue66SharedBudget') {
             throw new GradleException('Issue #66 regression: unconditional Chunksmith-task backfill blocking returned')
         }
         ['pendingCandidate', 'tryStartPending', 'reserveResourceBudget', 'waiting-shared-budget-',
-         'candidate-generated-during-drain', 'LodResourceBudgetBridge.started()', 'releaseResourceBudget', 'budgetReason'].each { token ->
+         'generated-or-pending', 'BackfillAdmission.evaluate', 'LodResourceBudgetBridge.started()', 'releaseResourceBudget', 'budgetReason'].each { token ->
             if (!controller.contains(token)) {
                 throw new GradleException('Issue #66 regression: shared backfill budget lifecycle is missing ' + token)
             }
@@ -226,3 +226,11 @@ tasks.named('check') {
     dependsOn tasks.named('verifyIssue41BackfillTicketLifecycle')
     dependsOn tasks.named('verifyIssue66SharedBudget')
 }
+
+tasks.register('issue74Test', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.Issue74SelfTest'
+    systemProperty 'issue74.chunksmithJar', file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar').absolutePath
+}
+tasks.named('check') { dependsOn tasks.named('issue74Test') }

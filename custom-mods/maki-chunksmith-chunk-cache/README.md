@@ -113,3 +113,7 @@ Version 1.2.1 keeps the #40 manifest/quarantine mechanism but fingerprints effec
 The production quarantine manifest is not stored in this repository, so the specific 5,688-entry quarantine reported in Issue #68 cannot be declared reusable from repository evidence alone. It is preserved and is reused only if its stored manifest passes the proof above.
 
 This implementation changes only the source-owned `maki-chunksmith-chunk-cache` MOD and its deployment JAR; it does not patch zfastnoise, Chunksmith, Jade, EMI, ClientSort, Sound Physics Remastered, or any other distributed MOD.
+
+## Issue #74 pipeline admission and direct capture
+
+Version 1.3.0 checks live candidate/dependency eligibility before reserving Follow's dispatch budget and repeats the check after drain. Direct capture moves from generic LOD refreshes to the owned FULL-request offer boundary, with shared pending-write futures, early queue admission and minute-level pipeline diagnostics. Distributed MODs and concurrency settings are unchanged. See [investigation, metrics and remaining runtime acceptance](../../docs/issue-74-generation-pipeline.md).

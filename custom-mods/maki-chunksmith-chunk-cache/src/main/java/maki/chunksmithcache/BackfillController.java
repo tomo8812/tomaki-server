@@ -177,6 +177,7 @@ public final class BackfillController {
    }
 
    private static void tryStartPending(MinecraftServer server,BackfillController.State state) {
+      if (!server.isSameThread()) throw new IllegalStateException("Backfill admission requires server thread");
       BackfillController.Candidate candidate=state.pendingCandidate;
       if(candidate==null||state.busy)return;
       if(server.getPlayerCount()!=0) {
@@ -196,37 +197,51 @@ public final class BackfillController {
          state.phase="waiting-millenaire-safety";
          return;
       }
-      if(!reserveResourceBudget(state))return;
-
-      ServerLevel level=candidate.level();
-      BackfillController.Target target=candidate.target();
-      ChunkPos pos=target.pos();
-      if(CacheManager.chunksmithGeneratedHint(level,pos)) {
-         state.pendingCandidate=null;
-         releaseResourceBudget(state,"candidate-generated-during-drain");
-         state.phase="candidate-generated-during-drain";
-         advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
-      } else if(level.getChunkSource().hasChunk(pos.x,pos.z)) {
-         state.pendingCandidate=null;
-         releaseResourceBudget(state,"candidate-already-loaded");
-         state.phase="candidate-already-loaded";
-         state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
-         advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
-      } else if(!BackfillGuard.scopeAvailable(level,candidate.suppressed())) {
-         state.pendingCandidate=null;
-         releaseResourceBudget(state,"dependency-scope-loaded");
-         state.phase="candidate-dependency-scope-loaded";
-         state.candidateDeferredUntil=Math.max(state.candidateDeferredUntil,System.currentTimeMillis()+600000L);
-         advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
-      } else {
-         state.pendingCandidate=null;
-         start(level,target,state,candidate.suppressed());
+      BackfillAdmission.Decision decision = BackfillAdmission.evaluate(
+         state.resourceBudgetReserved || LodResourceBudgetBridge.reservationHeld(),
+         () -> pendingRejection(candidate), () -> reserveResourceBudget(state));
+      if (decision.rejection() != null) {
+         String stage = decision.afterDrain() ? "postflight-" : "preflight-";
+         PipelineMetrics.count(stage + decision.rejection());
+         if (decision.afterDrain()) releaseResourceBudget(state, decision.rejection());
+         deferPending(state, candidate, stage + decision.rejection());
+      } else if (decision.ready()) {
+         state.pendingCandidate = null;
+         start(candidate.level(), candidate.target(), state, candidate.suppressed());
       }
+   }
+
+   private static String pendingRejection(Candidate candidate) {
+      ServerLevel level = candidate.level();
+      ChunkPos pos = candidate.target().pos();
+      if (CacheManager.chunksmithGeneratedHint(level, pos)) return "generated-or-pending";
+      if (level.getChunkSource().hasChunk(pos.x, pos.z)) return "target-loaded";
+      return BackfillGuard.scopeAvailable(level, candidate.suppressed()) ? null : "dependency-scope-loaded";
+   }
+
+   private static void deferPending(State state, Candidate candidate, String reason) {
+      state.pendingCandidate = null;
+      state.phase = reason;
+      // Advancing is a deferral, never a completed marker: exhausted cursors
+      // wrap after RESCAN_MILLIS, including across restart.
+      state.candidateDeferredUntil = Math.max(state.candidateDeferredUntil,
+         System.currentTimeMillis() + RESCAN_MILLIS);
+      advanceCursor(candidate.level(), state.cursor.get(CacheManager.dimensionKey(candidate.level())));
    }
 
    private static boolean reserveResourceBudget(BackfillController.State state) {
       String decision=LodResourceBudgetBridge.reserve();
+      boolean wasReserved = state.resourceBudgetReserved;
       state.resourceBudgetReserved=LodResourceBudgetBridge.reservationHeld();
+      if (!wasReserved && state.resourceBudgetReserved) {
+         state.reservationStartedNanos = System.nanoTime();
+         PipelineMetrics.count("reservations");
+      }
+      if (wasReserved && !state.resourceBudgetReserved && state.reservationStartedNanos != 0L) {
+         PipelineMetrics.time("dispatch-barrier", System.nanoTime() - state.reservationStartedNanos);
+         PipelineMetrics.count("reservation-cancelled");
+         state.reservationStartedNanos = 0L;
+      }
       state.budgetReason=decision;
       if("granted".equals(decision)) {
          state.waitReason=null;
@@ -238,6 +253,10 @@ public final class BackfillController {
    }
 
    private static void releaseResourceBudget(BackfillController.State state,String outcome) {
+      if (state.reservationStartedNanos != 0L) {
+         PipelineMetrics.time("dispatch-barrier", System.nanoTime() - state.reservationStartedNanos);
+         state.reservationStartedNanos = 0L;
+      }
       if(state.resourceBudgetReserved||LodResourceBudgetBridge.reservationHeld())LodResourceBudgetBridge.release(outcome);
       state.resourceBudgetReserved=false;
       state.budgetReason="released:"+outcome;
@@ -280,6 +299,9 @@ public final class BackfillController {
          var2.waitReason=null;
          enterPhase(var2,"loading-chunk");
          var2.backfillsStarted++;
+         PipelineMetrics.count("backfill-full-requests");
+         if (var2.reservationStartedNanos != 0L)
+            PipelineMetrics.time("backfill-drain", System.nanoTime() - var2.reservationStartedNanos);
          long var4 = ++var2.token;
          BackfillGuard.arm(var0, var3, suppressed);
          Boolean var6 = MillenaireBridge.suppressNaturalSpawns(true);
@@ -784,6 +806,7 @@ public final class BackfillController {
    }
 
    private static void report(MinecraftServer server,BackfillController.State state,boolean force) {
+      PipelineMetrics.report();
       long now=System.currentTimeMillis();
       if(!force&&now-state.lastReport<30_000L)return;
       state.lastReport=now;
@@ -1079,6 +1102,7 @@ public final class BackfillController {
       long retiredGuardWarnings;
       boolean idlePregenClaimed;
       boolean resourceBudgetReserved;
+      long reservationStartedNanos;
       boolean awaitingScopeDrain;
       BackfillController.Candidate pendingCandidate;
       long lastRequestQueuedAt;

@@ -40,7 +40,7 @@ public final class CacheManager {
    private static final int SCHEMA = 1;
    private static final AtomicLong LAST_QUEUE_WARNING = new AtomicLong();
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
-   private static final Set<String> CAPTURE_PENDING = ConcurrentHashMap.newKeySet();
+   private static final Map<CaptureKey, CompletableFuture<Boolean>> CAPTURE_PENDING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
    private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
    private static final long MAINTENANCE_RETRY_MS = TimeUnit.MINUTES.toMillis(1L);
@@ -55,15 +55,16 @@ public final class CacheManager {
    }
 
    public static void captureFromChunksmith(ServerLevel level, LevelChunk chunk) {
-      if (level == null || chunk == null || BackfillGuard.suppress(level, chunk.getPos())) {
+      PipelineMetrics.count("direct-full-candidates");
+      // A generic LodSupport.offer can also come from save/unload refreshes or
+      // another owner's task. Only the world-adapter call site invokes us now.
+      if (level == null || chunk == null || !level.getServer().isSameThread()
+         || level.getServer().getPlayerCount() != 0 || !FollowCaptureOwnership.owns(level)
+         || BackfillGuard.suppress(level, chunk.getPos()) || !HorizonGuard.drop(level, chunk.getPos())) {
+         PipelineMetrics.count("direct-ineligible");
          return;
       }
-      if (HorizonGuard.drop(level, chunk.getPos())) {
-         String pending=captureKey(level,chunk.getPos());
-         if (CAPTURE_PENDING.add(pending)) {
-            capture(level,chunk,false).whenComplete((ok,error) -> CAPTURE_PENDING.remove(pending));
-         }
-      }
+      capture(level, chunk, false);
    }
 
    /**
@@ -74,28 +75,64 @@ public final class CacheManager {
     */
    public static boolean chunksmithGeneratedHint(ServerLevel level, ChunkPos pos) {
       if(level==null||pos==null)return false;
-      if(BackfillGuard.active(level,pos)||CAPTURE_PENDING.contains(captureKey(level,pos)))return true;
+      if(BackfillGuard.active(level,pos)||CAPTURE_PENDING.containsKey(captureKey(level,pos)))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       return snapshot!=null&&Files.isRegularFile(path(level,pos,snapshot.fingerprint()));
    }
 
-   private static String captureKey(ServerLevel level,ChunkPos pos) {
-      return dimensionKey(level)+"@"+pos.toLong();
+   private record CaptureKey(ServerLevel level, long pos) {}
+
+   private static CaptureKey captureKey(ServerLevel level,ChunkPos pos) {
+      return new CaptureKey(level, pos.toLong());
    }
 
    static CompletableFuture<Boolean> capture(ServerLevel var0, LevelChunk var1, boolean var2) {
+      if (!var0.getServer().isSameThread()) throw new IllegalStateException("Chunk snapshot requires server thread");
+      String source = var2 ? "backfill" : "direct";
+      CaptureKey key = captureKey(var0, var1.getPos());
+      CompletableFuture<Boolean> result = new CompletableFuture<>();
+      CompletableFuture<Boolean> pending = CAPTURE_PENDING.putIfAbsent(key, result);
+      if (pending != null) {
+         PipelineMetrics.count("capture-duplicate-avoided");
+         return pending;
+      }
+      result.whenComplete((ok, error) -> {
+         PipelineMetrics.count(source + (Boolean.TRUE.equals(ok) ? "-saved" : "-failed"));
+         CAPTURE_PENDING.remove(key, result);
+      });
+      PipelineMetrics.count(source + "-capture-started");
+      try {
+         captureSnapshot(var0, var1, result);
+      } catch (Throwable error) {
+         LOG.warn("Could not capture chunk {}; regeneration remains available", var1.getPos(), error);
+         result.complete(false);
+      }
+      return result;
+   }
+
+   private static void captureSnapshot(ServerLevel var0, LevelChunk var1, CompletableFuture<Boolean> var7) {
+      // Bound admission before the expensive server-thread NBT snapshot.
+      if (WRITE_IO.getQueue().remainingCapacity() == 0) {
+         PipelineMetrics.count("capture-queue-rejected");
+         var7.complete(false);
+         return;
+      }
       Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
       if (snapshot == null) {
-         return CompletableFuture.completedFuture(false);
+         var7.complete(false);
+         return;
       }
       String var3 = snapshot.fingerprint();
 
       CompoundTag var4;
       try {
+         long started = System.nanoTime();
          var4 = ChunkSerializer.write(var0, var1);
+         PipelineMetrics.time("cache-serialize", System.nanoTime() - started);
       } catch (Throwable var14) {
          LOG.warn("Could not serialize chunk {} for cache; normal regeneration remains the fallback", new Object[]{var1.getPos(), var14});
-         return CompletableFuture.completedFuture(false);
+         var7.complete(false);
+         return;
       }
 
       CompoundTag var5 = new CompoundTag();
@@ -107,13 +144,16 @@ public final class CacheManager {
       CompoundTagBridge.put(var5, "chunk", var4);
       rotateGenerations(var0, snapshot, "capture");
       Path var6 = path(var0, var1.getPos(), var3);
-      CompletableFuture<Boolean> var7 = new CompletableFuture<>();
+      long queuedAt = System.nanoTime();
       Runnable var8 = () -> {
+         PipelineMetrics.time("cache-queue", System.nanoTime() - queuedAt);
+         long writeStarted = System.nanoTime();
          try {
             Files.createDirectories(var6.getParent());
             Path var3x = var6.resolveSibling(var6.getFileName().toString() + ".tmp-" + Long.toUnsignedString(System.nanoTime()));
             NbtIo.writeCompressed(var5, var3x);
             moveAtomically(var3x, var6);
+            PipelineMetrics.time("cache-write", System.nanoTime() - writeStarted);
             var7.complete(true);
          } catch (Throwable var4x) {
             LOG.warn("Could not write chunk cache {}", new Object[]{var6, var4x});
@@ -131,7 +171,6 @@ public final class CacheManager {
          }
          var7.complete(false);
       }
-      return var7;
    }
 
    public static CompletableFuture<Optional<CompoundTag>> preferCacheOverIncompleteNormal(
