@@ -36,6 +36,8 @@ public final class Issue74SelfTest {
         String completion = section(task, "private void lambda$run$2(");
         require(completion.contains("System.currentTimeMillis:") && completion.contains("Method adjustFromChunkLatency:(J)V"), "native dispatch wall-time boundary");
         require(section(task, "private void adjustFromChunkLatency(").contains("Field maxChunkMillis:J"), "native slow threshold field");
+        String sink=bytecode("com.kishku7.chunksmith.lod.CsLodStoreSink");
+        require(section(sink,"private void persist(").contains("CsLodRegionStore.write:"),"native record ACK hook callsite");
         System.out.println("Issue74SelfTest passed (admission/race/histogram/installed Chunksmith ABI)");
     }
     private static String bytecode(String name) throws Exception {

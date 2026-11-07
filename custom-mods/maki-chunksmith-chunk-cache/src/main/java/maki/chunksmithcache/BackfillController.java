@@ -65,6 +65,25 @@ public final class BackfillController {
    private BackfillController() {
    }
 
+   public static void stopping(MinecraftServer server) {
+      synchronized (STATES) {
+         State state=STATES.get(server);
+         if (state==null) return;
+         state.stopping=true;
+         state.scanCancelled=true;
+         releaseResourceBudget(state,"server-stopping");
+         releaseIdleClaim(state);
+         if (state.activeLevel!=null && state.activePos!=null) releaseOwnedTicket(state.activeLevel,state.activePos,state);
+         MillenaireBridge.restore(state.previousSuppression);
+         // Save guards remain until the world has actually closed.
+      }
+   }
+   public static void stopped(MinecraftServer server) {
+      synchronized (STATES) { STATES.remove(server); }
+      for (ServerLevel level:LEVELS) if (level.getServer()==server) BackfillGuard.clearLevel(level);
+      LEVELS=List.of();
+   }
+
    public static List<ServerLevel> levels() {
       return LEVELS;
    }
@@ -77,6 +96,7 @@ public final class BackfillController {
          state = STATES.computeIfAbsent(server, ignored -> new BackfillController.State());
       }
 
+      if (state.stopping) return;
       maintainRetiredGuards(server,state);
       state.ticks++;
       if (state.busy) {
@@ -84,7 +104,7 @@ public final class BackfillController {
             handoffToPlayer(state);
          } else if (state.busy) {
             state.playerOwnedDependenciesReleased += BackfillGuard.releasePlayerOwnedDependencies(state.activeLevel, state.activePos);
-            if (state.awaitingScopeDrain && BackfillGuard.scopeDrained(state.activeLevel,state.activePos)) {
+            if (state.awaitingScopeDrain && !state.storagePending && BackfillGuard.scopeDrained(state.activeLevel,state.activePos)) {
                BackfillGuard.clear(state.activeLevel,state.activePos);
                clearActive(state);
             }
@@ -99,6 +119,7 @@ public final class BackfillController {
          return;
       }
       if (state.scanning) {
+         if (server.getPlayerCount()!=0 || CacheManager.resourcePressure()!=null) state.scanCancelled=true;
          report(server,state,false);
          return;
       }
@@ -107,6 +128,7 @@ public final class BackfillController {
          return;
       }
       if (server.getPlayerCount() != 0) {
+         state.scopeScan=null;
          releaseResourceBudget(state,"players-online");
          state.pendingCandidate=null;
          state.phase="waiting-players";
@@ -123,6 +145,12 @@ public final class BackfillController {
       if (!MillenaireBridge.canBackfillSafely()) {
          releaseResourceBudget(state,"millenaire-safety");
          state.phase="waiting-millenaire-safety";
+         report(server,state,false);
+         return;
+      }
+      if (CacheManager.resourcePressure()!=null) {
+         releaseResourceBudget(state,"storage-pressure");
+         state.phase="waiting-storage-pressure";
          report(server,state,false);
          return;
       }
@@ -145,6 +173,10 @@ public final class BackfillController {
       }
 
       state.scanning=true;
+      state.scanCancelled=false;
+      state.scanYielded=false;
+      state.scanDeadlineNanos=System.nanoTime()+25_000_000L;
+      state.scanPositionsRemaining=256;
       state.phase="scanning";
       state.normalStateUnknown=0L;
       state.scansStarted++;
@@ -152,6 +184,7 @@ public final class BackfillController {
       CompletableFuture.<BackfillController.Candidate>supplyAsync(() -> findCandidate(levels,state),SCAN)
          .whenComplete((candidate,error) -> server.execute(() -> {
             state.scanning=false;
+            if (state.stopping) return;
             if (error != null) {
                releaseResourceBudget(state,"scan-failed");
                state.scanFailures++;
@@ -163,7 +196,7 @@ public final class BackfillController {
             if (candidate == null) {
                releaseResourceBudget(state,"no-candidate");
                long now=System.currentTimeMillis();
-               state.phase=state.normalStateUnknown != 0L
+               state.phase=state.scanYielded ? "scan-yielded" : state.normalStateUnknown != 0L
                   ? "waiting-normal-state-unknown"
                   : state.candidateDeferredUntil > now ? "waiting-dependency-scope-loaded" : "waiting-no-candidate";
                report(server,state,true);
@@ -179,7 +212,7 @@ public final class BackfillController {
    private static void tryStartPending(MinecraftServer server,BackfillController.State state) {
       if (!server.isSameThread()) throw new IllegalStateException("Backfill admission requires server thread");
       BackfillController.Candidate candidate=state.pendingCandidate;
-      if(candidate==null||state.busy)return;
+      if(candidate==null||state.busy||state.validatingOwnership)return;
       if(server.getPlayerCount()!=0) {
          releaseResourceBudget(state,"players-online");
          state.pendingCandidate=null;
@@ -208,8 +241,26 @@ public final class BackfillController {
          if (decision.afterDrain()) releaseResourceBudget(state, decision.rejection());
          deferPending(state, candidate, stage + decision.rejection());
       } else if (decision.ready()) {
-         state.pendingCandidate = null;
-         start(candidate.level(), candidate.target(), state, candidate.suppressed());
+         // Re-snapshot normal storage after Follow has drained. A multi-slice
+         // discovery snapshot is not authority over newly saved FULL dependencies.
+         state.validatingOwnership=true;
+         long validationDeadline=System.nanoTime()+30_000_000_000L;
+         CompletableFuture.supplyAsync(() -> NormalChunkStorage.authoritativeScope(
+            candidate.level(),candidate.target().pos(),() -> !state.stopping && !state.scanCancelled && System.nanoTime()<validationDeadline),SCAN)
+            .orTimeout(30,java.util.concurrent.TimeUnit.SECONDS)
+            .whenComplete((scope,error) -> server.execute(() -> {
+               state.validatingOwnership=false;
+               if (state.stopping || state.pendingCandidate!=candidate) return;
+               if (error!=null || server.getPlayerCount()!=0 || scope.unknown()!=0
+                  || !scope.suppressed().contains(candidate.target().pos().toLong())
+                  || !reserveResourceBudget(state) || !BackfillGuard.scopeAvailable(candidate.level(),scope.suppressed())) {
+                  releaseResourceBudget(state,"ownership-revalidation-failed");
+                  deferPending(state,candidate,"ownership-revalidation-failed");
+                  return;
+               }
+               state.pendingCandidate=null;
+               start(candidate.level(),candidate.target(),state,scope.suppressed());
+            }));
       }
    }
 
@@ -226,9 +277,10 @@ public final class BackfillController {
       state.phase = reason;
       // Advancing is a deferral, never a completed marker: exhausted cursors
       // wrap after RESCAN_MILLIS, including across restart.
+      deferRetry(state,candidate.level(),candidate.target().pos(),reason);
       state.candidateDeferredUntil = Math.max(state.candidateDeferredUntil,
          System.currentTimeMillis() + RESCAN_MILLIS);
-      advanceCursor(candidate.level(), state.cursor.get(CacheManager.dimensionKey(candidate.level())));
+      if (!candidate.target().retry()) advanceCursor(candidate.level(), state.cursor.get(CacheManager.dimensionKey(candidate.level())));
    }
 
    private static boolean reserveResourceBudget(BackfillController.State state) {
@@ -272,7 +324,7 @@ public final class BackfillController {
             state.lastUnloadAt=System.currentTimeMillis();
             // Holder maps can still contain the chunk inside its unload callback.
             // The server tick clears the scope only after every holder has drained.
-            if(!state.loadFuturePending && !state.backfillTicketHeld)state.awaitingScopeDrain=true;
+            if(!state.loadFuturePending && !state.backfillTicketHeld && !state.storagePending)state.awaitingScopeDrain=true;
             markProgress(state);
          }
       }
@@ -527,66 +579,40 @@ public final class BackfillController {
       state.waitReason=null;
       markProgress(state);
 
-      try {
-         enterPhase(state,"submitting-lod");
-         LodSupport.offer(level,chunk);
-         state.lodOffersSubmitted++;
-         markProgress(state);
-         enterPhase(state,"waiting-lod-durable");
-         report(level.getServer(),state,true);
-      } catch(Throwable error) {
-         LOG.warn("Could not refresh LOD for backfill {}; leaving it pending for retry",new Object[]{pos,error});
+      CompletableFuture<Boolean> lodWritten = LodCommitTracker.offer(level, chunk);
+      state.lodOffersSubmitted++;
+      if (!MillenaireBridge.rememberPending(level,pos)) {
          fail(level,pos,state,previousSuppression,token);
          return;
       }
-
-      if(!MillenaireBridge.rememberPending(level,pos)) {
-         LOG.warn("Could not preserve Millenaire pending state for backfill {}; leaving it pending for retry",new Object[]{pos});
-         fail(level,pos,state,previousSuppression,token);
-         return;
-      }
-
+      // Both calls snapshot while the FULL request still owns its ticket.
+      // From this point workers own detached data, never a live LevelChunk.
+      CompletableFuture<Boolean> cacheWritten = CacheManager.capture(level, chunk, true);
+      state.storagePending = true;
       MillenaireBridge.restore(previousSuppression);
-      state.previousSuppression=null;
-      CompletableFuture.<Boolean>supplyAsync(() -> waitForLodRefresh(target),SCAN)
-         .whenComplete((durable,error) -> level.getServer().execute(() -> {
-            if(!active(state,token,level,pos))return;
-            if(error!=null||!Boolean.TRUE.equals(durable)) {
-               LOG.warn("Backfill LOD refresh was not durably observed for {}; leaving it pending for retry",new Object[]{pos,error});
-               fail(level,pos,state,previousSuppression,token);
+      state.previousSuppression = null;
+      enterPhase(state,"waiting-storage-ack");
+      releaseResourceBudget(state,"snapshot-complete");
+      releaseOwnedTicket(level,pos,state);
+      report(level.getServer(),state,true);
+      lodWritten.thenCombine(cacheWritten, (lod, cache) -> Boolean.TRUE.equals(lod) && Boolean.TRUE.equals(cache))
+         .whenComplete((saved,error) -> level.getServer().execute(() -> {
+            if (!active(state,token,level,pos)) return;
+            state.storagePending = false;
+            if (error != null || !Boolean.TRUE.equals(saved)) {
+               LOG.warn("Backfill storage acknowledgement failed for {}; it remains retryable",pos,error);
+               fail(level,pos,state,null,token);
                return;
             }
-
             state.lodRefreshCompleted++;
-            markProgress(state);
-            enterPhase(state,"writing-cache");
-            report(level.getServer(),state,true);
-            CacheManager.capture(level,chunk,true).whenComplete((captured,captureError) -> level.getServer().execute(() -> {
-               if(!active(state,token,level,pos))return;
-               if(!Boolean.TRUE.equals(captured)) {
-                  state.backfillsFailed++;
-                  state.completionOutcome="cache-write-failed";
-                  LOG.warn("Backfill cache write failed for {}; releasing the owned ticket without treating it as complete",new Object[]{pos,captureError});
-               } else {
-                  state.backfillsCompleted++;
-                  state.completionOutcome="completed";
-                  advanceCursor(level,state.cursor.get(CacheManager.dimensionKey(level)));
-               }
-               markProgress(state);
-               enterPhase(state,state.completionOutcome+"-ticket-releasing");
-               releaseOwnedTicket(level,pos,state);
-               releaseResourceBudget(state,state.completionOutcome);
-               if(active(state,token,level,pos)) {
-                  if("completed".equals(state.completionOutcome)) {
-                     retireSuccessfulGuard(level,pos,state);
-                  } else {
-                     state.awaitingScopeDrain=true;
-                     state.waitReason="natural-unload";
-                     enterPhase(state,state.completionOutcome+"-ticket-released-awaiting-unload");
-                     report(level.getServer(),state,true);
-                  }
-               }
-            }));
+            state.backfillsCompleted++;
+            state.retries.complete(retryDimension(level),pos.toLong());
+            persistRetries(state,level.getServer());
+            state.completionOutcome="completed";
+            state.lastOutcome="completed";
+            // An aged retry may not be the discovery cursor's target.
+            advanceIfCurrent(level,pos,state);
+            retireSuccessfulGuard(level,pos,state);
          }));
    }
 
@@ -694,6 +720,7 @@ public final class BackfillController {
          var2.previousSuppression = null;
          var2.awaitingScopeDrain=true;
          var2.backfillsFailed++;
+         deferFailedTarget(var2,var0,var1,"failed-before-full");
          var2.completionOutcome="failed-before-full";
          releaseOwnedTicket(var0,var1,var2);
          releaseResourceBudget(var2,var2.completionOutcome);
@@ -705,6 +732,9 @@ public final class BackfillController {
          if (BackfillGuard.scopeDrained(var0,var1)) {
             BackfillGuard.clear(var0,var1);
             clearActive(var2);
+         } else {
+            var2.retiredGuards.put(retiredKey(var0,var1),new RetiredGuard(var0,var1,"failed-before-full",System.currentTimeMillis(),var2.ticketRemovedAt));
+            clearActive(var2);
          }
       }
    }
@@ -714,6 +744,7 @@ public final class BackfillController {
          MillenaireBridge.restore(var3);
          var2.previousSuppression = null;
          var2.backfillsFailed++;
+         deferFailedTarget(var2,var0,var1,"storage-or-generation-failed");
          var2.completionOutcome="failed";
          var2.awaitingScopeDrain=true;
          markProgress(var2);
@@ -721,12 +752,45 @@ public final class BackfillController {
          releaseOwnedTicket(var0,var1,var2);
          releaseResourceBudget(var2,var2.completionOutcome);
          if(!var2.busy||var2.activeLevel!=var0||var2.activePos==null||var2.activePos.toLong()!=var1.toLong())return;
-         var2.token++;
-         var2.waitReason="natural-unload";
-         enterPhase(var2,"failed-ticket-released-awaiting-unload");
-         report(var0.getServer(),var2,true);
-         LOG.warn("Chunk-cache backfill for {} failed after reaching FULL; its ticket and idle claim were released while the guard waits for natural unload or player ownership", new Object[]{var1});
+         var2.retiredGuards.put(retiredKey(var0,var1),new RetiredGuard(var0,var1,"failed",System.currentTimeMillis(),var2.ticketRemovedAt));
+         clearActive(var2);
+         return;
+
       }
+   }
+
+   private static boolean scanMayContinue(State state) {
+      if (state.scanCancelled || state.scanPositionsRemaining<=0 || System.nanoTime()>=state.scanDeadlineNanos) {
+         state.scanYielded=true;
+         return false;
+      }
+      return true;
+   }
+
+   private static String retryDimension(ServerLevel level) {
+      return CacheManager.dimensionKey(level)+"@"+Fingerprint.forLevel(level);
+   }
+   private static Path retryPath(MinecraftServer server) {
+      return server.getWorldPath(LevelResource.ROOT).resolve("chunksmith_chunk_cache/backfill-retries-v1.properties");
+   }
+   private static void persistRetries(State state,MinecraftServer server) {
+      SCAN.execute(() -> {
+         try { state.retries.save(retryPath(server)); }
+         catch (IOException failure) { LOG.warn("Could not persist Backfill retry debt; cursor wrap remains available",failure); }
+      });
+   }
+   private static void deferRetry(State state,ServerLevel level,ChunkPos pos,String reason) {
+      state.retries.defer(retryDimension(level),pos.toLong(),System.currentTimeMillis(),reason);
+      persistRetries(state,level.getServer());
+   }
+   private static void advanceIfCurrent(ServerLevel level,ChunkPos pos,State state) {
+      Cursor cursor=state.cursor.get(CacheManager.dimensionKey(level));
+      if (cursor!=null && state.activeTarget!=null && !state.activeTarget.retry())
+         advanceCursor(level,cursor);
+   }
+   private static void deferFailedTarget(State state,ServerLevel level,ChunkPos pos,String reason) {
+      deferRetry(state,level,pos,reason);
+      advanceIfCurrent(level,pos,state);
    }
 
    private static void releaseIdlePregenClaim(BackfillController.State state) {
@@ -737,7 +801,7 @@ public final class BackfillController {
    }
 
    private static boolean active(BackfillController.State var0, long var1, ServerLevel var3, ChunkPos var4) {
-      return var0.busy && var0.token == var1 && var0.activeLevel == var3 && var0.activePos != null && var0.activePos.toLong() == var4.toLong();
+      return !var0.stopping && var0.busy && var0.token == var1 && var0.activeLevel == var3 && var0.activePos != null && var0.activePos.toLong() == var4.toLong();
    }
 
    private static boolean playerNear(ServerLevel var0, ChunkPos var1) {
@@ -790,6 +854,7 @@ public final class BackfillController {
       var0.activeTarget=null;
       var0.previousSuppression=null;
       var0.awaitingScopeDrain=false;
+      var0.storagePending=false;
       var0.activeSince=0L;
       var0.phaseEnteredAt=System.currentTimeMillis();
       var0.ticketAddedAt=0L;
@@ -832,15 +897,27 @@ public final class BackfillController {
          return null;
       }
 
-      ArrayList<Path> var4 = new ArrayList<>();
-
-      try (Stream<Path> var5 = Files.list(var3)) {
-         var5.filter(var0x -> var0x.getFileName().toString().startsWith("r.") && var0x.getFileName().toString().endsWith(".cslod"))
-            .sorted(Comparator.comparing(var0x -> var0x.getFileName().toString()))
-            .forEach(var4::add);
-      } catch (IOException var18) {
-         return null;
+      String inventoryKey=CacheManager.dimensionKey(var0);
+      RegionInventory inventory=state.inventories.get(inventoryKey);
+      long inventoryNow=System.nanoTime();
+      if (inventory==null || inventoryNow-inventory.observedAt()>60_000_000_000L) {
+         ArrayList<Path> files=new ArrayList<>();
+         try (Stream<Path> listed=Files.list(var3)) {
+            var iterator=listed.iterator();
+            while(iterator.hasNext()) {
+               if (state.scanCancelled) { state.scanYielded=true; return null; }
+               Path file=iterator.next(); String name=file.getFileName().toString();
+               if (name.startsWith("r.") && name.endsWith(".cslod")) files.add(file);
+            }
+         } catch(IOException unavailable) { return null; }
+         files.sort(Comparator.comparing(path -> path.getFileName().toString()));
+         inventory=new RegionInventory(System.nanoTime(),List.copyOf(files));
+         state.inventories.put(inventoryKey,inventory);
+         // A slow first directory inventory must not consume every discovery
+         // slice before even one coordinate can be processed.
+         state.scanDeadlineNanos=System.nanoTime()+25_000_000L;
       }
+      List<Path> var4=inventory.files();
 
       loadCursor(var0, var1, var2);
       if (var1.region >= var4.size()) {
@@ -868,6 +945,8 @@ public final class BackfillController {
                ByteBuffer var9 = ByteBuffer.wrap(var8).order(ByteOrder.BIG_ENDIAN);
 
                for (int var10 = var6; var10 < 1024; var10++) {
+                  if (!scanMayContinue(state)) { var1.region=var20; var1.slot=var10; return null; }
+                  state.scanPositionsRemaining--;
                   int var11 = var9.getInt(var10 * 8);
                   int var12 = var9.getInt(var10 * 8 + 4);
                   var1.region = var20;
@@ -876,13 +955,18 @@ public final class BackfillController {
                      int var13 = var7[0] * 32 + var10 % 32;
                      int var14 = var7[1] * 32 + var10 / 32;
                      ChunkPos var15 = new ChunkPos(var13, var14);
+                     String retryDimension=CacheManager.dimensionKey(var0)+"@"+var2;
+                     if (state.retries.waiting(retryDimension,var15.toLong(),System.currentTimeMillis())) {
+                        var1.slot=var10+1;
+                        continue;
+                     }
                      NormalChunkStorage.State normal = NormalChunkStorage.inspect(var0, var15);
                      if (normal != NormalChunkStorage.State.FULL && !CacheManager.cacheExists(var0, var15, var2)) {
                         if (normal == NormalChunkStorage.State.UNKNOWN) {
                            state.normalStateUnknown++;
                         } else {
                            var1.exhaustedAt = 0L;
-                           return new BackfillController.Target(var15, (Path)var4.get(var20), var10, var11, var12);
+                           return new BackfillController.Target(var15, (Path)var4.get(var20), var10, var11, var12,false);
                         }
                      }
                   }
@@ -903,13 +987,37 @@ public final class BackfillController {
    }
 
    private static BackfillController.Candidate findCandidate(List<BackfillController.ScanLevel> var0, BackfillController.State var1) {
-      for (BackfillController.ScanLevel var3 : var0) {
+      var1.scanDeadlineNanos=System.nanoTime()+25_000_000L;
+      if (var1.scopeScan != null) return continueScope(var1);
+      if (var0.isEmpty()) return null;
+      int first=Math.floorMod(var1.scanDimension++,var0.size());
+      for (int n=0;n<var0.size();n++) {
+         BackfillController.ScanLevel var3=var0.get((first+n)%var0.size());
          ServerLevel var4 = var3.level();
          BackfillController.Cursor var5;
          synchronized (var1.cursor) {
             var5 = var1.cursor.computeIfAbsent(CacheManager.dimensionKey(var4), var0x -> new BackfillController.Cursor());
          }
 
+         String retryDimension=CacheManager.dimensionKey(var4)+"@"+var3.fingerprint();
+         var1.retries.load(retryPath(var4.getServer()));
+         // Alternate aged retries and new discovery so neither can monopolize a dimension.
+         boolean retryTurn=!var1.retryTurns.getOrDefault(retryDimension,false);
+         var1.retryTurns.put(retryDimension,retryTurn);
+         if (retryTurn) {
+            for (BackfillRetries.Key key:var1.retries.due(retryDimension,System.currentTimeMillis())) {
+               ChunkPos pos=new ChunkPos(key.pos());
+               Path region=CacheManager.lodRoot(var4).resolve("r."+Math.floorDiv(pos.x,32)+"."+Math.floorDiv(pos.z,32)+".cslod");
+               int slot=Math.floorMod(pos.x,32)+Math.floorMod(pos.z,32)*32;
+               int[] header=readSlot(region,slot);
+               if (header==null || header[0]<=0 || header[1]<=0 || CacheManager.cacheExists(var4,pos,var3.fingerprint())) {
+                  var1.retries.complete(retryDimension,pos.toLong());
+                  continue;
+               }
+               var1.scopeScan=new ScopeScan(var4,new Target(pos,region,slot,header[0],header[1],true),var3.fingerprint());
+               return continueScope(var1);
+            }
+         }
          BackfillController.Target var9;
          while ((var9 = nextCandidate(var4, var5, var3.fingerprint(), var1)) != null) {
             if (CacheManager.cacheExists(var4, var9.pos(), var3.fingerprint())) {
@@ -917,42 +1025,51 @@ public final class BackfillController {
                continue;
             }
 
-            NormalChunkStorage.Scope scope = NormalChunkStorage.snapshotBackfillOwnership(var4, var9.pos());
-            if (scope.unknown() != 0) {
-               var1.normalStateUnknown += scope.unknown();
-               advanceCursor(var4, var5);
-               continue;
-            }
-            if (!scope.suppressed().contains(var9.pos().toLong())) {
-               advanceCursor(var4, var5);
-               continue;
-            }
-
-            return new BackfillController.Candidate(var4, var9, scope.suppressed());
+            var1.scopeScan=new ScopeScan(var4,var9,var3.fingerprint());
+            return continueScope(var1);
          }
       }
 
       return null;
    }
 
-   private static boolean waitForLodRefresh(BackfillController.Target var0) {
-      long var1 = System.nanoTime() + 10000000000L;
-
-      while (System.nanoTime() < var1) {
-         int[] var3 = readSlot(var0.region(), var0.slot());
-         if (var3 != null && var3[0] > 0 && var3[1] > 0 && (var3[0] != var0.offset() || var3[1] != var0.length())) {
-            return true;
-         }
-
-         try {
-            Thread.sleep(25L);
-         } catch (InterruptedException var5) {
-            Thread.currentThread().interrupt();
-            return false;
-         }
+   private static Candidate continueScope(State state) {
+      ScopeScan job=state.scopeScan;
+      while (job.walk.hasNext()) {
+         if (!scanMayContinue(state)) return null;
+         state.scanPositionsRemaining--;
+         ChunkPos pos=new ChunkPos(job.walk.x(),job.walk.z());
+         NormalChunkStorage.State normal=NormalChunkStorage.inspect(job.level,pos,job.headers);
+         if (normal==NormalChunkStorage.State.ABSENT || normal==NormalChunkStorage.State.PROTO) job.owned.add(pos.toLong());
+         else if (normal==NormalChunkStorage.State.UNKNOWN) { job.unknown++; break; }
+         job.walk.advance();
       }
+      state.scopeScan=null;
+      if (job.unknown!=0 || !job.owned.contains(job.target.pos().toLong())) {
+         state.normalStateUnknown+=job.unknown;
+         state.retries.defer(CacheManager.dimensionKey(job.level)+"@"+job.fingerprint,job.target.pos().toLong(),
+            System.currentTimeMillis(),"scope-unknown-or-already-full");
+         Cursor cursor=state.cursor.get(CacheManager.dimensionKey(job.level));
+         if (cursor!=null && !job.target.retry()) advanceCursor(job.level,cursor);
+         persistRetries(state,job.level.getServer());
+         return null;
+      }
+      return new Candidate(job.level,job.target,Set.copyOf(job.owned));
+   }
 
-      return false;
+   private static final class ScopeScan {
+      final ServerLevel level;
+      final Target target;
+      final String fingerprint;
+      final int radius=net.minecraft.world.level.chunk.status.ChunkPyramid.GENERATION_PYRAMID.getStepTo(ChunkStatus.FULL).accumulatedDependencies().getRadius();
+      final Set<Long> owned=new java.util.HashSet<>();
+      final NormalChunkStorage.RegionHeaders headers=new NormalChunkStorage.RegionHeaders();
+      final DependencyCursor walk;
+      int unknown;
+      ScopeScan(ServerLevel level,Target target,String fingerprint) {
+         this.level=level; this.target=target; this.fingerprint=fingerprint;
+         walk=new DependencyCursor(target.pos().x,target.pos().z,radius);
+      }
    }
 
    private static int[] readSlot(Path var0, int var1) {
@@ -1068,11 +1185,23 @@ public final class BackfillController {
       long exhaustedAt;
    }
 
+   private record RegionInventory(long observedAt,List<Path> files) {}
+
    private record ScanLevel(ServerLevel level, String fingerprint) {
    }
 
    private static final class State {
+      final Map<String,RegionInventory> inventories=new HashMap<>();
+      ScopeScan scopeScan;
+      final BackfillRetries retries=new BackfillRetries();
+      volatile boolean scanCancelled;
+      boolean scanYielded;
+      final Map<String,Boolean> retryTurns=new HashMap<>();
+      int scanDimension;
+      long scanDeadlineNanos;
+      int scanPositionsRemaining;
       long ticks;
+      volatile boolean stopping;
       boolean busy;
       boolean scanning;
       long token;
@@ -1106,6 +1235,8 @@ public final class BackfillController {
       boolean resourceBudgetReserved;
       long reservationStartedNanos;
       boolean awaitingScopeDrain;
+      boolean storagePending;
+      boolean validatingOwnership;
       BackfillController.Candidate pendingCandidate;
       long lastRequestQueuedAt;
       double lastTicketSafePointDelayMs = -1.0;
@@ -1156,6 +1287,6 @@ public final class BackfillController {
       }
    }
 
-   private record Target(ChunkPos pos, Path region, int slot, int offset, int length) {
+   private record Target(ChunkPos pos, Path region, int slot, int offset, int length, boolean retry) {
    }
 }

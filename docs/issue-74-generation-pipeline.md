@@ -1,65 +1,76 @@
-# Issue 74: generation pipeline
+# Issue 74: generation, persistence and promotion
 
-## Evidence and ownership
+This document describes cache 1.4.0, governor 1.4.1 and Millenaire compatibility 1.0.6 on `fix/issue-74`. Distributed MODs and the generated `decompiled` branch remain unchanged.
 
-Baseline: main `4593d0c`, Chunksmith 4.6.0, chunk-cache 1.2.2. Both main source and the shipped JAR (and its decompiled counterpart) already contain `LodSupportMixin -> CacheManager.captureFromChunksmith -> capture`. The issue's assertion that Backfill is the only capture caller is therefore incorrect. No production log/config/world was supplied to this workspace, so the cause of the reported 398 slow requests, or whether production actually ran that JAR, cannot be established retrospectively.
+## Evidence and boundaries
 
-The confirmed admission defect is independent: `tryStartPending` reserved shared budget before checking current target/dependency holders. That stopped new Follow dispatch before knowing whether a candidate was currently eligible. A loaded scope is not proof of permanent ineligibility: Follow-owned transient holders may also disappear during a drain. The fix checks first on the server thread, then preserves the same final check after drain. The authoritative holder/scope owner remains BackfillGuard; the authoritative task owner remains maki-lod-cpu TaskOwnership. The existing cooldown and clean-sample handshake are unchanged.
+Baseline main `4593d0c`, shipped cache 1.2.2 and its decompiled counterpart already contained `LodSupportMixin -> captureFromChunksmith -> capture`. The original issue's assertion that Backfill was the sole capture caller was incorrect. The generic hook was replaced with Chunksmith 4.6.0's actual FULL-request offer boundary, restricted to owned Follow tasks, zero players, server-thread execution and the original Horizon/compatibility vetoes.
 
-The existing cache MOD is the natural owner of snapshots, pending writes, Backfill admission and cache metrics. Creating another MOD would duplicate that state. Chunksmith and other distributed JARs are unchanged. The decompiled branch is read-only evidence, never a source/base for this PR.
+The native code and actual compiled NeoForge 21.1.262 artifact were checked for:
 
-## Capture boundary
+- `NeoForgeWorld.getChunkAtAsync`: ticket safe point, FULL Future, offer, ticket cleanup.
+- `CsLodStoreSink.offer/persist` and `CsLodRegionStore.write`: enqueue is not a write ACK; append payload precedes the slot update, and IOException is caught by the sink.
+- `ChunkMap.save`: boolean true follows submission, not completion, of its write Future.
+- `ChunkStorage.write -> IOWorker.store -> RegionFileStorage.write`: the Future is the native completed-write boundary, including failures. It does not imply power-loss fsync durability.
+- `IOWorker.scanChunk`: pending normal writes take precedence over disk. A missing region header is only a discovery hint, never final ownership authority.
+- `ChunkStatusTasks.full`: generated entities enter the persistent entity manager before FULL completion.
+- `ChunkSerializer`: FULL writing omits entity storage; FULL post-load accepts legacy `entities`, and reading sections calls POI consistency reconstruction.
+- `EntityStorage.storeEntities`: separate empty/nonempty native write call sites; its cached empty no-op is not an independent successful-write receipt.
 
-The generic `LodSupport.offer` tail could be invoked by explored saves/unloads, Millenaire refreshes, and external tasks, not just an owned FULL request. It is replaced by the exact `NeoForgeWorld.lambda$getChunkAtAsync$8` call site in the installed Chunksmith JAR. The original offer runs once; capture follows while the request still owns its ticket. A current owned task, zero players, server thread, no Backfill suppression and the existing HorizonGuard discard decision are all required. HorizonGuard excludes kept/player/previously generated positions and existing compatibility vetoes remain in force.
+## State and resource ownership
 
-NBT serialization stays on the server thread via `ChunkSerializer.write`. Only detached NBT goes to the bounded writer. Before publication, normal storage is classified on the writer: existing FULL or unknown data rejects the capture independently of task-state/HorizonGuard hints. The server thread never joins that storage scan. Queue admission happens before serialization; a racing queue rejection still completes false. Direct and Backfill writes share pending futures keyed by the actual ServerLevel and coordinate; failures remove the pending marker and remain eligible for later scans. Completion means the existing compressed write/atomic publication finished, not merely enqueue. This does not introduce an fsync guarantee against power loss.
+The cache MOD owns capture, compatibility, promotion and Backfill coordinate state. `maki-lod-cpu` owns Follow tasks and the shared generation lease. Millenaire compatibility owns its protected-chunk snapshots. Lightweight pressure observation crosses these boundaries; no second coordinate-owner map is introduced in the governor.
 
-This reuses the existing cache envelope, fingerprints, quarantine, capacity maintenance, promotion and normal-save cleanup. It does not claim to have discovered why production did not benefit from the old hook.
+Backfill transitions are:
 
-## Interval diagnostics
+1. Bounded discovery and resumable dependency inventory; no Follow barrier yet.
+2. Server-thread preflight; unavailable candidates become per-coordinate retries.
+3. Reserve generation lease and drain owned Follow requests. External tasks are not adopted, stopped or capped.
+4. Reclassify storage through the native scanner, including pending normal writes, in bounded batches. Recheck players, budget and all live holder maps on the server thread immediately before arming.
+5. Acquire the owned ticket at the safe point and wait for FULL. In-flight generation is never force-cancelled by clearing its save guard.
+6. Offer LOD and synchronously detach chunk/entity NBT while the FULL ticket still makes the chunk safe to access. No live LevelChunk is read on a worker.
+7. Return the generation lease and ticket/idle-work claim. Detached validation, compression and publication proceed under separate memory/count/disk budgets. Follow can dispatch while these storage ACKs are pending.
+8. Join the actual native LOD record ACK and cache publication ACK. Success retires the discovery/retry demand; failure schedules a retry and advances discovery. Both paths retain the save guard until natural holder drain or permanent player handoff. Unload during storage wait cannot prematurely clear active completion state.
 
-Once per minute, `latest.log` reports effective Chunksmith configuration, event counts and bounded latency histograms. Percentiles are **bucket upper bounds** in milliseconds, with exact observed maximum and count above 1000 ms. No independent status file or per-chunk INFO is added.
+Only one Backfill pipeline is active at a time. This deliberately bounds retained work while allowing Follow to overlap the storage stage; it is not unbounded concurrent worldgen.
 
-- `native-dispatch`: the wall-clock elapsed value passed to `adjustFromChunkLatency`, including the preceding isChunkGenerated Future. It is sampled only when native I/O throttling invokes that decision; `native-slow-threshold` uses that task's actual `maxChunkMillis`. It counts threshold crossings, not successful width reductions (backoff is rate-limited). `native-width-last` is the last concurrent width observation after the decision, not a width-transition counter.
-- `adapter-request`: getChunkAtAsync invocation through completion, including cleanup. It omits isChunkGenerated and does not have a one-to-one population match with native-dispatch (e.g. generated skips and throttling disabled). All GenerationTask adapters, including external tasks, are observed; they are not modified/capped.
-- `ticket-safe-point-wait` and `ticket-safe-point-work`: queued safe-point callbacks; setup and completion callbacks are combined. These overlap other intervals and must not be summed.
-- `full-future`: private FULL request invocation through Future completion. Disk reading vs worldgen vs scheduling remain **unknown**, not mislabeled as I/O.
-- `lod-offer`: synchronous extraction/offer; it does not measure durable CSLOD persistence. Existing Chunksmith/governor written-count and queue reports remain the durable LOD evidence.
-- `cache-serialize`, `cache-queue`, `cache-inspect`, `cache-write`: server-thread snapshot, writer queue wait, normal-storage classification (including scanner Future wait), and successful compressed publication. `cache-write` excludes classification. `capture-total` runs from pending registration through terminal success/failure, including rejected attempts.
-- `cacheIo.pending`, `oldestPendingMs`, `writerQueue`, `writerActive`: live, weakly consistent gauges, including unresolved work. A stalled head inspection has not yet contributed a cache-inspect sample, and its successors have not contributed cache-queue samples until dequeued. The gauges expose this during the stall; completion histograms alone cannot. The single writer and bounded queue are unchanged.
-- `backfill-drain` and `dispatch-barrier`: observed reservation-to-start/release durations; include productive draining work, not CPU idle time. Reservation cancellation is observed at the next controller request.
-- `preflight-*` vs `postflight-*`, `reservations`, `direct-full-candidates`, `direct-ineligible`, source-specific `*-capture-started` / `*-saved` / `*-failed`, duplicate avoidance and queue rejection distinguish admission/capture outcomes.
+## Capture and promotion protocol
 
-No CPU cap, native backoff threshold, parallelism, clean sample or safety guard is relaxed. The old data does not justify any particular concurrency optimum.
+Schema 2 explicitly requires an entity-complete FULL payload. Entity roots are selected from all existing persistent entity sections for the coordinate, including hidden generation sections, using vanilla `shouldBeSaved` / `Entity.save` root/passenger semantics. Detached entity NBT is included in the FULL tag's supported `entities` field. POI uses vanilla reconstruction; Millenaire deferred state remains owned by its existing SavedData/compatibility system.
 
-## Validation boundary
+Schema 1 cannot prove entity completeness and is rejected/quarantined when inspected rather than labelled complete. Old generations remain subject to the existing manifest/quarantine policy. This is an intentional serialization compatibility change; historical quarantine adoption does not turn a schema-1 payload into schema 2.
 
-Deterministic admission tests cover preflight rejection without reservation, dependency conflict introduced during drain, conflicts with an already-held reservation, not-ready drain and successful admission. Histogram tests cover threshold precision and overflow. Installed-JAR bytecode checks pin the synthetic method/call sites so an upstream change fails the build. Existing fingerprint/quarantine/legacy adoption, scopes, ticket lifecycle, shared-budget and Mixin checks remain enabled.
+Promotion atomically renames an available entry to `.in-use` before returning it. An interrupted/in-use payload cannot be replayed or replaced by a late capture. A normal live handoff without a cache read also closes this publication/replay window before its normal write.
 
-These tests do not replace an actual server run or prove worldgen-equivalent cache promotion. In particular ChunkSerializer writes chunk data (blocks, biomes, block entities, structures, light and scheduled ticks); vanilla entities and POI have separate storage paths. The pre-existing cache protocol is not extended with an entity-store envelope by this change. POI reconstruction, entity lifecycle and Millenaire pending behavior require the runtime checks below; no all-data equivalence is claimed solely from a FULL tag.
+The state sequence is `available -> claimed/in-use -> loaded -> native chunk/entity write ACKs -> retired`. Save-enqueue is not an ACK. Nonempty entity payloads require an entity write started after entity restoration, avoiding correlation with an older outstanding write. Zero-entity payloads require the chunk ACK. Failed writes are sticky and retain the unavailable recovery payload; retaining it does not mean it may automatically roll back player changes.
 
-## Deployment acceptance still required
+Normal FULL data remains authoritative. If normal storage is incomplete but an interrupted `.in-use` entry exists, the outer load Future fails explicitly with the retained payload location instead of silently re-promoting an old snapshot or generating replacement terrain. This is an exceptional recovery condition, not a wait with no terminal result. Do not delete such a marker merely to make a failed coordinate load: inspect/recover its state first. A restart after only one native store completed is not an atomic cross-store transaction; administrative recovery may still be required.
 
-Use a disposable copy of the same production world, seed, MODs and configs for each comparison. Do not compare a warmed/generated region with an ungenerated region. Record effective config from the new runtime log, artifact hashes, CPU quota and time window.
+## Backpressure, retry and shutdown
 
-1. Run equal-load A/B/A windows, collecting native width/cap/in-flight, successful LOD writes, cache saves by source, MSPT/CPU/heap/GC/memory/I/O PSI and queues. Exclude shared-budget transition windows from Follow concurrency comparisons as the existing governor does. Compare completed caches and durable LOD separately; do not add overlapping timing intervals or equate future count to worldgen count.
-2. Compare pre/post-drain refusal counts, reservation count, observed barrier/drain time and Backfill completions/hour. A lower postflight rejection count alone does not prove improvement: preflight may also reject transient Follow-held scopes that would have drained. Check completed Backfills and LOD writes together. Confirm preflight-rejected coordinates return after cursor wrap (10-minute exhausted rescan, persisted across restart), rather than being marked complete. Test concentrated scope conflicts and eventual unload for starvation.
-3. At a newly generated disposable coordinate, confirm direct `saved`, a valid cache envelope, no normal FULL region/entity/POI exposure and no Diorama exploration. Revisit it to confirm Backfill does not reacquire it. Fail a write/full queue, then confirm later retry; interrupt publication and confirm corrupt/incomplete entries fall back.
-4. Move a player to that coordinate; inspect blocks/block entities/structures/light/ticks, POI, entities and Millenaire deferred/pending state, save and restart, then compare. Repeat with normal FULL data already present, external task, player join/leave during requests, unresolved Future, holder conflict after preflight, village protection and seed/worldgen changes.
-5. Confirm all registered Mixins apply at server startup with the complete installed MOD set. Bytecode site checks alone do not prove multi-Mixin runtime composition.
+- Cache snapshots: bounded simultaneous count and estimated NBT bytes, per-entry size limit, synchronous admission before snapshot allocation. Validation is separate from the publication writer and never joins the native scanner on that writer.
+- Inspection timeout drops detached work; native inspection slots remain bounded until completion (or server shutdown). Expiry/stop is checked before publication; a valid atomic publication racing a timeout may still leave a reusable complete entry. The persistent in-use ownership barrier is checked under the publication lock and cannot be reopened by a late capture.
+- Disk admission: active cache bytes and a normal-world free-space reserve, separately from quarantine retention. Defaults are 20 GiB active / 2 GiB free reserve. No automatic active-data eviction is added. Disk observations run off-thread and refresh every 10 seconds; generation reconciliation runs independently of capture/scan admission, invalidates inventory after moves, and retries failures rather than latching permanently.
+- Governor admission observes cache and Millenaire pressure in addition to native queues/MSPT/memory/GC/I/O signals. CPU saturation alone remains insufficient to pause generation. Long generation leases repay their actual service cost rather than clamping all Follow time to 30 seconds; storage time is not charged as generation exclusion.
+- Millenaire snapshots reserve bounded count/estimated memory before allocation; coalesced/discarded/drained snapshots return their leases. The executor is bounded. The existing synchronous caller fallback preserves a necessary initial/update LOD when asynchronous admission fails; this exceptional overload path may still cost server time and is not claimed to be free.
+- Discovery is sliced by time and position count, resumes dependency progress across yields, caches directory inventories, batches region headers, and pauses admission for players/pressure. Final native authority probes are separate from those cheap hints. Filesystem calls themselves are not guaranteed interruptible.
+- Retry debt records coordinate, attempt, next time and reason in a bounded persistent ledger. Failed targets do not pin the discovery cursor. Dimensions rotate and each dimension alternates due retries with new discovery. Cursor wrap remains the fallback when the bounded retry table is full; no strict per-coordinate deadline is claimed for an arbitrary backlog.
+- Stopping closes admission, invalidates detached captures, releases the generation budget/owned tickets and retains save guards through world closure. Native in-flight generation is not unsafely cancelled. Interrupted promotion claims remain unavailable on disk across restart.
 
-The production acceptance conditions (including the historical 398 slow requests, 72 transitions and actual throughput improvement) remain unverified until these measurements are collected.
+## Diagnostics
 
+One-minute pipeline reports distinguish native-dispatch (the native slow-decision elapsed value, including generated checks), adapter-request, ticket safe-point wait/work, FULL Future, LOD offer, cache serialization, validation queue, inspection, publication queue/write, and capture total. Percentiles are bucket upper bounds, with maximum and counts above 1000 ms. Native threshold crossings are distinct from actual rate-limited width reductions.
 
-## Review observations and decisions
+Intervals overlap and must not be summed. Native and adapter populations differ; percentile subtraction is not a measure of generated-check cost. Worldgen internal versus disk I/O remains unknown. Live pending count/bytes/age and queue/disk gauges cover unresolved work that has not yet produced a histogram sample. LOD publication receipts mean native write completion, not fsync or atomic completion of all world stores.
 
-The human review on PR #78 raised four advisory checks, rather than requiring all four mechanisms to change.
+## Validation and remaining runtime work
 
-| Concern | Decision and runtime evidence needed |
-| --- | --- |
-| Preflight may reject Follow-held transient scopes | Valid tradeoff; no ownership inference or guard bypass added. Holder availability does not identify its ticket owner or guarantee a future drain. Inspect preflight/postflight counts alongside Backfill completions and LOD writes, using DEBUG coordinate/scope records when necessary. Deferred coordinates return after cursor exhaustion and rescan; this is not a guaranteed ten-minute per-coordinate deadline with an arbitrarily large backlog. Production opportunity loss remains unmeasured. |
-| adapter-request excludes the initial generated check | Added native-dispatch at the actual slow-decision boundary; retain adapter-request as a separate interval. Different populations/clocks mean their percentiles must not be subtracted to estimate the generated check. |
-| Single writer can block on normal-storage inspection | Added separate cache-inspect and capture-total intervals, plus live pending-age/queue gauges. This also corrects the old cache-write label, which included inspection time. The writer is not speculatively parallelized and no timeout clears ownership while an operation may still finish. |
-| Synchronous snapshot can contribute to native backoff | Valid; snapshot stays on the safe server thread. Compare cache-serialize, adapter-request and native-dispatch in matching workload windows, while distinguishing capture outcomes and native threshold crossings from actual width reductions. Coincident histogram spikes are evidence to investigate, not proof of per-request causation. No claim of zero added latency or measured benefit is made. |
+Automated checks cover admission races; resumable dependency traversal even at one position per slice; persistent retries and per-coordinate delays; exact record-identity LOD receipts and errors; count/byte admission and recovery; promotion ACK order, empty/nonempty/passenger NBT, failed/restarted claims and publication races; capacity recovery and disk reserve; clean Follow samples and long-slice service repayment; bounded Millenaire memory; installed Chunksmith/NeoForge method/call-site ABI; existing fingerprint/quarantine/scope/ticket regressions; and deployment-source/Mixin annotation consistency.
 
-Both read-side and snapshot-side optimization decisions remain measurement-driven; these review changes improve attribution rather than change the safety/admission policy.
+These checks do not replace a full installed-MOD server run. Still required on a disposable copy of the production world:
+
+1. Match CPU quota, seed, MODs, configs and ungenerated workload in A/B/A windows. Compare LOD writes, direct/cache success, Backfill completions, actual generation-lease time, queues/bytes, CPU/MSPT/GC/memory/I/O and latency. No throughput improvement percentage is claimed here.
+2. Exercise normal start, many cooperative yields, transient holder conflicts, persistent failed coordinates, multiple dimensions, pressure entry/recovery, old-generation quarantine, player join/leave, ticket/unload, uncompleted native Futures and server stop.
+3. Promote chunks with structural entities/passengers, block entities, structures, light, scheduled ticks, POI and Millenaire deferred state; save and restart. Confirm no duplicate/lost entities or premature Diorama exploration.
+4. Inject native chunk/entity/LOD write failure and interrupted promotion. Confirm recovery artifacts are retained, normal FULL data wins, and incomplete claims fail explicitly rather than replaying stale player state.
+5. Confirm every Mixin applies with the full MOD set. Bytecode/annotation checks do not prove runtime multi-Mixin composition.

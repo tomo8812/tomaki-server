@@ -12,7 +12,12 @@
     "ServerLevelUnloadMixin",
     "MinecraftServerMixin",
     "NeoForgeWorldMixin",
-    "GenerationRequestMixin"
+    "GenerationRequestMixin",
+    "LodStoreCommitMixin",
+    "ServerLevelEntityAccessor",
+    "EntitySectionManagerAccessor",
+    "EntityStorageWriteAckMixin",
+    "LevelChunkPostLoadMixin"
   ],
   "injectors": {
     "defaultRequire": 1

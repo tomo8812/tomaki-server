@@ -127,6 +127,10 @@ public final class BackfillGuard {
       }
    }
 
+   public static void clearLevel(ServerLevel level) {
+      for (BackfillScopes.Session session:ACTIVE.sessions(key(level))) ACTIVE.clear(key(level),session.target());
+   }
+
    public static void clear(ServerLevel level, ChunkPos target) {
       if(level!=null&&target!=null)ACTIVE.clear(key(level),target.toLong());
    }

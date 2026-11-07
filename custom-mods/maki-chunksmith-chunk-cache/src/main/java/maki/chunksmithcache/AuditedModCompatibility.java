@@ -30,6 +30,13 @@ final class AuditedModCompatibility {
             "1.4.0 audited as Chunksmith/DH load-control only"
         ),
         new Attestation(
+            "maki_lod_cpu",
+            "5aafaecef4ac742870c09a0353f20f66fdb6589cbb91fe33cd656c06e4638518",
+            "6a5f306448d94ff43ba920ccca0dd3264b9dd3662ec12da938ea6b6468668a72",
+            "load-control-only-v1",
+            "1.4.1 audited as pressure observation and generation-lease scheduling only; no chunk serialization or worldgen hooks"
+        ),
+        new Attestation(
             "maki_lod_cpu_online_fix",
             "833defdc614826804dcbf8f818827e6baf0a6d69c5f4e9b0946b9a2609d413f1",
             "47014b5ef8263cf772a8f8b75dc8116426826b4eae9e95fb0a94755da8c14d52",

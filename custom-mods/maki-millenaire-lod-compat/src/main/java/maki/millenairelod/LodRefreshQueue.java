@@ -52,6 +52,10 @@ public final class LodRefreshQueue {
     private static volatile MinecraftServer currentServer;
     private static volatile boolean accepting;
     private static volatile boolean stopping;
+    private static volatile long epoch;
+
+    private static final SnapshotBudget MEMORY = new SnapshotBudget(32,64L*1024*1024);
+    public static String resourcePressure() { return MEMORY.pressured() ? "millenaire-snapshot-backlog" : null; }
 
     private static final AtomicInteger ACTIVE = new AtomicInteger();
     private static final AtomicInteger PENDING = new AtomicInteger();
@@ -82,15 +86,21 @@ public final class LodRefreshQueue {
                 LOG.warn("LOD refresh worker was still alive while a new server was installed; stopping the old worker");
                 worker.shutdownNow();
             }
+            for (Slot old:SLOTS.values()) {
+                Snapshot abandoned=old.latest.getAndSet(null);
+                if (abandoned!=null && abandoned.lease!=null) abandoned.lease.close();
+            }
+            epoch++;
             SLOTS.clear();
             PENDING.set(0);
             currentServer = server;
-            worker = Executors.newSingleThreadExecutor(task -> {
+            worker = new java.util.concurrent.ThreadPoolExecutor(1,1,0L,TimeUnit.SECONDS,
+                new java.util.concurrent.ArrayBlockingQueue<>(32),task -> {
                 Thread thread = new Thread(task, "maki-millenaire-lod-refresh");
                 thread.setDaemon(true);
                 thread.setPriority(Math.max(Thread.MIN_PRIORITY, Thread.NORM_PRIORITY - 1));
                 return thread;
-            });
+            },new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
             stopping = false;
             accepting = true;
         }
@@ -158,15 +168,25 @@ public final class LodRefreshQueue {
 
     private static boolean capture(ServerLevel level, LevelChunk chunk, boolean existing) {
         if (!ensureStarted(level.getServer())) return false;
-        SinkPlan plan = SinkPlan.capture(level, chunk);
-        if (plan.stores.isEmpty()) return true;
-
+        // Reserve before allocating the snapshot. Existing caller fallback
+        // preserves initial/update LODs when bounded asynchronous admission fails.
+        long reservation=Math.max(64*1024L,chunk.getSections().length*64*1024L);
+        SnapshotBudget.Lease lease=MEMORY.tryAcquire(reservation);
+        if (lease==null) return false;
         long started = System.nanoTime();
-        Snapshot snapshot = Snapshot.capture(level, chunk, plan);
-        long elapsed = System.nanoTime() - started;
+        Snapshot snapshot;
+        try {
+            SinkPlan plan=SinkPlan.capture(level,chunk);
+            if (plan.stores.isEmpty()) { lease.close(); return true; }
+            snapshot=Snapshot.capture(level,chunk,plan);
+            if (!lease.resize(snapshot.estimatedBytes())) { lease.close(); return false; }
+            snapshot.lease=lease;
+        } catch (Throwable error) { lease.close(); throw error; }
+        long elapsed=System.nanoTime()-started;
 
         synchronized (LIFECYCLE_LOCK) {
             if (stopping || !accepting || currentServer != level.getServer() || worker == null || worker.isShutdown()) {
+                snapshot.lease.close();
                 return false;
             }
 
@@ -176,6 +196,7 @@ public final class LodRefreshQueue {
             Slot slot = SLOTS.computeIfAbsent(key, ignored -> new Slot());
             synchronized (slot) {
                 Snapshot previous = slot.latest.getAndSet(snapshot);
+                if (previous!=null) previous.lease.close();
                 if (previous != null || slot.scheduled.get()) COALESCED.incrementAndGet();
 
                 if (!slot.scheduled.get()) {
@@ -186,7 +207,7 @@ public final class LodRefreshQueue {
                     } catch (RejectedExecutionException rejected) {
                         slot.scheduled.set(false);
                         PENDING.decrementAndGet();
-                        slot.latest.compareAndSet(snapshot, null);
+                        if (slot.latest.compareAndSet(snapshot, null)) snapshot.lease.close();
                         FAILED.incrementAndGet();
                         LOG.warn("LOD refresh worker rejected {} during lifecycle transition", key);
                         return false;
@@ -230,7 +251,7 @@ public final class LodRefreshQueue {
                             snapshot = slot.latest.getAndSet(null);
                             if (snapshot == null) {
                                 slot.scheduled.set(false);
-                                PENDING.decrementAndGet();
+                                if (slot.epoch==epoch) PENDING.decrementAndGet();
                                 SLOTS.remove(key, slot);
                                 return;
                             }
@@ -239,6 +260,7 @@ public final class LodRefreshQueue {
                 }
 
                 try {
+                    if (snapshot.server!=currentServer) continue;
                     long buildStart = System.nanoTime();
                     CsLodChunk record = build(snapshot);
                     BUILD_NANOS.addAndGet(System.nanoTime() - buildStart);
@@ -252,7 +274,7 @@ public final class LodRefreshQueue {
                 } catch (Throwable error) {
                     FAILED.incrementAndGet();
                     LOG.error("Could not asynchronously refresh village LOD for {}", key, error);
-                }
+                } finally { snapshot.lease.close(); }
             }
         } finally {
             ACTIVE.decrementAndGet();
@@ -377,6 +399,8 @@ public final class LodRefreshQueue {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("source", "millenaire-protected-explored-lod");
         out.put("pending", PENDING.get());
+        out.put("snapshotBytes",MEMORY.bytes());
+        out.put("snapshotCount",MEMORY.count());
         out.put("active", ACTIVE.get());
         out.put("captured", CAPTURED.get());
         out.put("initialCaptured", INITIAL_CAPTURED.get());
@@ -434,11 +458,24 @@ public final class LodRefreshQueue {
     private record WorkKey(String dimension, int chunkX, int chunkZ) {}
 
     private static final class Slot {
+        final long epoch=LodRefreshQueue.epoch;
         final AtomicReference<Snapshot> latest = new AtomicReference<>();
         final AtomicBoolean scheduled = new AtomicBoolean();
     }
 
     private static final class Snapshot {
+        SnapshotBudget.Lease lease;
+        long estimatedBytes() {
+            long bytes=512;
+            for (SectionSnapshot section:sections) {
+                bytes+=256L+section.blockIds.length*2L+section.biomeIds.length*2L;
+                for (String state:section.blockPalette) bytes+=48L+state.length()*2L;
+                for (String biome:section.biomePalette) bytes+=48L+biome.length()*2L;
+                if (section.skyLight!=null) bytes+=section.skyLight.length;
+                if (section.blockLight!=null) bytes+=section.blockLight.length;
+            }
+            return bytes;
+        }
         final MinecraftServer server;
         final String dimension;
         final int chunkX;

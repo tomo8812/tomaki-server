@@ -8,6 +8,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -19,6 +21,9 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ThreadPoolExecutor.AbortPolicy;
 import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.nbt.CompoundTag;
@@ -37,15 +42,29 @@ import org.slf4j.LoggerFactory;
 
 public final class CacheManager {
    private static final Logger LOG = LoggerFactory.getLogger("MakiChunkCache");
-   private static final int SCHEMA = 1;
+   private static final int SCHEMA = CacheEnvelope.SCHEMA;
+   private static final long SNAPSHOT_ESTIMATE = 1L << 20;
+   private static final long MAX_ENTRY_BYTES = 16L << 20;
+   private static final CaptureBudget CAPTURE_BUDGET = new CaptureBudget(64, 64L << 20);
+   private static final Semaphore INSPECTIONS = new Semaphore(32);
+   private static final Set<InspectionPermit> LIVE_INSPECTIONS = ConcurrentHashMap.newKeySet();
+   private static final Set<MinecraftServer> STOPPING = Collections.synchronizedSet(Collections.newSetFromMap(new WeakHashMap<>()));
+   private static volatile MinecraftServer currentServer;
+   private static volatile List<Path> activeRoots = List.of();
+   private static final Map<MinecraftServer, Long> NEXT_DISK_REFRESH = new WeakHashMap<>();
+   private static final Set<MinecraftServer> DISK_REFRESHING = ConcurrentHashMap.newKeySet();
    private static final AtomicLong LAST_QUEUE_WARNING = new AtomicLong();
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
+   private static final Map<String,Long> ROTATION_RETRY = new ConcurrentHashMap<>();
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
    private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
    private static final long MAINTENANCE_RETRY_MS = TimeUnit.MINUTES.toMillis(1L);
    private static final ThreadPoolExecutor WRITE_IO = new ThreadPoolExecutor(
       1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(128), daemonFactory("maki-chunk-cache-write"), new AbortPolicy()
+   );
+   private static final ThreadPoolExecutor VALIDATE_IO = new ThreadPoolExecutor(
+      1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(64), daemonFactory("maki-chunk-cache-validate"), new AbortPolicy()
    );
    private static final ThreadPoolExecutor READ_IO = new ThreadPoolExecutor(
       1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(32), daemonFactory("maki-chunk-cache-read"), new AbortPolicy()
@@ -77,20 +96,40 @@ public final class CacheManager {
       if(level==null||pos==null)return false;
       if(BackfillGuard.active(level,pos)||CAPTURE_PENDING.containsKey(captureKey(level,pos)))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
-      return snapshot!=null&&Files.isRegularFile(path(level,pos,snapshot.fingerprint()));
+      if (snapshot == null) return false;
+      Path file = path(level, pos, snapshot.fingerprint());
+      return Files.isRegularFile(file) || Files.isRegularFile(PromotionClaim.claimedPath(file));
    }
 
    private record CaptureKey(ServerLevel level, long pos) {}
    private record CaptureFlight(CompletableFuture<Boolean> result, long startedNanos) {}
 
+   public record ResourceStatus(int pendingCaptures, long pendingBytes, long oldestPendingMillis,
+                                int writerQueue, int validationInFlight, boolean accepting, String pressureReason,
+                                long activeCacheBytes, long usableDiskBytes) {}
+
+   public static ResourceStatus resourceStatus() {
+      long now = System.nanoTime(), oldest = 0L;
+      List<Path> roots=activeRoots;
+      for (CaptureFlight flight : CAPTURE_PENDING.values()) oldest = Math.max(oldest, Math.max(0L, now-flight.startedNanos()));
+      boolean accepting = currentServer != null && !STOPPING.contains(currentServer);
+      String pressure = !accepting ? "cache-not-accepting" : CAPTURE_BUDGET.full(SNAPSHOT_ESTIMATE) ? "cache-snapshot-capacity"
+         : INSPECTIONS.availablePermits() == 0 ? "cache-inspection-capacity" : CacheDiskBudget.pressure(roots);
+      return new ResourceStatus(CAPTURE_PENDING.size(), CAPTURE_BUDGET.bytes(), oldest/1_000_000L,
+         WRITE_IO.getQueue().size(), 32-INSPECTIONS.availablePermits(), accepting, pressure,
+         roots.isEmpty()?0L:CacheDiskBudget.at(roots.getFirst()).activeBytes(),
+         roots.isEmpty()?-1L:CacheDiskBudget.at(roots.getFirst()).usableBytes());
+   }
+
+   public static String resourcePressure() { return resourceStatus().pressureReason(); }
+
    static String ioSummary(long nowNanos) {
-      long oldest = 0L;
-      for (CaptureFlight flight : CAPTURE_PENDING.values())
-         oldest = Math.max(oldest, Math.max(0L, nowNanos - flight.startedNanos()));
-      // Weakly consistent gauges intentionally include unfinished work, whose
-      // queue/inspection histograms cannot yet contain completion samples.
-      return "pending=" + CAPTURE_PENDING.size() + ",oldestPendingMs=" + oldest / 1_000_000L
-         + ",writerQueue=" + WRITE_IO.getQueue().size() + ",writerActive=" + WRITE_IO.getActiveCount();
+      ResourceStatus status = resourceStatus();
+      return "pending=" + status.pendingCaptures() + ",pendingBytes=" + status.pendingBytes()
+         + ",oldestPendingMs=" + status.oldestPendingMillis() + ",writerQueue=" + status.writerQueue()
+         + ",writerActive=" + WRITE_IO.getActiveCount() + ",validating=" + status.validationInFlight()
+         + ",activeCacheBytes=" + status.activeCacheBytes() + ",usableDiskBytes=" + status.usableDiskBytes()
+         + ",pressure=" + status.pressureReason();
    }
 
    private static CaptureKey captureKey(ServerLevel level,ChunkPos pos) {
@@ -123,86 +162,139 @@ public final class CacheManager {
       return result;
    }
 
-   private static void captureSnapshot(ServerLevel var0, LevelChunk var1, CompletableFuture<Boolean> var7) {
-      // Bound admission before the expensive server-thread NBT snapshot.
-      if (WRITE_IO.getQueue().remainingCapacity() == 0) {
-         PipelineMetrics.count("capture-queue-rejected");
-         var7.complete(false);
-         return;
+   /** Takes the complete snapshot synchronously, while the caller still owns its native ticket. */
+   private static void captureSnapshot(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> result) {
+      if (STOPPING.contains(level.getServer())) { result.complete(false); return; }
+      CaptureBudget.Lease memory = CAPTURE_BUDGET.tryAcquire(SNAPSHOT_ESTIMATE);
+      if (memory == null) { PipelineMetrics.count("capture-memory-rejected"); result.complete(false); return; }
+      CacheDiskBudget disk = CacheDiskBudget.at(cacheRoot(level));
+      CacheDiskBudget.Lease storage = disk.tryAcquire(SNAPSHOT_ESTIMATE);
+      if (storage == null) {
+         memory.close(); PipelineMetrics.count("capture-disk-rejected"); result.complete(false); return;
       }
-      Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
-      if (snapshot == null) {
-         var7.complete(false);
-         return;
+      if (!INSPECTIONS.tryAcquire()) {
+         memory.close(); storage.close(); PipelineMetrics.count("capture-inspection-rejected"); result.complete(false); return;
       }
-      String var3 = snapshot.fingerprint();
-
-      CompoundTag var4;
+      InspectionPermit inspection=new InspectionPermit(level.getServer());
+      LIVE_INSPECTIONS.add(inspection);
+      CaptureWork work = new CaptureWork(memory, storage, result, inspection);
+      result.whenComplete((ok, error) -> work.terminal());
+      boolean submitted = false;
       try {
+         Fingerprint.Snapshot fingerprint = Fingerprint.snapshotForLevel(level);
+         if (fingerprint == null) { result.complete(false); return; }
+         ChunkPos pos = chunk.getPos();
          long started = System.nanoTime();
-         var4 = ChunkSerializer.write(var0, var1);
-         PipelineMetrics.time("cache-serialize", System.nanoTime() - started);
-      } catch (Throwable var14) {
-         LOG.warn("Could not serialize chunk {} for cache; normal regeneration remains the fallback", new Object[]{var1.getPos(), var14});
-         var7.complete(false);
-         return;
+         CompoundTag chunkTag = ChunkSerializer.write(level, chunk);
+         // FULL serialization omits entities. Vanilla FULL read/post-load supports this legacy
+         // entities field and inserts roots/passengers through the persistent entity manager.
+         CompoundTagBridge.put(chunkTag, "entities", EntitySnapshot.capture(level, pos));
+         PipelineMetrics.time("cache-serialize", System.nanoTime()-started);
+         CompoundTag envelope = new CompoundTag();
+         envelope.putInt("schema", SCHEMA);
+         envelope.putBoolean("entitiesComplete", true);
+         envelope.putString("fingerprint", fingerprint.fingerprint());
+         envelope.putString("dimension", level.dimension().location().toString());
+         envelope.putInt("x", pos.x); envelope.putInt("z", pos.z);
+         CompoundTagBridge.put(envelope, "chunk", chunkTag);
+         long bytes = envelope.sizeInBytes();
+         if (bytes <= 0 || bytes > MAX_ENTRY_BYTES || !memory.resize(bytes) || !storage.resize(bytes+65_536L)) {
+            PipelineMetrics.count("capture-size-rejected"); result.complete(false); return;
+         }
+         work.snapshot.set(envelope);
+         rotateGenerations(level, fingerprint, "capture");
+         Path file = path(level, pos, fingerprint.fingerprint());
+         long queuedAt = System.nanoTime();
+         VALIDATE_IO.execute(() -> validateCapture(level, pos, file, work, queuedAt));
+         submitted = true;
+         // The validation operation may remain queued in native I/O. Expiring our detached work
+         // drops its NBT, but its inspection permit remains held until the actual native completion.
+         result.completeOnTimeout(false, 30L, TimeUnit.SECONDS);
+      } finally {
+         if (!submitted) inspection.close();
       }
+   }
 
-      CompoundTag var5 = new CompoundTag();
-      var5.putInt("schema", SCHEMA);
-      var5.putString("fingerprint", var3);
-      var5.putString("dimension", var0.dimension().location().toString());
-      var5.putInt("x", var1.getPos().x);
-      var5.putInt("z", var1.getPos().z);
-      CompoundTagBridge.put(var5, "chunk", var4);
-      rotateGenerations(var0, snapshot, "capture");
-      Path var6 = path(var0, var1.getPos(), var3);
-      ChunkPos capturedPos = var1.getPos();
-      long queuedAt = System.nanoTime();
-      Runnable var8 = () -> {
-         PipelineMetrics.time("cache-queue", System.nanoTime() - queuedAt);
-         try {
-            // Horizon eligibility is necessary, but not proof that normal FULL
-            // storage is absent (e.g. an older saved chunk not in task state).
-            // Classify on the writer, never join disk I/O on the server thread.
-            NormalChunkStorage.State normal;
-            long inspectStarted = System.nanoTime();
-            try { normal = NormalChunkStorage.inspect(var0, capturedPos); }
-            finally { PipelineMetrics.time("cache-inspect", System.nanoTime() - inspectStarted); }
-            if (normal == NormalChunkStorage.State.FULL || normal == NormalChunkStorage.State.UNKNOWN) {
-               PipelineMetrics.count("capture-normal-storage-rejected");
-               var7.complete(false);
-               return;
-            }
-            long writeStarted = System.nanoTime();
-            Files.createDirectories(var6.getParent());
-            Path var3x = var6.resolveSibling(var6.getFileName().toString() + ".tmp-" + Long.toUnsignedString(System.nanoTime()));
-            NbtIo.writeCompressed(var5, var3x);
-            moveAtomically(var3x, var6);
-            PipelineMetrics.time("cache-write", System.nanoTime() - writeStarted);
-            var7.complete(true);
-         } catch (Throwable var4x) {
-            LOG.warn("Could not write chunk cache {}", new Object[]{var6, var4x});
-            var7.complete(false);
+   private static void validateCapture(ServerLevel level, ChunkPos pos, Path file, CaptureWork work, long queuedAt) {
+      PipelineMetrics.time("cache-validation-queue",System.nanoTime()-queuedAt);
+      if (work.result.isDone()) { work.inspection.close(); return; }
+      long started = System.nanoTime();
+      CompletableFuture<NormalChunkStorage.State> inspected;
+      try { inspected = NormalChunkStorage.inspectAsync(level, pos); }
+      catch (Throwable error) { work.inspection.close(); work.result.complete(false); return; }
+      inspected.whenComplete((normal, error) -> {
+         work.inspection.close();
+         PipelineMetrics.time("cache-inspect", System.nanoTime()-started);
+         if (work.result.isDone()) return;
+         if (error != null || normal == NormalChunkStorage.State.FULL || normal == NormalChunkStorage.State.UNKNOWN
+            || Files.exists(PromotionClaim.claimedPath(file)) || STOPPING.contains(level.getServer())) {
+            PipelineMetrics.count("capture-normal-storage-rejected"); work.result.complete(false); return;
          }
-      };
+         long writeQueuedAt=System.nanoTime();
+         try { WRITE_IO.execute(() -> publishCapture(level.getServer(), file, work, writeQueuedAt)); }
+         catch (RejectedExecutionException rejected) { PipelineMetrics.count("capture-queue-rejected"); work.result.complete(false); }
+      });
+   }
 
+   private static void publishCapture(MinecraftServer server, Path file, CaptureWork work, long queuedAt) {
+      CompoundTag envelope = work.beginWrite();
+      if (envelope == null) return;
+      PipelineMetrics.time("cache-queue", System.nanoTime()-queuedAt);
+      Path temporary = file.resolveSibling(file.getFileName()+".tmp-"+Long.toUnsignedString(System.nanoTime()));
       try {
-         WRITE_IO.execute(var8);
-      } catch (RejectedExecutionException var15) {
-         long var10 = System.currentTimeMillis();
-         long var12 = LAST_QUEUE_WARNING.get();
-         if (var10 - var12 > 30000L && LAST_QUEUE_WARNING.compareAndSet(var12, var10)) {
-            LOG.warn("Chunk cache write queue is full; skipping cache entries until it drains", new Object[0]);
-         }
-         var7.complete(false);
+         if (STOPPING.contains(server) || Files.exists(PromotionClaim.claimedPath(file))) { work.result.complete(false); return; }
+         long started = System.nanoTime();
+         Files.createDirectories(file.getParent());
+         long previous = Files.isRegularFile(file) ? Files.size(file) : 0L;
+         NbtIo.writeCompressed(envelope, temporary);
+         if (work.result.isDone() || STOPPING.contains(server)) return;
+         if (!PromotionClaim.publish(temporary,file)) { work.result.complete(false); return; }
+         work.storage.published(Files.size(file)-previous);
+         PipelineMetrics.time("cache-write", System.nanoTime()-started);
+         work.result.complete(true);
+      } catch (Throwable error) {
+         LOG.warn("Could not write chunk cache {}", file, error);
+         work.result.complete(false);
+      } finally {
+         try { Files.deleteIfExists(temporary); } catch (IOException ignored) {}
+         work.endWrite();
+      }
+   }
+
+   private static final class CaptureWork {
+      final AtomicReference<CompoundTag> snapshot = new AtomicReference<>();
+      final CaptureBudget.Lease memory;
+      final CacheDiskBudget.Lease storage;
+      final CompletableFuture<Boolean> result;
+      final InspectionPermit inspection;
+      private boolean writing;
+      CaptureWork(CaptureBudget.Lease memory, CacheDiskBudget.Lease storage, CompletableFuture<Boolean> result, InspectionPermit inspection) {
+         this.memory=memory; this.storage=storage; this.result=result; this.inspection=inspection;
+      }
+      synchronized CompoundTag beginWrite() {
+         if (result.isDone()) return null;
+         CompoundTag tag=snapshot.getAndSet(null);
+         writing=tag!=null;
+         return tag;
+      }
+      synchronized void terminal() { snapshot.set(null); if (!writing) { memory.close(); storage.close(); } }
+      synchronized void endWrite() { writing=false; memory.close(); storage.close(); }
+   }
+
+   private static final class InspectionPermit {
+      final MinecraftServer server;
+      final AtomicBoolean closed=new AtomicBoolean();
+      InspectionPermit(MinecraftServer server) { this.server=server; }
+      void close() {
+         if(closed.compareAndSet(false,true)) { LIVE_INSPECTIONS.remove(this); INSPECTIONS.release(); }
       }
    }
 
    public static CompletableFuture<Optional<CompoundTag>> preferCacheOverIncompleteNormal(
       ServerLevel level, ChunkPos pos, Optional<CompoundTag> normal
    ) {
-      if (normal.isPresent() && NormalChunkStorage.fromTag(normal.get()) != NormalChunkStorage.State.PROTO) {
+      if (CacheLoadPolicy.keepNormal(normal.orElse(null))) {
+         PromotionLedger.normalFullPresent(level,pos);
          return CompletableFuture.completedFuture(normal);
       }
 
@@ -219,6 +311,11 @@ public final class CacheManager {
 
          rotateGenerations(var0, snapshot, "load");
          Path var3 = path(var0, var1, var2);
+         if (Files.isRegularFile(PromotionClaim.claimedPath(var3))) {
+            PromotionLedger.blockReplay(var0,var1,PromotionClaim.claimedPath(var3));
+            PipelineMetrics.count("promotion-replay-blocked");
+            return CompletableFuture.completedFuture(Optional.empty());
+         }
          if (!Files.isRegularFile(var3)) {
             return CompletableFuture.completedFuture(Optional.empty());
          }
@@ -226,8 +323,13 @@ public final class CacheManager {
          try {
             return CompletableFuture.supplyAsync(
                () -> {
+                  try (var pathLock=CachePathLocks.lock(var3)) {
                   try {
-                     CompoundTag var4 = NbtIo.readCompressed(var3, NbtAccounter.unlimitedHeap());
+                     if (Files.isRegularFile(PromotionClaim.claimedPath(var3))) {
+                        PromotionLedger.blockReplay(var0,var1,PromotionClaim.claimedPath(var3));
+                        return Optional.empty();
+                     }
+                     CompoundTag var4 = NbtIo.readCompressed(var3, NbtAccounter.create(64L << 20));
                      String storedFingerprint = var4.getString("fingerprint");
                      Path generationDirectory = var3.getParent().getParent();
                      if (var4.getInt("schema") == SCHEMA
@@ -238,15 +340,21 @@ public final class CacheManager {
                         && var4.contains("chunk")
                         && NormalChunkStorage.fromTag(var4.getCompound("chunk")) == NormalChunkStorage.State.FULL) {
                         CompoundTag var5x = var4.getCompound("chunk");
-                        PromotionLedger.mark(var0, var1);
+                        if (!CacheEnvelope.completeEntities(var4)) {
+                           quarantineRejected(var3);
+                           return Optional.empty();
+                        }
+                        if (!PromotionLedger.claim(var0, var1, var3, !var5x.getList("entities", 10).isEmpty())) return Optional.empty();
                         return Optional.of(var5x);
                      } else {
+                        quarantineRejected(var3);
                         return Optional.empty();
                      }
                   } catch (Throwable var6) {
-                     Path quarantined = GenerationStore.quarantineCorrupt(var3);
+                     Path quarantined = quarantineRejected(var3);
                      LOG.warn("Ignoring corrupt chunk cache {}; quarantinedAs={}; vanilla worldgen will be used", new Object[]{var3, quarantined, var6});
                      return Optional.empty();
+                  }
                   }
                },
                READ_IO
@@ -279,22 +387,60 @@ public final class CacheManager {
       }
    }
 
-   public static void onNormalSave(ServerLevel var0, ChunkAccess var1, boolean var2) {
-      if (var2 && var0 != null && var1 != null && !BackfillGuard.suppress(var0, var1.getPos())) {
-         String var3 = Fingerprint.forLevel(var0);
-         if (var3 != null) {
-            Path var4 = path(var0, var1.getPos(), var3);
-            try {
-               WRITE_IO.execute(() -> {
-                  try {
-                     Files.deleteIfExists(var4);
-                  } catch (IOException ignored) {
-                  }
-               });
-            } catch (RejectedExecutionException ignored) {
-            }
-         }
+   /** IOWorker.store's Future completes after RegionFileStorage.write, not just enqueue. */
+   public static void prepareNormalWrite(ServerLevel level, ChunkPos pos, CompoundTag tag) {
+      if(NormalChunkStorage.fromTag(tag)!=NormalChunkStorage.State.FULL || BackfillGuard.suppress(level,pos)) return;
+      Fingerprint.Snapshot fingerprint=Fingerprint.snapshotForLevel(level);
+      if(fingerprint==null) return;
+      Path file=path(level,pos,fingerprint.fingerprint());
+      boolean pending=CAPTURE_PENDING.containsKey(captureKey(level,pos));
+      if(!pending && !Files.isRegularFile(file)) return;
+      try {
+         // A generated chunk can pass directly to a player without a cache read. Close that
+         // rollback route too. Only atomic metadata moves occur here, never an NBT/disk scan.
+         PromotionLedger.adoptLive(level,pos,file,pending);
+      } catch(IOException error) {
+         throw new IllegalStateException("Cannot claim chunk-cache snapshot before normal save at "+file+"; payload retained; repair cache-directory access before retrying save",error);
       }
+   }
+
+   public static void onNormalWrite(ServerLevel level, ChunkPos pos, CompoundTag tag, CompletableFuture<Void> written) {
+      if (NormalChunkStorage.fromTag(tag) != NormalChunkStorage.State.FULL || BackfillGuard.suppress(level,pos)) return;
+      if (PromotionLedger.observeChunkWrite(level,pos,written)) return;
+      Fingerprint.Snapshot fingerprint=Fingerprint.snapshotForLevel(level);
+      if (fingerprint==null) return;
+      Path file=path(level,pos,fingerprint.fingerprint());
+      written.whenComplete((ignored,error) -> { if(error==null) retireClaim(file, () -> {}); });
+   }
+
+   static void retireClaim(Path file, Runnable completed) {
+      submitMaintenance(() -> {
+         try {
+            long bytes=Files.isRegularFile(file)?Files.size(file):0L;
+            Files.deleteIfExists(file);
+            CacheDiskBudget.at(file.getParent().getParent().getParent().getParent()).deleted(bytes);
+            completed.run();
+         } catch(IOException error) { LOG.warn("Could not retire saved chunk cache {}; keeping unavailable payload",file,error); }
+      });
+   }
+
+   static boolean classifyLiveClaim(PromotionClaim claim,Runnable classified) {
+      try {
+         VALIDATE_IO.execute(() -> {
+            boolean empty=false;
+            try {
+               CompoundTag envelope=NbtIo.readCompressed(claim.path(),NbtAccounter.create(64L<<20));
+               empty=CacheEnvelope.completeEntities(envelope) && envelope.getCompound("chunk").getList("entities",10).isEmpty();
+            } catch(Exception unavailable) {
+               // Known-empty native bookkeeping is not proof: its write may have failed.
+               // Preserve unreadable/old payloads rather than manufacture an entity ACK.
+               LOG.debug("Keeping unclassified promotion payload {} until native entity ACK",claim.path(),unavailable);
+            }
+            claim.classified(empty);
+            classified.run();
+         });
+         return true;
+      } catch(RejectedExecutionException full) { return false; }
    }
 
    static boolean cacheExists(ServerLevel var0, ChunkPos var1) {
@@ -308,19 +454,21 @@ public final class CacheManager {
          rotateGenerations(var0, snapshot, "scan");
       }
       Path file = path(var0, var1, var2);
+      // A consumed payload is deliberately unavailable for replay, but is not a Backfill hole.
+      if (Files.isRegularFile(PromotionClaim.claimedPath(file))) return true;
       if (!Files.isRegularFile(file)) {
          return false;
       }
 
       try {
-         CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.unlimitedHeap());
+         CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
          if (validEnvelope(root, var0, var1, var2)) {
             return true;
          }
-         GenerationStore.quarantineCorrupt(file);
+         quarantineRejected(file);
          return false;
       } catch (Throwable error) {
-         GenerationStore.quarantineCorrupt(file);
+         quarantineRejected(file);
          LOG.warn("Ignoring invalid chunk cache {}; it remains eligible for backfill", new Object[]{file, error});
          return false;
       }
@@ -328,13 +476,24 @@ public final class CacheManager {
 
    private static boolean validEnvelope(CompoundTag root, ServerLevel level, ChunkPos pos, String fingerprint) {
       return root != null
-         && root.getInt("schema") == 1
+         && root.getInt("schema") == SCHEMA
+         && CacheEnvelope.completeEntities(root)
          && GenerationStore.acceptsStoredFingerprint(path(level,pos,fingerprint).getParent().getParent(), fingerprint, root.getString("fingerprint"))
          && level.dimension().location().toString().equals(root.getString("dimension"))
          && root.getInt("x") == pos.x
          && root.getInt("z") == pos.z
          && root.contains("chunk")
          && NormalChunkStorage.fromTag(root.getCompound("chunk")) == NormalChunkStorage.State.FULL;
+   }
+
+   private static Path cacheRoot(ServerLevel level) {
+      return level.getServer().getWorldPath(LevelResource.ROOT).resolve("chunksmith_chunk_cache");
+   }
+
+   private static Path quarantineRejected(Path file) {
+      Path quarantined=GenerationStore.quarantineCorrupt(file);
+      if(quarantined!=null) CacheDiskBudget.at(file.getParent().getParent().getParent().getParent()).invalidateInventory();
+      return quarantined;
    }
 
    static Path lodRoot(ServerLevel var0) {
@@ -387,6 +546,31 @@ public final class CacheManager {
 
    static void maintenanceTick(MinecraftServer server) {
       long now = System.currentTimeMillis();
+      if (STOPPING.contains(server)) return;
+      // Reconciliation must not depend on capture admission. Otherwise an old
+      // full generation can consume the quota needed to trigger its own quarantine.
+      for (ServerLevel level:server.getAllLevels()) {
+         Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+         if(snapshot!=null) rotateGenerations(level,snapshot,"maintenance");
+      }
+      synchronized (NEXT_DISK_REFRESH) {
+         if (now >= NEXT_DISK_REFRESH.getOrDefault(server,0L) && DISK_REFRESHING.add(server)) {
+            NEXT_DISK_REFRESH.put(server,now+10_000L);
+            ArrayList<Path> roots=new ArrayList<>();
+            roots.add(server.getWorldPath(LevelResource.ROOT).resolve("chunksmith_chunk_cache"));
+            currentServer=server;
+            activeRoots=List.copyOf(roots);
+            try {
+               VALIDATE_IO.execute(() -> {
+                  try {
+                     PromotionLedger.classifyPending(server);
+                     for(Path root:roots) CacheDiskBudget.at(root).refresh(server.getServerDirectory().resolve("config/maki-chunksmith-chunk-cache.properties"));
+                  }
+                  finally { DISK_REFRESHING.remove(server); }
+               });
+            } catch(RejectedExecutionException rejected) { DISK_REFRESHING.remove(server); }
+         }
+      }
       synchronized (NEXT_MAINTENANCE) {
          long next = NEXT_MAINTENANCE.getOrDefault(server, 0L);
          if (now < next) {
@@ -410,11 +594,32 @@ public final class CacheManager {
       }
    }
 
+   public static void stop(MinecraftServer server) {
+      STOPPING.add(server);
+      if(currentServer==server) { currentServer=null; activeRoots=List.of(); }
+      // No join on server callbacks/native I/O during shutdown. Detached queued captures are
+      // invalidated; a running writer checks this flag again before atomic publication.
+      CAPTURE_PENDING.forEach((key,flight) -> { if(key.level().getServer()==server) flight.result().complete(false); });
+      LIVE_INSPECTIONS.forEach(permit -> { if(permit.server==server) permit.close(); });
+      PromotionLedger.clear(server);
+      synchronized(NEXT_MAINTENANCE) { NEXT_MAINTENANCE.remove(server); }
+      synchronized(NEXT_DISK_REFRESH) { NEXT_DISK_REFRESH.remove(server); }
+   }
+
    private static void rotateGenerations(ServerLevel var0, Fingerprint.Snapshot snapshot, String trigger) {
-      String var2 = dimensionKey(var0) + "|" + snapshot.fingerprint();
+      String var2 = cacheRoot(var0).toAbsolutePath().normalize() + "|" + dimensionKey(var0) + "|" + snapshot.fingerprint();
+      if (System.nanoTime()<ROTATION_RETRY.getOrDefault(var2,0L)) return;
       if (ROTATED.add(var2)) {
          try {
-            WRITE_IO.execute(() -> GenerationStore.reconcile(var0, snapshot, trigger));
+            WRITE_IO.execute(() -> {
+               try {
+                  if (!GenerationStore.reconcile(var0, snapshot, trigger)) {
+                     ROTATION_RETRY.put(var2,System.nanoTime()+60_000_000_000L);
+                     ROTATED.remove(var2);
+                  } else ROTATION_RETRY.remove(var2);
+               }
+               finally { CacheDiskBudget.at(cacheRoot(var0)).invalidateInventory(); }
+            });
          } catch (RejectedExecutionException var5) {
             ROTATED.remove(var2);
          }

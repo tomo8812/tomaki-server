@@ -1,0 +1,100 @@
+package maki.chunksmithcache;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
+
+/** A claim is also a persistent tombstone: its payload is never automatically replayed. */
+final class PromotionClaim {
+    private final Path claimed;
+    private boolean needsEntityWrite;
+    private boolean entityCountKnown=true;
+    private boolean classifying;
+    private boolean loaded;
+    private boolean entitiesRestored;
+    private boolean chunkWritten;
+    private boolean entitiesWritten;
+    private boolean failed;
+
+    private PromotionClaim(Path claimed, boolean needsEntityWrite) {
+        this.claimed = claimed;
+        this.needsEntityWrite = needsEntityWrite;
+    }
+
+    static Path claimedPath(Path available) {
+        return available.resolveSibling(available.getFileName() + ".in-use");
+    }
+
+    static PromotionClaim take(Path available, boolean hasEntities) throws IOException {
+        try(var ignored=CachePathLocks.lock(available)) {
+        Path target = claimedPath(available);
+        if (Files.exists(target) || !Files.isRegularFile(available)) return null;
+        // Same directory/filesystem. If atomic rename is unavailable, refuse promotion.
+        // A copy/delete fallback could expose the same snapshot twice after a crash.
+        Files.move(available, target, StandardCopyOption.ATOMIC_MOVE);
+        return new PromotionClaim(target, hasEntities);
+        }
+    }
+
+    static boolean publish(Path temporary, Path available) throws IOException {
+        try(var ignored=CachePathLocks.lock(available)) {
+        if (Files.exists(claimedPath(available))) return false;
+        try { Files.move(temporary, available, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
+        catch (AtomicMoveNotSupportedException unsupported) { Files.move(temporary, available, StandardCopyOption.REPLACE_EXISTING); }
+        return true;
+        }
+    }
+
+    static PromotionClaim adoptLive(Path available, boolean capturePending) throws IOException {
+        try(var ignored=CachePathLocks.lock(available)) {
+        if (Files.exists(claimedPath(available))) return null;
+        PromotionClaim claim = take(available,true); // Conservatively retain unknown entity payload until an entity ACK.
+        if(claim!=null) claim.entityCountKnown=false;
+        if (claim==null && capturePending) {
+            Files.createDirectories(available.getParent());
+            Path marker=claimedPath(available);
+            Files.createFile(marker); // Also prevents a delayed capture from making old state available again.
+            claim=new PromotionClaim(marker,false);
+        }
+        if (claim!=null) { claim.loaded(); claim.entitiesRestored(); }
+        return claim;
+        }
+    }
+
+    synchronized boolean loaded() {
+        if (loaded || failed) return false;
+        loaded = true;
+        return true;
+    }
+
+    synchronized void chunkWrite(boolean success) {
+        if (success) chunkWritten = true;
+        else failed = true;
+    }
+
+    synchronized void entityWrite(boolean success) {
+        if (success) entitiesWritten = true;
+        else failed = true;
+    }
+
+    synchronized void failed() { failed = true; }
+    synchronized void entitiesRestored() { entitiesRestored = true; }
+    synchronized boolean acceptsEntityWrite() { return entitiesRestored && !failed; }
+    synchronized boolean beginClassification() {
+        if(entityCountKnown || classifying || failed) return false;
+        classifying=true;
+        return true;
+    }
+    synchronized void classificationRejected() { classifying=false; }
+    synchronized void classified(boolean explicitlyEmpty) {
+        entityCountKnown=true;
+        classifying=false;
+        if(explicitlyEmpty) needsEntityWrite=false;
+    }
+    synchronized boolean canRetire() {
+        return loaded && !failed && chunkWritten && (!needsEntityWrite || entitiesWritten);
+    }
+    Path path() { return claimed; }
+}

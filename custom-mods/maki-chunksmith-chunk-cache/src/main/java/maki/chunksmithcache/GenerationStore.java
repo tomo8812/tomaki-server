@@ -26,7 +26,7 @@ final class GenerationStore {
 
     private GenerationStore() {}
 
-    static void reconcile(ServerLevel level, Fingerprint.Snapshot snapshot, String trigger) {
+    static boolean reconcile(ServerLevel level, Fingerprint.Snapshot snapshot, String trigger) {
         Path root = dimensionRoot(level);
         try {
             Files.createDirectories(root);
@@ -58,8 +58,10 @@ final class GenerationStore {
             );
             FingerprintManifest.writeAtomic(root.resolve(FingerprintManifest.CURRENT_FILE_NAME), currentState);
             pruneQuarantine(root, snapshot.policy());
+            return true;
         } catch (Throwable error) {
             LOG.warn("Could not reconcile chunk-cache generations for {} trigger={}", CacheManager.dimensionKey(level), trigger, error);
+            return false;
         }
     }
 

@@ -153,19 +153,24 @@ final class SharedWorkBudgetTest {
         s.backfillMaxSafeWaitSeconds=30;
         long now=100_000_000_000L;
         budget.observe(safe(now,0,40));
-        assertTrue(budget.request(now,"none",s).ready());
+        assertTrue(budget.request(now,"follow",s).reserved());
+        budget.noteFollowInFlight(0);
+        assertTrue(budget.request(now+1_000_000L,"follow",s).ready());
         budget.backfillStarted(now+100_000_000L);
         budget.release(now+1_100_000_000L,"completed",s);
+        budget.noteCleanFollowSample();
 
         long beforeCleanWindow=now+11_000_000_000L;
         budget.observe(safe(beforeCleanWindow,0,40));
-        SharedWorkBudget.Decision blocked=budget.request(beforeCleanWindow,"none",s);
+        SharedWorkBudget.Decision blocked=budget.request(beforeCleanWindow,"follow",s);
         assertFalse(blocked.reserved());
         assertEquals("dynamic-cooldown",blocked.reason());
 
         long afterCleanWindow=now+11_200_000_000L;
         budget.observe(safe(afterCleanWindow,0,40));
-        assertTrue(budget.request(afterCleanWindow,"none",s).ready());
+        assertTrue(budget.request(afterCleanWindow,"follow",s).reserved());
+        budget.noteFollowInFlight(0);
+        assertTrue(budget.request(afterCleanWindow+1_000_000L,"follow",s).ready());
     }
 
     @Test
@@ -211,20 +216,25 @@ final class SharedWorkBudgetTest {
         s.backfillMaxSafeWaitSeconds=30;
         long now=100_000_000_000L;
         budget.observe(safe(now,0,40));
-        assertTrue(budget.request(now,"none",s).ready());
+        assertTrue(budget.request(now,"follow",s).reserved());
+        budget.noteFollowInFlight(0);
+        assertTrue(budget.request(now+1_000_000L,"follow",s).ready());
         budget.backfillStarted(now+100_000_000L);
         long releasedAt=now+500_000_000L;
         budget.release(releasedAt,"completed",s);
+        budget.noteCleanFollowSample();
 
         long beforeCleanWindow=releasedAt+3_900_000_000L;
         budget.observe(safe(beforeCleanWindow,0,40));
-        SharedWorkBudget.Decision blocked=budget.request(beforeCleanWindow,"none",s);
+        SharedWorkBudget.Decision blocked=budget.request(beforeCleanWindow,"follow",s);
         assertFalse(blocked.reserved());
         assertEquals("dynamic-cooldown",blocked.reason());
 
         long afterCleanWindow=releasedAt+4_100_000_000L;
         budget.observe(safe(afterCleanWindow,0,40));
-        assertTrue(budget.request(afterCleanWindow,"none",s).ready());
+        assertTrue(budget.request(afterCleanWindow,"follow",s).reserved());
+        budget.noteFollowInFlight(0);
+        assertTrue(budget.request(afterCleanWindow+1_000_000L,"follow",s).ready());
     }
 
     @Test
@@ -263,4 +273,34 @@ final class SharedWorkBudgetTest {
         assertTrue(next.reserved());
         assertEquals("draining-follow-dispatch",next.reason());
     }
+    @Test
+    void longExclusiveSliceRepaysActualServiceBeyondNominalCooldownCap() {
+        SharedWorkBudget budget=new SharedWorkBudget(); Settings s=settings();
+        long start=100_000_000_000L;
+        budget.observe(safe(start,0,80));
+        assertTrue(budget.request(start,"follow",s).reserved());
+        budget.noteFollowInFlight(0);
+        budget.backfillStarted(start+1_000_000_000L);
+        long release=start+60_000_000_000L;
+        budget.release(release,"snapshot-complete",s);
+        budget.noteCleanFollowSample();
+        long tooEarly=release+31_000_000_000L;
+        budget.observe(safe(tooEarly,0,80));
+        assertFalse(budget.request(tooEarly,"follow",s).reserved());
+        long repaid=release+301_000_000_000L;
+        budget.observe(safe(repaid,0,80));
+        assertTrue(budget.request(repaid,"follow",s).reserved());
+    }
+
+    @Test
+    void storagePressureBlocksOnlyAdmissionAndRecoversWithoutLifecycleReset() {
+        SharedWorkBudget budget=new SharedWorkBudget(); Settings s=settings();
+        long now=100_000_000_000L; budget.observe(safe(now,0,40));
+        budget.pipelinePressure("cache-memory-pressure");
+        assertFalse(budget.request(now,"none",s).reserved());
+        assertFalse(budget.blockFollowDispatch());
+        budget.pipelinePressure(null);
+        assertTrue(budget.request(now+1_000_000L,"none",s).ready());
+    }
+
 }

@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.millenairelod'
-version = '1.0.5'
+version = '1.0.6'
 
 base {
     archivesName = 'maki-millenaire-lod-compat'
@@ -122,3 +122,10 @@ tasks.named('check') {
     dependsOn tasks.named('verifyMixinAnnotationRetention')
     dependsOn tasks.named('verifyChunksmithLodAbi')
 }
+
+tasks.register('snapshotBudgetTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.millenairelod.SnapshotBudgetSelfTest'
+}
+tasks.named('check') { dependsOn tasks.named('snapshotBudgetTest') }
