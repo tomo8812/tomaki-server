@@ -75,6 +75,12 @@ class BuildSelectionTest(unittest.TestCase):
                                   'custom-mods/maki-independent/src/New.java'])
         self.assertEqual(set(result['projects']), set(projects_and_inputs(self.root)))
 
+    def test_own_generated_test_artifact_is_not_a_project_cycle(self):
+        self.project('maki-independent', "file('build/moddev/artifacts/neoforge-21.1.262.jar')")
+        result = plan(self.root, ['custom-mods/maki-independent/src/test/java/NativeAbiTest.java'])
+        self.assertEqual(result['projects'], ['maki-independent'])
+        self.assertFalse(projects_and_inputs(self.root)['maki-independent']['upstream'])
+
     def test_dependency_cycle_fails_instead_of_silently_skipping(self):
         self.project('maki-api', "file('../maki-addon/build/libs/maki-addon-1.jar')")
         with self.assertRaises(ValueError):
