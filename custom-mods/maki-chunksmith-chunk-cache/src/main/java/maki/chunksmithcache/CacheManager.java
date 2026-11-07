@@ -40,7 +40,7 @@ public final class CacheManager {
    private static final int SCHEMA = 1;
    private static final AtomicLong LAST_QUEUE_WARNING = new AtomicLong();
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
-   private static final Map<CaptureKey, CompletableFuture<Boolean>> CAPTURE_PENDING = new ConcurrentHashMap<>();
+   private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
    private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
    private static final long MAINTENANCE_RETRY_MS = TimeUnit.MINUTES.toMillis(1L);
@@ -81,6 +81,17 @@ public final class CacheManager {
    }
 
    private record CaptureKey(ServerLevel level, long pos) {}
+   private record CaptureFlight(CompletableFuture<Boolean> result, long startedNanos) {}
+
+   static String ioSummary(long nowNanos) {
+      long oldest = 0L;
+      for (CaptureFlight flight : CAPTURE_PENDING.values())
+         oldest = Math.max(oldest, Math.max(0L, nowNanos - flight.startedNanos()));
+      // Weakly consistent gauges intentionally include unfinished work, whose
+      // queue/inspection histograms cannot yet contain completion samples.
+      return "pending=" + CAPTURE_PENDING.size() + ",oldestPendingMs=" + oldest / 1_000_000L
+         + ",writerQueue=" + WRITE_IO.getQueue().size() + ",writerActive=" + WRITE_IO.getActiveCount();
+   }
 
    private static CaptureKey captureKey(ServerLevel level,ChunkPos pos) {
       return new CaptureKey(level, pos.toLong());
@@ -91,14 +102,16 @@ public final class CacheManager {
       String source = var2 ? "backfill" : "direct";
       CaptureKey key = captureKey(var0, var1.getPos());
       CompletableFuture<Boolean> result = new CompletableFuture<>();
-      CompletableFuture<Boolean> pending = CAPTURE_PENDING.putIfAbsent(key, result);
+      CaptureFlight flight = new CaptureFlight(result, System.nanoTime());
+      CaptureFlight pending = CAPTURE_PENDING.putIfAbsent(key, flight);
       if (pending != null) {
          PipelineMetrics.count("capture-duplicate-avoided");
-         return pending;
+         return pending.result();
       }
       result.whenComplete((ok, error) -> {
          PipelineMetrics.count(source + (Boolean.TRUE.equals(ok) ? "-saved" : "-failed"));
-         CAPTURE_PENDING.remove(key, result);
+         PipelineMetrics.time("capture-total", System.nanoTime() - flight.startedNanos());
+         CAPTURE_PENDING.remove(key, flight);
       });
       PipelineMetrics.count(source + "-capture-started");
       try {
@@ -148,17 +161,20 @@ public final class CacheManager {
       long queuedAt = System.nanoTime();
       Runnable var8 = () -> {
          PipelineMetrics.time("cache-queue", System.nanoTime() - queuedAt);
-         long writeStarted = System.nanoTime();
          try {
             // Horizon eligibility is necessary, but not proof that normal FULL
             // storage is absent (e.g. an older saved chunk not in task state).
             // Classify on the writer, never join disk I/O on the server thread.
-            NormalChunkStorage.State normal = NormalChunkStorage.inspect(var0, capturedPos);
+            NormalChunkStorage.State normal;
+            long inspectStarted = System.nanoTime();
+            try { normal = NormalChunkStorage.inspect(var0, capturedPos); }
+            finally { PipelineMetrics.time("cache-inspect", System.nanoTime() - inspectStarted); }
             if (normal == NormalChunkStorage.State.FULL || normal == NormalChunkStorage.State.UNKNOWN) {
                PipelineMetrics.count("capture-normal-storage-rejected");
                var7.complete(false);
                return;
             }
+            long writeStarted = System.nanoTime();
             Files.createDirectories(var6.getParent());
             Path var3x = var6.resolveSibling(var6.getFileName().toString() + ".tmp-" + Long.toUnsignedString(System.nanoTime()));
             NbtIo.writeCompressed(var5, var3x);

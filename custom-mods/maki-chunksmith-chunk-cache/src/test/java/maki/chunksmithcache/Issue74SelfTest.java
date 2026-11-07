@@ -33,6 +33,9 @@ public final class Issue74SelfTest {
         require(section(world, "private void lambda$getChunkAtAsync$8(").contains("LodSupport.offer:"), "exact FULL offer call site");
         require(occurrences(section(world, "public java.util.concurrent.CompletableFuture<java.lang.Void> getChunkAtAsync("), "Method ticketSafePoint:")==2, "ticket-safe-point call sites");
         require(occurrences(section(task, "private java.util.concurrent.CompletionStage lambda$run$1("), "World.getChunkAtAsync:")==2, "adapter request call sites");
+        String completion = section(task, "private void lambda$run$2(");
+        require(completion.contains("System.currentTimeMillis:") && completion.contains("Method adjustFromChunkLatency:(J)V"), "native dispatch wall-time boundary");
+        require(section(task, "private void adjustFromChunkLatency(").contains("Field maxChunkMillis:J"), "native slow threshold field");
         System.out.println("Issue74SelfTest passed (admission/race/histogram/installed Chunksmith ABI)");
     }
     private static String bytecode(String name) throws Exception {

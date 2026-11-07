@@ -8,8 +8,10 @@ import org.slf4j.LoggerFactory;
 public final class PipelineMetrics {
     private static final Map<String, Long> COUNTS = new TreeMap<>();
     private static final Map<String, LatencyHistogram> TIMES = new TreeMap<>();
+    private static final Map<String, Long> GAUGES = new TreeMap<>();
     private static long lastReport = System.nanoTime();
     private PipelineMetrics() {}
+    public static synchronized void gauge(String name, long value) { GAUGES.put(name, value); }
     public static synchronized void count(String name) { COUNTS.merge(name, 1L, Long::sum); }
     public static synchronized void time(String name, long nanos) {
         TIMES.computeIfAbsent(name, ignored -> new LatencyHistogram()).record(nanos);
@@ -22,8 +24,8 @@ public final class PipelineMetrics {
             "Chunksmith effective config: ioThrottle={}, maxChunkMillis={}, dispatchMaxConcurrent={}",
             config.isIoThrottleEnabled(), config.getThrottleMaxChunkMillis(), config.getDispatchMaxConcurrent());
         LoggerFactory.getLogger("MakiChunkCache").info(
-            "Generation pipeline intervalMs={}, counts={}, latencyMs=[{}], worldgen-internal=unknown, sharedBudget=[{}]",
-            (now-lastReport)/1_000_000, COUNTS, TIMES, LodResourceBudgetBridge.status());
-        COUNTS.clear(); TIMES.clear(); lastReport = now;
+            "Generation pipeline intervalMs={}, counts={}, latencyMs=[{}], gauges={}, cacheIo=[{}], worldgen-internal=unknown, sharedBudget=[{}]",
+            (now-lastReport)/1_000_000, COUNTS, TIMES, GAUGES, CacheManager.ioSummary(now), LodResourceBudgetBridge.status());
+        COUNTS.clear(); TIMES.clear(); GAUGES.clear(); lastReport = now;
     }
 }
