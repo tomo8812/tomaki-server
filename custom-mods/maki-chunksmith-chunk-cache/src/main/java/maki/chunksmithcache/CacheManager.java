@@ -104,7 +104,13 @@ public final class CacheManager {
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if (snapshot == null) return false;
       Path file = path(level, pos, snapshot.fingerprint());
-      return Files.isRegularFile(file) || Files.isRegularFile(PromotionClaim.claimedPath(file));
+      try {
+         return Files.isRegularFile(file) || RecoveryClaims.claimExists(PromotionClaim.claimedPath(file));
+      } catch(IOException error) {
+         // Unknown ownership is generated/pending for admission purposes: never generate over it.
+         PipelineMetrics.count("promotion-claim-inspection-failed");
+         return true;
+      }
    }
 
    private record CaptureKey(ServerLevel level, long pos) {}
@@ -236,8 +242,15 @@ public final class CacheManager {
          work.inspection.close();
          PipelineMetrics.time("cache-inspect", System.nanoTime()-started);
          if (work.result.isDone()) return;
+         boolean claimed;
+         try { claimed=RecoveryClaims.claimExists(PromotionClaim.claimedPath(file)); }
+         catch(IOException claimError) {
+            PipelineMetrics.count("promotion-claim-inspection-failed");
+            work.result.complete(false);
+            return;
+         }
          if (error != null || normal == NormalChunkStorage.State.FULL || normal == NormalChunkStorage.State.UNKNOWN
-            || Files.exists(PromotionClaim.claimedPath(file)) || STOPPING.contains(level.getServer())) {
+            || claimed || STOPPING.contains(level.getServer())) {
             PipelineMetrics.count("capture-normal-storage-rejected"); work.result.complete(false); return;
          }
          // Snapshotting and native inspection overlap the LOD writer, but a visible cache
@@ -258,7 +271,7 @@ public final class CacheManager {
       PipelineMetrics.time("cache-queue", System.nanoTime()-queuedAt);
       Path temporary = file.resolveSibling(file.getFileName()+".tmp-"+Long.toUnsignedString(System.nanoTime()));
       try {
-         if (STOPPING.contains(server) || Files.exists(PromotionClaim.claimedPath(file))) { work.result.complete(false); return; }
+         if (STOPPING.contains(server) || RecoveryClaims.claimExists(PromotionClaim.claimedPath(file))) { work.result.complete(false); return; }
          long started = System.nanoTime();
          Files.createDirectories(file.getParent());
          long previous = Files.isRegularFile(file) ? Files.size(file) : 0L;
@@ -326,10 +339,15 @@ public final class CacheManager {
       return RecoveryClaims.prepare(dimension,VALIDATE_IO).copy().orTimeout(30,TimeUnit.SECONDS).thenCompose(ignored -> {
          Path claim=RecoveryClaims.root(dimension).resolve("r."+Math.floorDiv(var1.x,32)+"."+Math.floorDiv(var1.z,32))
             .resolve("c."+var1.x+"."+var1.z+".nbt.gz.in-use");
-         if(Files.exists(claim)) {
-            PromotionLedger.blockReplay(var0,var1,claim);
-            PipelineMetrics.count("promotion-replay-blocked");
-            return CompletableFuture.completedFuture(Optional.empty());
+         try {
+            if(RecoveryClaims.claimExists(claim)) {
+               PromotionLedger.blockReplay(var0,var1,claim);
+               PipelineMetrics.count("promotion-replay-blocked");
+               return CompletableFuture.completedFuture(Optional.empty());
+            }
+         } catch(IOException claimError) {
+            PipelineMetrics.count("promotion-claim-inspection-failed");
+            return CompletableFuture.failedFuture(claimError);
          }
          return loadReadyCache(var0,var1);
       }).whenComplete((cached,error) -> {
@@ -349,10 +367,16 @@ public final class CacheManager {
 
          rotateGenerations(var0, snapshot, "load");
          Path var3 = path(var0, var1, var2);
-         if (Files.isRegularFile(PromotionClaim.claimedPath(var3))) {
-            PromotionLedger.blockReplay(var0,var1,PromotionClaim.claimedPath(var3));
-            PipelineMetrics.count("promotion-replay-blocked");
-            return CompletableFuture.completedFuture(Optional.empty());
+         Path claim=PromotionClaim.claimedPath(var3);
+         try {
+            if (RecoveryClaims.claimExists(claim)) {
+               PromotionLedger.blockReplay(var0,var1,claim);
+               PipelineMetrics.count("promotion-replay-blocked");
+               return CompletableFuture.completedFuture(Optional.empty());
+            }
+         } catch(IOException claimError) {
+            PipelineMetrics.count("promotion-claim-inspection-failed");
+            return CompletableFuture.failedFuture(claimError);
          }
          if (!Files.isRegularFile(var3)) {
             return CompletableFuture.completedFuture(Optional.empty());
@@ -363,9 +387,14 @@ public final class CacheManager {
                () -> {
                   try (var pathLock=CachePathLocks.lock(var3)) {
                   try {
-                     if (Files.isRegularFile(PromotionClaim.claimedPath(var3))) {
-                        PromotionLedger.blockReplay(var0,var1,PromotionClaim.claimedPath(var3));
-                        return Optional.empty();
+                     try {
+                        if (RecoveryClaims.claimExists(claim)) {
+                           PromotionLedger.blockReplay(var0,var1,claim);
+                           return Optional.empty();
+                        }
+                     } catch(IOException claimError) {
+                        PipelineMetrics.count("promotion-claim-inspection-failed");
+                        throw new java.io.UncheckedIOException("Cannot inspect promotion ownership at "+claim,claimError);
                      }
                      CompoundTag var4 = NbtIo.readCompressed(var3, NbtAccounter.create(64L << 20));
                      String storedFingerprint = var4.getString("fingerprint");
@@ -388,6 +417,8 @@ public final class CacheManager {
                         quarantineRejected(var3);
                         return Optional.empty();
                      }
+                  } catch (java.io.UncheckedIOException ownershipFailure) {
+                     throw ownershipFailure;
                   } catch (Throwable var6) {
                      Path quarantined = quarantineRejected(var3);
                      LOG.warn("Ignoring corrupt chunk cache {}; quarantinedAs={}; vanilla worldgen will be used", new Object[]{var3, quarantined, var6});
@@ -493,7 +524,13 @@ public final class CacheManager {
       }
       Path file = path(var0, var1, var2);
       // A consumed payload is deliberately unavailable for replay, but is not a Backfill hole.
-      if (Files.isRegularFile(PromotionClaim.claimedPath(file))) return true;
+      // Inspection failures are also not holes: fail closed rather than regenerate over unknown ownership.
+      try {
+         if (RecoveryClaims.claimExists(PromotionClaim.claimedPath(file))) return true;
+      } catch(IOException claimError) {
+         PipelineMetrics.count("promotion-claim-inspection-failed");
+         return true;
+      }
       if (!Files.isRegularFile(file)) {
          return false;
       }

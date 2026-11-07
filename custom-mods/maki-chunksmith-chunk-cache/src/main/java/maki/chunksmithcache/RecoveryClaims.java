@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
@@ -21,6 +23,21 @@ final class RecoveryClaims {
     private RecoveryClaims() {}
 
     static Path root(Path dimension) { return dimension.resolve(".promotions"); }
+
+    /**
+     * A promotion claim is ownership state, so an I/O or permission error is not absence.
+     * Only NoSuchFileException is a confirmed miss; every other inspection failure propagates.
+     */
+    static boolean claimExists(Path claim) throws IOException {
+        Path key=claim.toAbsolutePath().normalize();
+        try {
+            BasicFileAttributes attributes=Files.readAttributes(key,BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS);
+            if(!attributes.isRegularFile()) throw new IOException("Promotion claim path is not a regular file: "+key);
+            return true;
+        } catch(NoSuchFileException missing) {
+            return false;
+        }
+    }
 
     static CompletableFuture<Void> prepare(Path dimension, Executor executor) {
         Path key=dimension.toAbsolutePath().normalize();

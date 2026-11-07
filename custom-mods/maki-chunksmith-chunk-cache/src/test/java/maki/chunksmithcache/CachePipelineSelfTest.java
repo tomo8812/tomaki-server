@@ -139,6 +139,24 @@ public final class CachePipelineSelfTest {
             RecoveryClaims.prepare(broken,Runnable::run).join();
             require(Files.isRegularFile(RecoveryClaims.root(broken).resolve("r.0.0/c.1.2.nbt.gz.in-use")),"repair retries migration rather than retaining a failed readiness latch");
         } finally { RecoveryClaims.clear(broken); deleteTree(broken); }
+
+        Path ambiguous=Files.createTempDirectory("cache-claim-inspection");
+        try {
+            Path promotions=RecoveryClaims.root(ambiguous);
+            Files.writeString(promotions,"not-a-directory");
+            Path claim=promotions.resolve("r.0.0/c.1.2.nbt.gz.in-use");
+            boolean failed=false;
+            try { RecoveryClaims.claimExists(claim); }
+            catch(java.io.IOException expected) { failed=true; }
+            require(failed,"claim inspection I/O errors cannot be treated as confirmed absence");
+            Files.delete(promotions);
+            require(!RecoveryClaims.claimExists(claim),"a genuinely missing claim is a confirmed absence");
+            Files.createDirectories(claim);
+            failed=false;
+            try { RecoveryClaims.claimExists(claim); }
+            catch(java.io.IOException expected) { failed=true; }
+            require(failed,"non-file ownership state fails closed instead of looking absent");
+        } finally { RecoveryClaims.clear(ambiguous); deleteTree(ambiguous); }
     }
 
     private static void publication() {

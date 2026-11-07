@@ -32,7 +32,7 @@ final class PromotionClaim {
     static PromotionClaim take(Path available, boolean hasEntities) throws IOException {
         try(var ignored=CachePathLocks.lock(claimedPath(available))) {
         Path target = claimedPath(available);
-        if (Files.exists(target) || !Files.isRegularFile(available)) return null;
+        if (RecoveryClaims.claimExists(target) || !Files.isRegularFile(available)) return null;
         Files.createDirectories(target.getParent());
         // Same filesystem. If atomic rename is unavailable, refuse promotion.
         // A copy/delete fallback could expose the same snapshot twice after a crash.
@@ -43,7 +43,7 @@ final class PromotionClaim {
 
     static boolean publish(Path temporary, Path available) throws IOException {
         try(var ignored=CachePathLocks.lock(claimedPath(available))) {
-        if (Files.exists(claimedPath(available))) return false;
+        if (RecoveryClaims.claimExists(claimedPath(available))) return false;
         try { Files.move(temporary, available, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
         catch (AtomicMoveNotSupportedException unsupported) { Files.move(temporary, available, StandardCopyOption.REPLACE_EXISTING); }
         return true;
@@ -52,7 +52,7 @@ final class PromotionClaim {
 
     static PromotionClaim adoptLive(Path available, boolean capturePending) throws IOException {
         try(var ignored=CachePathLocks.lock(claimedPath(available))) {
-        if (Files.exists(claimedPath(available))) return null;
+        if (RecoveryClaims.claimExists(claimedPath(available))) return null;
         PromotionClaim claim = take(available,true); // Conservatively retain unknown entity payload until an entity ACK.
         if(claim!=null) claim.entityCountKnown=false;
         if (claim==null && capturePending) {
