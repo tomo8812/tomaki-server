@@ -412,7 +412,12 @@ public final class CacheManager {
                            return Optional.empty();
                         }
                         try {
-                           if (!PromotionLedger.claim(var0, var1, var3, !var5x.getList("entities", 10).isEmpty())) return Optional.empty();
+                           if (!PromotionLedger.claim(var0, var1, var3, !var5x.getList("entities", 10).isEmpty())) {
+                              PipelineMetrics.count("promotion-claim-race-blocked");
+                              throw new java.io.UncheckedIOException(
+                                 "Promotion ownership changed before final acquisition at "+claim,
+                                 new IOException("cache was claimed or disappeared during promotion"));
+                           }
                         } catch(IOException ownershipFailure) {
                            PipelineMetrics.count("promotion-claim-acquire-failed");
                            throw new java.io.UncheckedIOException("Cannot acquire promotion ownership at "+claim,ownershipFailure);

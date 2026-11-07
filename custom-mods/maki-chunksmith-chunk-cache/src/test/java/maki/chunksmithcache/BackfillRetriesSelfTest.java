@@ -32,6 +32,31 @@ public final class BackfillRetriesSelfTest {
         require(restored.waiting(dimension,1,15000),"restart retains debt");
         restored.complete(dimension,1);
         require(!restored.waiting(dimension,1,15000),"success retires only its target");
+
+        var guardedPath=directory.resolve("guarded.properties");
+        BackfillRetries persisted=new BackfillRetries();
+        require(persisted.load(guardedPath),"missing retry ledger is a confirmed empty state");
+        require(persisted.defer(dimension,10,1000,"persisted-before-outage"),"seed persisted retry debt");
+        persisted.save(guardedPath);
+        var backup=directory.resolve("guarded.backup");
+        Files.move(guardedPath,backup);
+        Files.createDirectory(guardedPath); // deterministic read failure, independent of OS permission semantics
+        BackfillRetries guarded=new BackfillRetries();
+        require(!guarded.load(guardedPath),"retry ledger read failure stays unresolved");
+        require(guarded.defer(dimension,11,1000,"observed-during-outage"),"new debt is retained in memory while disk state is unresolved");
+        boolean refused=false;
+        try { guarded.save(guardedPath); } catch(java.io.IOException expected) { refused=true; }
+        require(refused,"unresolved ledger cannot be overwritten by a partial in-memory map");
+        Files.delete(guardedPath);
+        Files.move(backup,guardedPath);
+        require(guarded.load(guardedPath),"storage repair retries the persisted ledger read");
+        guarded.save(guardedPath);
+        BackfillRetries merged=new BackfillRetries();
+        require(merged.load(guardedPath)
+            && merged.waiting(dimension,10,1001)
+            && merged.waiting(dimension,11,1001),
+            "repair merges persisted debt with failures observed during the read outage");
+
         require(BackfillController.retrySatisfied(CacheManager.CacheState.COMPLETE,NormalChunkStorage.State.ABSENT),
             "validated schema3 cache can retire retry debt");
         require(BackfillController.retrySatisfied(CacheManager.CacheState.UNKNOWN,NormalChunkStorage.State.FULL),
@@ -53,7 +78,7 @@ public final class BackfillRetriesSelfTest {
         CompletableFuture<Boolean> failed=new CompletableFuture<>(); LodCommitTracker.track(first,failed);
         LodCommitTracker.written(first,new java.io.IOException("disk failure"));
         require(failed.isCompletedExceptionally(),"native writer errors terminate the receipt");
-        Files.delete(path); Files.delete(directory);
+        Files.delete(path); Files.delete(guardedPath); Files.delete(directory);
         System.out.println("BackfillRetriesSelfTest PASS (retry fairness/restart/record ACK)");
     }
     private static void require(boolean ok,String reason) { if (!ok) throw new AssertionError(reason); }

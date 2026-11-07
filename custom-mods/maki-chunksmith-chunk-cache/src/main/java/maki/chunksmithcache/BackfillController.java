@@ -776,11 +776,13 @@ public final class BackfillController {
       if(state==null || state.stopping) return;
       SCAN.execute(() -> {
          if(state.stopping) return;
-         state.retries.load(retryPath(level.getServer()));
+         boolean ledgerReady=state.retries.load(retryPath(level.getServer()));
          if(!state.retries.defer(CacheManager.dimensionKey(level)+"@"+fingerprint,pos.toLong(),System.currentTimeMillis(),"direct-lod-write-failed"))
             LOG.error("LOD retry ledger is full; direct coordinate {} in {} has no guaranteed discovery slot; retry this coordinate after repairing storage",pos,level.dimension().location());
          try { state.retries.save(retryPath(level.getServer())); }
-         catch(IOException error) { LOG.warn("Could not persist direct LOD retry for {}",pos,error); }
+         catch(IOException error) {
+            LOG.warn("Could not persist direct LOD retry for {}; existing retry debt was not overwritten; ledgerReady={}",pos,ledgerReady,error);
+         }
       });
    }
    private static Path retryPath(MinecraftServer server) {
@@ -1016,7 +1018,11 @@ public final class BackfillController {
          }
 
          String retryDimension=CacheManager.dimensionKey(var4)+"@"+var3.fingerprint();
-         var1.retries.load(retryPath(var4.getServer()));
+         if(!var1.retries.load(retryPath(var4.getServer()))) {
+            var1.scanFailures++;
+            var1.lastOutcome="retry-ledger-unreadable";
+            return null;
+         }
          // Alternate aged retries and new discovery so neither can monopolize a dimension.
          boolean retryTurn=!var1.retryTurns.getOrDefault(retryDimension,false);
          var1.retryTurns.put(retryDimension,retryTurn);
