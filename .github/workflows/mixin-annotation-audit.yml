@@ -77,7 +77,9 @@ jobs:
 
   source-build:
     needs: jar-audit
-    if: needs.jar-audit.outputs.projects != '[]'
+    # Temporary PR artifact bridge: source-build must run while shipped JAR sources
+    # are intentionally stale so rebuilt deployment JARs can be harvested.
+    if: always() && needs.jar-audit.outputs.projects != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -128,6 +130,14 @@ jobs:
           curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
           python3 .github/scripts/audit_mixin_annotations.py --mods-dir /tmp/maki-rebuilt --annotation-api /tmp/sponge-mixin.jar --github-actions --json-output reports/rebuilt-mixin-audit.json
 
+
+      - name: Upload rebuilt deployment JARs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rebuilt-deployment-jars
+          path: /tmp/maki-rebuilt/*.jar
+          retention-days: 1
 
       - name: Upload rebuilt JAR audit
         if: always()

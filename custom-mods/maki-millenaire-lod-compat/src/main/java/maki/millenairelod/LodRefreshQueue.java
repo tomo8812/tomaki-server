@@ -175,9 +175,14 @@ public final class LodRefreshQueue {
         if (lease==null) return false;
         long started = System.nanoTime();
         Snapshot snapshot;
+        SinkPlan plan;
         try {
-            SinkPlan plan=SinkPlan.capture(level,chunk);
-            if (plan.stores.isEmpty()) { lease.close(); return true; }
+            plan=SinkPlan.plan(level);
+            if (plan.stores.isEmpty()) {
+                lease.close();
+                plan.dispatchRenderers(level,chunk);
+                return true;
+            }
             snapshot=Snapshot.capture(level,chunk,plan);
             if (!lease.resize(snapshot.estimatedBytes())) { lease.close(); return false; }
             snapshot.lease=lease;
@@ -215,6 +220,11 @@ public final class LodRefreshQueue {
                 }
             }
         }
+
+        // No false/fallback return remains after this point. Renderer side effects
+        // happen only after lifecycle admission and worker acceptance, so caller
+        // fallback cannot duplicate renderer/Voxy offers.
+        snapshot.installRenderers(plan.dispatchRenderers(level,chunk));
 
         CAPTURED.incrementAndGet();
         if (existing) EXISTING_CAPTURED.incrementAndGet();
@@ -260,6 +270,7 @@ public final class LodRefreshQueue {
                 }
 
                 try {
+                    snapshot.awaitRenderers();
                     if (snapshot.server!=currentServer) continue;
                     long buildStart = System.nanoTime();
                     CsLodChunk record = build(snapshot);
@@ -423,34 +434,47 @@ public final class LodRefreshQueue {
 
     private static final class SinkPlan {
         final List<CsLodStoreSink> stores;
-        final List<RendererReceipt> renderers;
+        final List<LodSink> rendererSinks;
         final Path storeRoot;
         final MinecraftServer server;
 
-        SinkPlan(List<CsLodStoreSink> stores, List<RendererReceipt> renderers, Path storeRoot, MinecraftServer server) {
+        SinkPlan(List<CsLodStoreSink> stores, List<LodSink> rendererSinks, Path storeRoot, MinecraftServer server) {
             this.stores = stores;
-            this.renderers = renderers;
+            this.rendererSinks = rendererSinks;
             this.storeRoot = storeRoot;
             this.server = server;
         }
 
-        static SinkPlan capture(ServerLevel level, LevelChunk chunk) {
+        static SinkPlan plan(ServerLevel level) {
             LodSink root = LodSupport.sinkFor(level);
             List<CsLodStoreSink> stores = new ArrayList<>();
-            List<RendererReceipt> renderers = new ArrayList<>();
+            List<LodSink> renderers = new ArrayList<>();
             for (LodSink leaf : leaves(root)) {
-                if (leaf instanceof CsLodStoreSink store) {
-                    stores.add(store);
-                } else {
-                    long started = System.nanoTime();
-                    boolean accepted = leaf.offer(chunk);
-                    boolean voxy = VOXY_SINK.equals(leaf.getClass().getName());
-                    boolean directFed = voxy && accepted && leaf.feedsRendererDirectly();
-                    RENDERER_OFFER_NANOS.addAndGet(System.nanoTime() - started);
-                    renderers.add(new RendererReceipt(leaf, directFed, voxy));
-                }
+                if (leaf instanceof CsLodStoreSink store) stores.add(store);
+                else renderers.add(leaf);
             }
             return new SinkPlan(List.copyOf(stores), List.copyOf(renderers), LodSupport.storeRoot(level), level.getServer());
+        }
+
+        List<RendererReceipt> dispatchRenderers(ServerLevel level, LevelChunk chunk) {
+            List<RendererReceipt> receipts = new ArrayList<>(rendererSinks.size());
+            for (LodSink leaf : rendererSinks) {
+                long started = System.nanoTime();
+                boolean voxy = VOXY_SINK.equals(leaf.getClass().getName());
+                boolean directFed = false;
+                try {
+                    boolean accepted = leaf.offer(chunk);
+                    directFed = voxy && accepted && leaf.feedsRendererDirectly();
+                } catch (RuntimeException | LinkageError error) {
+                    // Store work is already admitted; returning fallback after any renderer
+                    // side effect would re-offer the composite and duplicate earlier sinks.
+                    LOG.warn("Could not offer live protected chunk to non-store LOD sink {}",leaf.getClass().getName(),error);
+                } finally {
+                    RENDERER_OFFER_NANOS.addAndGet(System.nanoTime() - started);
+                }
+                receipts.add(new RendererReceipt(leaf, directFed, voxy));
+            }
+            return List.copyOf(receipts);
         }
     }
 
@@ -483,7 +507,8 @@ public final class LodRefreshQueue {
         final int minSectionY;
         final SectionSnapshot[] sections;
         final List<CsLodStoreSink> stores;
-        final List<RendererReceipt> renderers;
+        volatile List<RendererReceipt> renderers = List.of();
+        final CompletableFuture<Void> renderersReady = new CompletableFuture<>();
         final Path storeRoot;
         final long blockSamples;
         final long uniqueBlockStates;
@@ -497,10 +522,18 @@ public final class LodRefreshQueue {
             this.minSectionY = minSectionY;
             this.sections = sections;
             this.stores = plan.stores;
-            this.renderers = plan.renderers;
             this.storeRoot = plan.storeRoot;
             this.blockSamples = blockSamples;
             this.uniqueBlockStates = uniqueBlockStates;
+        }
+
+        void installRenderers(List<RendererReceipt> receipts) {
+            this.renderers=receipts;
+            this.renderersReady.complete(null);
+        }
+
+        void awaitRenderers() {
+            this.renderersReady.join();
         }
 
         static Snapshot capture(ServerLevel level, LevelChunk chunk, SinkPlan plan) {

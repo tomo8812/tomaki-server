@@ -75,16 +75,23 @@ final class BackfillRetries {
             return false;
         }
 
+        if(source.size()>LIMIT) return false;
         LinkedHashMap<Key,Entry> disk=new LinkedHashMap<>();
         for (String key:source.stringPropertyNames()) {
-            if (disk.size()>=LIMIT) break;
             try {
                 int slash=key.lastIndexOf('/');
+                if(slash<=0 || slash==key.length()-1) return false;
                 String[] value=source.getProperty(key).split(",",3);
+                if(value.length!=3) return false;
                 disk.put(new Key(key.substring(0,slash),Long.parseLong(key.substring(slash+1))),
                     new Entry(Math.max(1,Math.min(16,Integer.parseInt(value[0]))),
                         Math.min(System.currentTimeMillis()+300_000L,Long.parseLong(value[1])),value[2]));
-            } catch (RuntimeException malformed) { /* existing-slot targets remain discoverable through cursor wrap */ }
+            } catch (RuntimeException malformed) {
+                // A malformed persisted coordinate may be the only discovery path for a
+                // first-write LOD failure. Keep the whole ledger unresolved and never
+                // overwrite it with a partial parse.
+                return false;
+            }
         }
         entries.clear();
         entries.putAll(disk);

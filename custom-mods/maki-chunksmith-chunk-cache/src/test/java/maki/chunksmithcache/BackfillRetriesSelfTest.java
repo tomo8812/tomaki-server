@@ -58,6 +58,25 @@ public final class BackfillRetriesSelfTest {
             && merged.waiting(dimension,11,1001),
             "repair merges persisted debt with failures observed during the read outage");
 
+        var malformedPath=directory.resolve("malformed.properties");
+        String malformedSource=dimension+"/20=1,6000,persisted-direct\nmalformed-entry=not-a-retry\n";
+        Files.writeString(malformedPath,malformedSource);
+        BackfillRetries malformed=new BackfillRetries();
+        require(!malformed.load(malformedPath),"malformed persisted debt keeps the entire ledger unresolved");
+        require(malformed.defer(dimension,21,1000,"observed-while-malformed"),"new debt is retained while malformed persisted state is unresolved");
+        boolean malformedRefused=false;
+        try { malformed.save(malformedPath); } catch(java.io.IOException expected) { malformedRefused=true; }
+        require(malformedRefused && Files.readString(malformedPath).equals(malformedSource),
+            "partial parse must never overwrite malformed persisted debt");
+        Files.writeString(malformedPath,dimension+"/20=1,6000,persisted-direct\n");
+        require(malformed.load(malformedPath),"repairing malformed persisted debt allows a fresh authoritative load");
+        malformed.save(malformedPath);
+        BackfillRetries malformedMerged=new BackfillRetries();
+        require(malformedMerged.load(malformedPath)
+            && malformedMerged.waiting(dimension,20,1001)
+            && malformedMerged.waiting(dimension,21,1001),
+            "repair preserves valid persisted debt and merges failures observed while malformed");
+
         require(BackfillController.retrySatisfied(CacheManager.CacheState.COMPLETE,NormalChunkStorage.State.ABSENT),
             "validated schema3 cache can retire retry debt");
         require(BackfillController.retrySatisfied(CacheManager.CacheState.UNKNOWN,NormalChunkStorage.State.FULL),
@@ -79,7 +98,7 @@ public final class BackfillRetriesSelfTest {
         CompletableFuture<Boolean> failed=new CompletableFuture<>(); LodCommitTracker.track(first,failed);
         LodCommitTracker.written(first,new java.io.IOException("disk failure"));
         require(failed.isCompletedExceptionally(),"native writer errors terminate the receipt");
-        Files.delete(path); Files.delete(guardedPath); Files.delete(directory);
+        Files.delete(path); Files.delete(guardedPath); Files.delete(malformedPath); Files.delete(directory);
         System.out.println("BackfillRetriesSelfTest PASS (retry fairness/restart/record ACK)");
     }
     private static void require(boolean ok,String reason) { if (!ok) throw new AssertionError(reason); }
