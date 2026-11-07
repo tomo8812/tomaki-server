@@ -2,6 +2,10 @@ package maki.chunksmithcache;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
@@ -12,6 +16,8 @@ public final class CachePipelineSelfTest {
     public static void main(String[] args) throws Exception {
         budget();
         promotions();
+        recovery();
+        publication();
         envelopes();
         disk();
         abi();
@@ -34,7 +40,8 @@ public final class CachePipelineSelfTest {
     }
 
     private static void promotions() throws Exception {
-        Path directory=Files.createTempDirectory("cache-promotion-test");
+        Path root=Files.createTempDirectory("cache-promotion-test");
+        Path directory=Files.createDirectories(root.resolve("dimension/epoch/r.0.0"));
         try {
             Path zero=directory.resolve("zero.nbt.gz");
             Files.writeString(zero,"zero");
@@ -81,15 +88,83 @@ public final class CachePipelineSelfTest {
             require(marker.canRetire(),"payload-free pending marker retires with native chunk ACK");
 
             Path emptyLive=directory.resolve("empty-live.nbt.gz");
-            Files.writeString(emptyLive,"schema2 empty fixture");
+            Files.writeString(emptyLive,"schema3 empty fixture");
             PromotionClaim emptyAdopted=PromotionClaim.adoptLive(emptyLive,false);
             emptyAdopted.chunkWrite(true);
             require(!emptyAdopted.canRetire() && emptyAdopted.beginClassification(),"unknown adopted payload retains entity obligation");
             emptyAdopted.classificationRejected();
             require(emptyAdopted.beginClassification(),"bounded reader rejection can be retried by maintenance");
             emptyAdopted.classified(true);
-            require(emptyAdopted.canRetire() && !emptyAdopted.beginClassification(),"verified schema2 empty payload needs no fabricated native entity ACK");
-        } finally { deleteTree(directory); }
+            require(emptyAdopted.canRetire() && !emptyAdopted.beginClassification(),"verified schema3 empty payload needs no fabricated native entity ACK");
+        } finally { deleteTree(root); }
+    }
+
+    private static void recovery() throws Exception {
+        Path dimension=Files.createTempDirectory("cache-recovery-test");
+        try {
+            Path old=Files.createDirectories(dimension.resolve("old-generation/r.0.0")).resolve("c.1.2.nbt.gz.in-use");
+            Files.writeString(old,"interrupted player state");
+            Path quarantined=Files.createDirectories(dimension.resolve(".quarantine/older/r.0.0")).resolve("c.3.4.nbt.gz.in-use");
+            Files.writeString(quarantined,"quarantined interrupted state");
+            Path newEntry=dimension.resolve("new-generation/r.0.0/c.1.2.nbt.gz");
+            Path claim=PromotionClaim.claimedPath(newEntry);
+            AtomicInteger submissions=new AtomicInteger();
+            java.util.ArrayList<Runnable> queued=new java.util.ArrayList<>();
+            java.util.concurrent.Executor executor=task -> { submissions.incrementAndGet(); queued.add(task); };
+            var first=RecoveryClaims.prepare(dimension,executor);
+            var concurrent=RecoveryClaims.prepare(dimension,executor);
+            require(first==concurrent && !first.isDone() && submissions.get()==1,"startup recovery is single flight without synchronous disk scan");
+            queued.removeFirst().run(); first.join();
+            require(!Files.exists(old) && Files.readString(claim).equals("interrupted player state"),"legacy payload is the generation-independent tombstone");
+            require(Files.isRegularFile(RecoveryClaims.root(dimension).resolve("r.0.0/c.3.4.nbt.gz.in-use")),"recover claims already moved into historical quarantine");
+            CacheDirectoryMerge.merge(dimension.resolve("old-generation"),dimension.resolve("merged-generation"));
+            deleteTree(dimension.resolve(".quarantine"));
+            require(Files.isRegularFile(claim),"merge/quarantine deletion cannot erase coordinate ownership");
+            Files.createDirectories(newEntry.getParent()); Files.writeString(newEntry,"new snapshot");
+            require(PromotionClaim.take(newEntry,true)==null,"new generation cannot replay an interrupted coordinate");
+            Path temporary=dimension.resolve("late.tmp"); Files.writeString(temporary,"late");
+            require(!PromotionClaim.publish(temporary,newEntry),"new generation cannot publish over old coordinate ownership");
+            RecoveryClaims.clear(dimension);
+            RecoveryClaims.prepare(dimension,Runnable::run).join();
+            require(Files.isRegularFile(claim),"restart preserves canonical claims before fingerprint readiness");
+        } finally { RecoveryClaims.clear(dimension); deleteTree(dimension); }
+        Path broken=Files.createTempDirectory("cache-recovery-failure");
+        try {
+            Path legacy=Files.createDirectories(broken.resolve("old/r.0.0")).resolve("c.1.2.nbt.gz.in-use");
+            Files.writeString(legacy,"must survive");
+            Files.writeString(RecoveryClaims.root(broken),"blocked-directory");
+            require(RecoveryClaims.prepare(broken,Runnable::run).isCompletedExceptionally(),"recovery I/O failure has an explicit terminal result");
+            require(Files.isRegularFile(legacy),"failed migration preserves the original payload");
+            Files.delete(RecoveryClaims.root(broken));
+            RecoveryClaims.prepare(broken,Runnable::run).join();
+            require(Files.isRegularFile(RecoveryClaims.root(broken).resolve("r.0.0/c.1.2.nbt.gz.in-use")),"repair retries migration rather than retaining a failed readiness latch");
+        } finally { RecoveryClaims.clear(broken); deleteTree(broken); }
+    }
+
+    private static void publication() {
+        AtomicInteger publications=new AtomicInteger();
+        CompletableFuture<Boolean> lod=new CompletableFuture<>(), cache=new CompletableFuture<>();
+        PublicationGate.afterLod(lod,cache,() -> { publications.incrementAndGet(); cache.complete(true); });
+        require(publications.get()==0 && !cache.isDone(),"detached capture waits without publishing while LOD is pending");
+        lod.complete(true);
+        require(publications.get()==1 && cache.join(),"native success permits exactly one publication");
+        lod.complete(true);
+        require(publications.get()==1,"duplicate native completion cannot publish twice");
+        for (int failure=0;failure<3;failure++) {
+            CompletableFuture<Boolean> failed=new CompletableFuture<>(), result=new CompletableFuture<>();
+            PublicationGate.afterLod(failed,result,publications::incrementAndGet);
+            if (failure==0) failed.complete(false);
+            else failed.completeExceptionally(failure==1 ? new java.io.IOException("native write failed") : new TimeoutException("native ACK expired"));
+            require(!result.join() && publications.get()==1,"LOD rejection/error/timeout cannot leave a visible cache that erases retry debt");
+        }
+        CompletableFuture<Boolean> late=new CompletableFuture<>(), expired=new CompletableFuture<>();
+        PublicationGate.afterLod(late,expired,publications::incrementAndGet);
+        expired.complete(false); // capture deadline/stop returns detached memory immediately
+        late.complete(true);
+        require(publications.get()==1,"late LOD ACK cannot revive expired or stopped capture");
+        CompletableFuture<Boolean> rejected=new CompletableFuture<>();
+        PublicationGate.afterLod(CompletableFuture.completedFuture(true),rejected,() -> { throw new java.util.concurrent.RejectedExecutionException(); });
+        require(!rejected.join(),"bounded writer rejection terminates without waiting forever");
     }
 
     private static void envelopes() throws Exception {
@@ -105,6 +180,12 @@ public final class CachePipelineSelfTest {
         chunk.put("entities",new ListTag()); envelope.put("chunk",chunk);
         require(!CacheEnvelope.completeEntities(envelope),"schema1 cannot claim entity completeness");
         envelope.putInt("schema",2);
+        envelope.putBoolean("lodCommitted",true);
+        require(!CacheEnvelope.completeEntities(envelope),"draft schema2 cannot prove native LOD acknowledgement");
+        envelope.putInt("schema",CacheEnvelope.SCHEMA);
+        envelope.remove("lodCommitted");
+        require(!CacheEnvelope.completeEntities(envelope),"missing LOD acknowledgement is not complete");
+        envelope.putBoolean("lodCommitted",true);
         require(CacheEnvelope.completeEntities(envelope),"empty entity set is explicitly complete");
         chunk.remove("entities");
         require(!CacheEnvelope.completeEntities(envelope),"missing is not empty");
@@ -124,6 +205,12 @@ public final class CachePipelineSelfTest {
     }
 
     private static void disk() throws Exception {
+        var oldSchema=new FingerprintManifest.Entry("cache:envelope-schema",1,CompatibilityFingerprint.sha256("2"),FingerprintManifest.Impact.RELEVANT,"protocol");
+        var newSchema=new FingerprintManifest.Entry("cache:envelope-schema",1,CompatibilityFingerprint.sha256("3"),FingerprintManifest.Impact.RELEVANT,"protocol");
+        require(!CompatibilityFingerprint.compute(List.of(oldSchema)).equals(CompatibilityFingerprint.compute(List.of(newSchema))),"protocol change cannot reuse old cache paths in generated hints");
+        var oldManifest=new FingerprintManifest.Manifest(CompatibilityFingerprint.compute(List.of()),0,java.util.Set.of(),List.of());
+        var newManifest=new FingerprintManifest.Manifest(CompatibilityFingerprint.compute(List.of(newSchema)),0,java.util.Set.of(),List.of(newSchema));
+        require(!FingerprintManifest.sameCompatibilityInputsExcept(oldManifest,newManifest,java.util.Set.of("policy:compatibility"),null),"historical semantic adoption cannot bypass the missing protocol proof");
         Path root=Files.createTempDirectory("cache-disk-test");
         try {
             Path configuration=root.resolveSibling(root.getFileName()+".properties");

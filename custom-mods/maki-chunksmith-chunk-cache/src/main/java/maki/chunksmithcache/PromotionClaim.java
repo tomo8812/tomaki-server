@@ -24,14 +24,17 @@ final class PromotionClaim {
     }
 
     static Path claimedPath(Path available) {
-        return available.resolveSibling(available.getFileName() + ".in-use");
+        Path region=available.getParent();
+        Path dimension=region.getParent().getParent();
+        return RecoveryClaims.root(dimension).resolve(region.getFileName()).resolve(available.getFileName()+".in-use");
     }
 
     static PromotionClaim take(Path available, boolean hasEntities) throws IOException {
-        try(var ignored=CachePathLocks.lock(available)) {
+        try(var ignored=CachePathLocks.lock(claimedPath(available))) {
         Path target = claimedPath(available);
         if (Files.exists(target) || !Files.isRegularFile(available)) return null;
-        // Same directory/filesystem. If atomic rename is unavailable, refuse promotion.
+        Files.createDirectories(target.getParent());
+        // Same filesystem. If atomic rename is unavailable, refuse promotion.
         // A copy/delete fallback could expose the same snapshot twice after a crash.
         Files.move(available, target, StandardCopyOption.ATOMIC_MOVE);
         return new PromotionClaim(target, hasEntities);
@@ -39,7 +42,7 @@ final class PromotionClaim {
     }
 
     static boolean publish(Path temporary, Path available) throws IOException {
-        try(var ignored=CachePathLocks.lock(available)) {
+        try(var ignored=CachePathLocks.lock(claimedPath(available))) {
         if (Files.exists(claimedPath(available))) return false;
         try { Files.move(temporary, available, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
         catch (AtomicMoveNotSupportedException unsupported) { Files.move(temporary, available, StandardCopyOption.REPLACE_EXISTING); }
@@ -48,13 +51,13 @@ final class PromotionClaim {
     }
 
     static PromotionClaim adoptLive(Path available, boolean capturePending) throws IOException {
-        try(var ignored=CachePathLocks.lock(available)) {
+        try(var ignored=CachePathLocks.lock(claimedPath(available))) {
         if (Files.exists(claimedPath(available))) return null;
         PromotionClaim claim = take(available,true); // Conservatively retain unknown entity payload until an entity ACK.
         if(claim!=null) claim.entityCountKnown=false;
         if (claim==null && capturePending) {
-            Files.createDirectories(available.getParent());
             Path marker=claimedPath(available);
+            Files.createDirectories(marker.getParent());
             Files.createFile(marker); // Also prevents a delayed capture from making old state available again.
             claim=new PromotionClaim(marker,false);
         }

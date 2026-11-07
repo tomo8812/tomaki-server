@@ -587,7 +587,7 @@ public final class BackfillController {
       }
       // Both calls snapshot while the FULL request still owns its ticket.
       // From this point workers own detached data, never a live LevelChunk.
-      CompletableFuture<Boolean> cacheWritten = CacheManager.capture(level, chunk, true);
+      CompletableFuture<Boolean> cacheWritten = CacheManager.capture(level, chunk, true, lodWritten);
       state.storagePending = true;
       MillenaireBridge.restore(previousSuppression);
       state.previousSuppression = null;
@@ -769,6 +769,19 @@ public final class BackfillController {
 
    private static String retryDimension(ServerLevel level) {
       return CacheManager.dimensionKey(level)+"@"+Fingerprint.forLevel(level);
+   }
+   static void retryDirectLod(ServerLevel level,ChunkPos pos,String fingerprint) {
+      State state;
+      synchronized(STATES) { state=STATES.get(level.getServer()); }
+      if(state==null || state.stopping) return;
+      SCAN.execute(() -> {
+         if(state.stopping) return;
+         state.retries.load(retryPath(level.getServer()));
+         if(!state.retries.defer(CacheManager.dimensionKey(level)+"@"+fingerprint,pos.toLong(),System.currentTimeMillis(),"direct-lod-write-failed"))
+            LOG.error("LOD retry ledger is full; direct coordinate {} in {} has no guaranteed discovery slot; retry this coordinate after repairing storage",pos,level.dimension().location());
+         try { state.retries.save(retryPath(level.getServer())); }
+         catch(IOException error) { LOG.warn("Could not persist direct LOD retry for {}",pos,error); }
+      });
    }
    private static Path retryPath(MinecraftServer server) {
       return server.getWorldPath(LevelResource.ROOT).resolve("chunksmith_chunk_cache/backfill-retries-v1.properties");
@@ -1010,11 +1023,13 @@ public final class BackfillController {
                Path region=CacheManager.lodRoot(var4).resolve("r."+Math.floorDiv(pos.x,32)+"."+Math.floorDiv(pos.z,32)+".cslod");
                int slot=Math.floorMod(pos.x,32)+Math.floorMod(pos.z,32)*32;
                int[] header=readSlot(region,slot);
-               if (header==null || header[0]<=0 || header[1]<=0 || CacheManager.cacheExists(var4,pos,var3.fingerprint())) {
+               if (CacheManager.cacheExists(var4,pos,var3.fingerprint()) || NormalChunkStorage.inspect(var4,pos)==NormalChunkStorage.State.FULL) {
                   var1.retries.complete(retryDimension,pos.toLong());
                   continue;
                }
-               var1.scopeScan=new ScopeScan(var4,new Target(pos,region,slot,header[0],header[1],true),var3.fingerprint());
+               // Explicit failure debt can precede the first LOD slot. The speculative native
+               // presence bitmap is not evidence that the writer ever produced that slot.
+               var1.scopeScan=new ScopeScan(var4,new Target(pos,region,slot,header==null?0:header[0],header==null?0:header[1],true),var3.fingerprint());
                return continueScope(var1);
             }
          }

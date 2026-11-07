@@ -10,13 +10,14 @@ final class BackfillRetries {
     record Entry(int attempts, long retryAt, String reason) {}
     private final Map<Key, Entry> entries = new LinkedHashMap<>();
     private boolean loaded;
-    synchronized void defer(String dimension, long pos, long now, String reason) {
+    synchronized boolean defer(String dimension, long pos, long now, String reason) {
         Key key = new Key(dimension,pos);
         Entry previous = entries.get(key);
-        if (previous == null && entries.size() >= 4096) return; // cursor wrap remains the bounded-memory fallback
+        if (previous == null && entries.size() >= 4096) return false; // existing-slot targets remain discoverable through cursor wrap
         int attempts = previous == null ? 1 : Math.min(16,previous.attempts+1);
         long delay = Math.min(300_000L, 5_000L << Math.min(6,attempts-1));
         entries.put(key,new Entry(attempts,now+delay,reason));
+        return true;
     }
     synchronized boolean waiting(String dimension,long pos,long now) {
         Entry entry=entries.get(new Key(dimension,pos));

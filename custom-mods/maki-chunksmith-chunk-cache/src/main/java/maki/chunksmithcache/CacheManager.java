@@ -73,7 +73,7 @@ public final class CacheManager {
    private CacheManager() {
    }
 
-   public static void captureFromChunksmith(ServerLevel level, LevelChunk chunk) {
+   public static void captureFromChunksmith(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> lodCommitted) {
       PipelineMetrics.count("direct-full-candidates");
       // A generic LodSupport.offer can also come from save/unload refreshes or
       // another owner's task. Only the world-adapter call site invokes us now.
@@ -83,7 +83,13 @@ public final class CacheManager {
          PipelineMetrics.count("direct-ineligible");
          return;
       }
-      capture(level, chunk, false);
+      ChunkPos pos=chunk.getPos();
+      lodCommitted.whenComplete((saved,error) -> {
+         if(error!=null || !Boolean.TRUE.equals(saved)) Fingerprint.whenReady(level).thenAccept(fingerprint -> {
+            if(fingerprint!=null) BackfillController.retryDirectLod(level,pos,fingerprint.fingerprint());
+         });
+      });
+      capture(level, chunk, false, lodCommitted);
    }
 
    /**
@@ -136,7 +142,7 @@ public final class CacheManager {
       return new CaptureKey(level, pos.toLong());
    }
 
-   static CompletableFuture<Boolean> capture(ServerLevel var0, LevelChunk var1, boolean var2) {
+   static CompletableFuture<Boolean> capture(ServerLevel var0, LevelChunk var1, boolean var2, CompletableFuture<Boolean> lodCommitted) {
       if (!var0.getServer().isSameThread()) throw new IllegalStateException("Chunk snapshot requires server thread");
       String source = var2 ? "backfill" : "direct";
       CaptureKey key = captureKey(var0, var1.getPos());
@@ -154,7 +160,7 @@ public final class CacheManager {
       });
       PipelineMetrics.count(source + "-capture-started");
       try {
-         captureSnapshot(var0, var1, result);
+         captureSnapshot(var0, var1, result, lodCommitted);
       } catch (Throwable error) {
          LOG.warn("Could not capture chunk {}; regeneration remains available", var1.getPos(), error);
          result.complete(false);
@@ -163,7 +169,7 @@ public final class CacheManager {
    }
 
    /** Takes the complete snapshot synchronously, while the caller still owns its native ticket. */
-   private static void captureSnapshot(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> result) {
+   private static void captureSnapshot(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> result, CompletableFuture<Boolean> lodCommitted) {
       if (STOPPING.contains(level.getServer())) { result.complete(false); return; }
       CaptureBudget.Lease memory = CAPTURE_BUDGET.tryAcquire(SNAPSHOT_ESTIMATE);
       if (memory == null) { PipelineMetrics.count("capture-memory-rejected"); result.complete(false); return; }
@@ -177,7 +183,7 @@ public final class CacheManager {
       }
       InspectionPermit inspection=new InspectionPermit(level.getServer());
       LIVE_INSPECTIONS.add(inspection);
-      CaptureWork work = new CaptureWork(memory, storage, result, inspection);
+      CaptureWork work = new CaptureWork(memory, storage, result, inspection, lodCommitted);
       result.whenComplete((ok, error) -> work.terminal());
       boolean submitted = false;
       try {
@@ -193,6 +199,7 @@ public final class CacheManager {
          CompoundTag envelope = new CompoundTag();
          envelope.putInt("schema", SCHEMA);
          envelope.putBoolean("entitiesComplete", true);
+         envelope.putBoolean("lodCommitted", false); // Account for the publication receipt before reserving measured bytes.
          envelope.putString("fingerprint", fingerprint.fingerprint());
          envelope.putString("dimension", level.dimension().location().toString());
          envelope.putInt("x", pos.x); envelope.putInt("z", pos.z);
@@ -220,7 +227,10 @@ public final class CacheManager {
       if (work.result.isDone()) { work.inspection.close(); return; }
       long started = System.nanoTime();
       CompletableFuture<NormalChunkStorage.State> inspected;
-      try { inspected = NormalChunkStorage.inspectAsync(level, pos); }
+      try {
+         RecoveryClaims.initialize(cacheRoot(level).resolve(dimensionKey(level)));
+         inspected = NormalChunkStorage.inspectAsync(level, pos);
+      }
       catch (Throwable error) { work.inspection.close(); work.result.complete(false); return; }
       inspected.whenComplete((normal, error) -> {
          work.inspection.close();
@@ -230,15 +240,21 @@ public final class CacheManager {
             || Files.exists(PromotionClaim.claimedPath(file)) || STOPPING.contains(level.getServer())) {
             PipelineMetrics.count("capture-normal-storage-rejected"); work.result.complete(false); return;
          }
-         long writeQueuedAt=System.nanoTime();
-         try { WRITE_IO.execute(() -> publishCapture(level.getServer(), file, work, writeQueuedAt)); }
-         catch (RejectedExecutionException rejected) { PipelineMetrics.count("capture-queue-rejected"); work.result.complete(false); }
+         // Snapshotting and native inspection overlap the LOD writer, but a visible cache
+         // entry must also prove its LOD obligation was met. Otherwise discovery would
+         // skip the coordinate and erase a failed LOD write's retry debt.
+         PublicationGate.afterLod(work.lodCommitted, work.result, () -> {
+            long writeQueuedAt=System.nanoTime();
+            try { WRITE_IO.execute(() -> publishCapture(level.getServer(), file, work, writeQueuedAt)); }
+            catch (RejectedExecutionException rejected) { PipelineMetrics.count("capture-queue-rejected"); work.result.complete(false); }
+         });
       });
    }
 
    private static void publishCapture(MinecraftServer server, Path file, CaptureWork work, long queuedAt) {
       CompoundTag envelope = work.beginWrite();
       if (envelope == null) return;
+      envelope.putBoolean("lodCommitted", true);
       PipelineMetrics.time("cache-queue", System.nanoTime()-queuedAt);
       Path temporary = file.resolveSibling(file.getFileName()+".tmp-"+Long.toUnsignedString(System.nanoTime()));
       try {
@@ -267,9 +283,11 @@ public final class CacheManager {
       final CacheDiskBudget.Lease storage;
       final CompletableFuture<Boolean> result;
       final InspectionPermit inspection;
+      final CompletableFuture<Boolean> lodCommitted;
       private boolean writing;
-      CaptureWork(CaptureBudget.Lease memory, CacheDiskBudget.Lease storage, CompletableFuture<Boolean> result, InspectionPermit inspection) {
+      CaptureWork(CaptureBudget.Lease memory, CacheDiskBudget.Lease storage, CompletableFuture<Boolean> result, InspectionPermit inspection, CompletableFuture<Boolean> lodCommitted) {
          this.memory=memory; this.storage=storage; this.result=result; this.inspection=inspection;
+         this.lodCommitted=lodCommitted;
       }
       synchronized CompoundTag beginWrite() {
          if (result.isDone()) return null;
@@ -302,6 +320,26 @@ public final class CacheManager {
    }
 
    public static CompletableFuture<Optional<CompoundTag>> loadIfPresent(ServerLevel var0, ChunkPos var1) {
+      Path dimension=cacheRoot(var0).resolve(dimensionKey(var0));
+      // Ownership is independent of fingerprint readiness and admission vetoes.
+      // Concurrent loads share off-thread startup inventory, never a server-thread scan.
+      return RecoveryClaims.prepare(dimension,VALIDATE_IO).copy().orTimeout(30,TimeUnit.SECONDS).thenCompose(ignored -> {
+         Path claim=RecoveryClaims.root(dimension).resolve("r."+Math.floorDiv(var1.x,32)+"."+Math.floorDiv(var1.z,32))
+            .resolve("c."+var1.x+"."+var1.z+".nbt.gz.in-use");
+         if(Files.exists(claim)) {
+            PromotionLedger.blockReplay(var0,var1,claim);
+            PipelineMetrics.count("promotion-replay-blocked");
+            return CompletableFuture.completedFuture(Optional.empty());
+         }
+         return loadReadyCache(var0,var1);
+      }).whenComplete((cached,error) -> {
+         // Vanilla catches read failures and can substitute an empty ProtoChunk. Keep the
+         // ownership failure until the outer scheduleChunkLoad boundary rejects that fallback.
+         if(error!=null && !STOPPING.contains(var0.getServer())) PromotionLedger.blockReplay(var0,var1,RecoveryClaims.root(dimension));
+      });
+   }
+
+   private static CompletableFuture<Optional<CompoundTag>> loadReadyCache(ServerLevel var0, ChunkPos var1) {
       if (!BackfillGuard.suppress(var0, var1) && promotionAllowed(var0, var1)) {
          Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
          if (snapshot == null) {
@@ -602,6 +640,7 @@ public final class CacheManager {
       CAPTURE_PENDING.forEach((key,flight) -> { if(key.level().getServer()==server) flight.result().complete(false); });
       LIVE_INSPECTIONS.forEach(permit -> { if(permit.server==server) permit.close(); });
       PromotionLedger.clear(server);
+      for(ServerLevel level:server.getAllLevels()) RecoveryClaims.clear(cacheRoot(level).resolve(dimensionKey(level)));
       synchronized(NEXT_MAINTENANCE) { NEXT_MAINTENANCE.remove(server); }
       synchronized(NEXT_DISK_REFRESH) { NEXT_DISK_REFRESH.remove(server); }
    }

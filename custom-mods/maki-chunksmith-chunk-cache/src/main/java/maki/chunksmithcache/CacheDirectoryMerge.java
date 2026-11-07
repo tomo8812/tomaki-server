@@ -26,10 +26,12 @@ final class CacheDirectoryMerge {
         try (Stream<Path> stream = Files.walk(source)) {
             files = stream
                 .filter(Files::isRegularFile)
-                .filter(path -> path.getFileName().toString().endsWith(".nbt.gz"))
                 .sorted(Comparator.comparing(Path::toString))
                 .toList();
         }
+        if(files.stream().anyMatch(path -> path.getFileName().toString().endsWith(".in-use")))
+            throw new IOException("Recover interrupted promotion ownership before merging "+source);
+        files=files.stream().filter(path -> path.getFileName().toString().endsWith(".nbt.gz")).toList();
 
         long adopted = 0L;
         long duplicates = 0L;

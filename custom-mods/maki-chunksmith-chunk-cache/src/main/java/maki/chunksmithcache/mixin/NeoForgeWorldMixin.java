@@ -3,7 +3,7 @@ package maki.chunksmithcache.mixin;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import com.kishku7.chunksmith.mixin.ServerChunkCacheMixin;
-import com.kishku7.chunksmith.lod.LodSupport;
+import maki.chunksmithcache.LodCommitTracker;
 import maki.chunksmithcache.PipelineMetrics;
 import net.minecraft.server.level.ChunkResult;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -41,9 +41,10 @@ public abstract class NeoForgeWorldMixin {
       target="Lcom/kishku7/chunksmith/lod/LodSupport;offer(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;)V"), require=1)
    private void maki$offerAndCapture(ServerLevel level, LevelChunk chunk) {
       long started = System.nanoTime();
-      try { LodSupport.offer(level, chunk); }
+      CompletableFuture<Boolean> lodWritten;
+      try { lodWritten = LodCommitTracker.offer(level, chunk); }
       finally { PipelineMetrics.time("lod-offer", System.nanoTime()-started); }
-      CacheManager.captureFromChunksmith(level, chunk);
+      CacheManager.captureFromChunksmith(level, chunk, lodWritten);
    }
 
    @Redirect(method="getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;", at=@At(value="INVOKE",

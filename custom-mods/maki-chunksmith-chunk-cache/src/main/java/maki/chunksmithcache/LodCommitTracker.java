@@ -15,7 +15,7 @@ public final class LodCommitTracker {
     private record Request(int x, int z, CompletableFuture<Boolean> future) {}
     private LodCommitTracker() {}
 
-    static CompletableFuture<Boolean> offer(ServerLevel level, LevelChunk chunk) {
+    public static CompletableFuture<Boolean> offer(ServerLevel level, LevelChunk chunk) {
         CompletableFuture<Boolean> result = new CompletableFuture<>();
         Request previous = CURRENT.get();
         CURRENT.set(new Request(chunk.getPos().x, chunk.getPos().z, result));
