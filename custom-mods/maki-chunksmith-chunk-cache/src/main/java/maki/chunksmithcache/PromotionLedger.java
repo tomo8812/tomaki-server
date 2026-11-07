@@ -99,8 +99,13 @@ public final class PromotionLedger {
     }
 
     private static void retire(Key key, PromotionClaim claim) {
-        if (!claim.canRetire()) return;
-        CacheManager.retireClaim(claim.path(), () -> ACTIVE.remove(key, claim));
+        if (!claim.beginRetirement()) return;
+        boolean queued=CacheManager.retireClaim(
+            claim.path(),
+            () -> ACTIVE.remove(key, claim),
+            claim::retirementRejected
+        );
+        if(!queued) claim.retirementRejected();
     }
 
     private static void classify(Key key,PromotionClaim claim) {
@@ -109,7 +114,13 @@ public final class PromotionLedger {
     }
 
     static void classifyPending(MinecraftServer server) {
-        ACTIVE.forEach((key,claim) -> { if(key.level().getServer()==server) classify(key,claim); });
+        ACTIVE.forEach((key,claim) -> {
+            if(key.level().getServer()!=server) return;
+            // ACK completion can race a full WRITE_IO queue. Retry any fully
+            // acknowledged claim here; beginRetirement prevents duplicate queued deletes.
+            retire(key,claim);
+            classify(key,claim);
+        });
     }
 
     static void clear(MinecraftServer server) {

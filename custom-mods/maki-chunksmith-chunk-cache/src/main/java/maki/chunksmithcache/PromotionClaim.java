@@ -18,6 +18,7 @@ final class PromotionClaim {
     private boolean entitiesWritten;
     private boolean failed;
     private int pendingPublications;
+    private boolean retirementQueued;
 
     private PromotionClaim(Path claimed, boolean needsEntityWrite) {
         this.claimed = claimed;
@@ -102,5 +103,11 @@ final class PromotionClaim {
     synchronized boolean canRetire() {
         return loaded && !failed && chunkWritten && pendingPublications == 0 && (!needsEntityWrite || entitiesWritten);
     }
+    synchronized boolean beginRetirement() {
+        if (retirementQueued || !canRetire()) return false;
+        retirementQueued=true;
+        return true;
+    }
+    synchronized void retirementRejected() { retirementQueued=false; }
     Path path() { return claimed; }
 }

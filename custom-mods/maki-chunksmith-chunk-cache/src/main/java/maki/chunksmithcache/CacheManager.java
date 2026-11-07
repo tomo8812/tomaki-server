@@ -494,14 +494,21 @@ public final class CacheManager {
       written.whenComplete((ignored,error) -> { if(error==null) retireClaim(file, () -> {}); });
    }
 
-   static void retireClaim(Path file, Runnable completed) {
-      submitMaintenance(() -> {
+   static boolean retireClaim(Path file, Runnable completed) {
+      return retireClaim(file,completed,() -> {});
+   }
+
+   static boolean retireClaim(Path file, Runnable completed, Runnable retryableFailure) {
+      return submitMaintenance(() -> {
          try {
             long bytes=Files.isRegularFile(file)?Files.size(file):0L;
             Files.deleteIfExists(file);
             CacheDiskBudget.at(file.getParent().getParent().getParent().getParent()).deleted(bytes);
             completed.run();
-         } catch(IOException error) { LOG.warn("Could not retire saved chunk cache {}; keeping unavailable payload",file,error); }
+         } catch(IOException error) {
+            retryableFailure.run();
+            LOG.warn("Could not retire saved chunk cache {}; keeping unavailable payload for maintenance retry",file,error);
+         }
       });
    }
 

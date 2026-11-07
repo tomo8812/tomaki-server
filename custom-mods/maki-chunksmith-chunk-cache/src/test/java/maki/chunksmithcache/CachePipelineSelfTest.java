@@ -52,6 +52,10 @@ public final class CachePipelineSelfTest {
             require(!empty.canRetire(),"save enqueue is not an ACK");
             empty.chunkWrite(true);
             require(empty.canRetire(),"zero entities needs only chunk write ACK");
+            require(empty.beginRetirement() && !empty.beginRetirement(),"only one retirement task may be queued for a claim");
+            empty.retirementRejected();
+            require(empty.beginRetirement(),"queue rejection reopens retirement for the next maintenance pass");
+            empty.retirementRejected();
 
             Path populated=directory.resolve("entities.nbt.gz");
             Files.writeString(populated,"entities");
