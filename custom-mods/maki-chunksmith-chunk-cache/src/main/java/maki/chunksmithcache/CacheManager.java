@@ -144,11 +144,21 @@ public final class CacheManager {
       CompoundTagBridge.put(var5, "chunk", var4);
       rotateGenerations(var0, snapshot, "capture");
       Path var6 = path(var0, var1.getPos(), var3);
+      ChunkPos capturedPos = var1.getPos();
       long queuedAt = System.nanoTime();
       Runnable var8 = () -> {
          PipelineMetrics.time("cache-queue", System.nanoTime() - queuedAt);
          long writeStarted = System.nanoTime();
          try {
+            // Horizon eligibility is necessary, but not proof that normal FULL
+            // storage is absent (e.g. an older saved chunk not in task state).
+            // Classify on the writer, never join disk I/O on the server thread.
+            NormalChunkStorage.State normal = NormalChunkStorage.inspect(var0, capturedPos);
+            if (normal == NormalChunkStorage.State.FULL || normal == NormalChunkStorage.State.UNKNOWN) {
+               PipelineMetrics.count("capture-normal-storage-rejected");
+               var7.complete(false);
+               return;
+            }
             Files.createDirectories(var6.getParent());
             Path var3x = var6.resolveSibling(var6.getFileName().toString() + ".tmp-" + Long.toUnsignedString(System.nanoTime()));
             NbtIo.writeCompressed(var5, var3x);

@@ -203,6 +203,8 @@ public final class BackfillController {
       if (decision.rejection() != null) {
          String stage = decision.afterDrain() ? "postflight-" : "preflight-";
          PipelineMetrics.count(stage + decision.rejection());
+         LOG.debug("Backfill candidate rejected: dimension={}, chunk={}, stage={}, reason={}, scopeSize={}",
+            candidate.level().dimension().location(), candidate.target().pos(), stage, decision.rejection(), candidate.suppressed().size());
          if (decision.afterDrain()) releaseResourceBudget(state, decision.rejection());
          deferPending(state, candidate, stage + decision.rejection());
       } else if (decision.ready()) {
