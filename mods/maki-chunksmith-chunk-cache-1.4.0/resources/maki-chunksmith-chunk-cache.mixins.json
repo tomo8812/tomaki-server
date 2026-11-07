@@ -1,0 +1,25 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "maki.chunksmithcache.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "ChunkMapReadMixin",
+    "ChunkMapLifecycleAccessor",
+    "ChunkMapSaveMixin",
+    "SectionStorageMixin",
+    "EntityStorageMixin",
+    "ServerLevelUnloadMixin",
+    "MinecraftServerMixin",
+    "NeoForgeWorldMixin",
+    "GenerationRequestMixin",
+    "LodStoreCommitMixin",
+    "ServerLevelEntityAccessor",
+    "EntitySectionManagerAccessor",
+    "EntityStorageWriteAckMixin",
+    "LevelChunkPostLoadMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

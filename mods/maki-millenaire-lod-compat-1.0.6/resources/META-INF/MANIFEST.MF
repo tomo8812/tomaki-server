@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Implementation-Title: Maki Millenaire Chunksmith Compatibility
+Implementation-Version: 1.0.6
+

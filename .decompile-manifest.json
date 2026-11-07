@@ -125,10 +125,10 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "3464fc7284bc684525086648c5c3668d3f1c20c14a2083d48f9686a2dbceca8c"
     },
-    "mods/maki-chunksmith-chunk-cache-1.2.2.jar": {
-      "blob_oid": "8cf497cd6c86ac71b840e1a39d953cf67c5a707b",
-      "output": "mods/maki-chunksmith-chunk-cache-1.2.2",
-      "sha256": "2b85b34e8e68558674cf71ddd2128de8d6e083ff125c699282429b8be0c31b83"
+    "mods/maki-chunksmith-chunk-cache-1.4.0.jar": {
+      "blob_oid": "82c1b2bed1a921030afead140c7cf96280ba7a8c",
+      "output": "mods/maki-chunksmith-chunk-cache-1.4.0",
+      "sha256": "eec20dc4e97e1f77f8915cda15fd82d6d63e8df50d8623012819fb881af7b6fb"
     },
     "mods/maki-diorama-share-1.0.1.jar": {
       "blob_oid": "c5bf0011c7a0f4ac2aa5e415338bb0fe4c67fb64",
@@ -140,20 +140,20 @@
       "output": "mods/maki-idle-pregen-1.1.1",
       "sha256": "85edab9fbce7fd0a643aead86577e269037fc39fe84606c229f1d446441a5f12"
     },
-    "mods/maki-lod-cpu-1.4.0.jar": {
-      "blob_oid": "69f9a00d2cd819e625a198090c4ed0dfcbedd0a8",
-      "output": "mods/maki-lod-cpu-1.4.0",
-      "sha256": "2cd157f1b78378f41863e6cfdfe545c3763dc3ddb1f0bce3cbfa6d9fd1d77799"
+    "mods/maki-lod-cpu-1.4.1.jar": {
+      "blob_oid": "5bed403e46e6842a2fa8dc20b0fa59fecdbf8220",
+      "output": "mods/maki-lod-cpu-1.4.1",
+      "sha256": "5aafaecef4ac742870c09a0353f20f66fdb6589cbb91fe33cd656c06e4638518"
     },
     "mods/maki-lod-cpu-online-fix-1.0.3.jar": {
       "blob_oid": "11f04d03bc1fc17e6ec503b0e5bdcc020926787b",
       "output": "mods/maki-lod-cpu-online-fix-1.0.3",
       "sha256": "2217e4f0267b8786016e5f2ddbf6491eb4165f37e17439f23b7003f1cd1de206"
     },
-    "mods/maki-millenaire-lod-compat-1.0.5.jar": {
-      "blob_oid": "8e4742591ef2415dd5e67809cca2f955d012fb49",
-      "output": "mods/maki-millenaire-lod-compat-1.0.5",
-      "sha256": "3e53dec8f788940b7d4c41b57790736fed450cab0af3fbf0375a16ad201450f1"
+    "mods/maki-millenaire-lod-compat-1.0.6.jar": {
+      "blob_oid": "2e130091f7b9feef41dce5e8ce3ad025a8cafbbe",
+      "output": "mods/maki-millenaire-lod-compat-1.0.6",
+      "sha256": "27d466ac52e1bbb510ee639294ab6713fdebac16597f146affa3d9d6660dfc52"
     },
     "mods/maki-mods-observer-1.0.0.jar": {
       "blob_oid": "33c1aa180cd453fd463b5f4687e1d660184f76d8",
