@@ -411,7 +411,12 @@ public final class CacheManager {
                            quarantineRejected(var3);
                            return Optional.empty();
                         }
-                        if (!PromotionLedger.claim(var0, var1, var3, !var5x.getList("entities", 10).isEmpty())) return Optional.empty();
+                        try {
+                           if (!PromotionLedger.claim(var0, var1, var3, !var5x.getList("entities", 10).isEmpty())) return Optional.empty();
+                        } catch(IOException ownershipFailure) {
+                           PipelineMetrics.count("promotion-claim-acquire-failed");
+                           throw new java.io.UncheckedIOException("Cannot acquire promotion ownership at "+claim,ownershipFailure);
+                        }
                         return Optional.of(var5x);
                      } else {
                         quarantineRejected(var3);
@@ -512,40 +517,37 @@ public final class CacheManager {
       } catch(RejectedExecutionException full) { return false; }
    }
 
-   static boolean cacheExists(ServerLevel var0, ChunkPos var1) {
-      Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
-      return snapshot != null && cacheExists(var0, var1, snapshot.fingerprint());
-   }
+   enum CacheState { ABSENT, COMPLETE, CLAIMED, UNKNOWN }
 
-   static boolean cacheExists(ServerLevel var0, ChunkPos var1, String var2) {
+   static CacheState cacheState(ServerLevel var0, ChunkPos var1, String var2) {
       Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
       if (snapshot != null && snapshot.fingerprint().equals(var2)) {
          rotateGenerations(var0, snapshot, "scan");
       }
       Path file = path(var0, var1, var2);
-      // A consumed payload is deliberately unavailable for replay, but is not a Backfill hole.
-      // Inspection failures are also not holes: fail closed rather than regenerate over unknown ownership.
+      // A claim blocks generation but does not by itself prove the LOD retry obligation
+      // is complete: adoptLive can create a payload-free marker while capture is pending.
       try {
-         if (RecoveryClaims.claimExists(PromotionClaim.claimedPath(file))) return true;
+         if (RecoveryClaims.claimExists(PromotionClaim.claimedPath(file))) return CacheState.CLAIMED;
       } catch(IOException claimError) {
          PipelineMetrics.count("promotion-claim-inspection-failed");
-         return true;
+         return CacheState.UNKNOWN;
       }
       if (!Files.isRegularFile(file)) {
-         return false;
+         return CacheState.ABSENT;
       }
 
       try {
          CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
          if (validEnvelope(root, var0, var1, var2)) {
-            return true;
+            return CacheState.COMPLETE;
          }
          quarantineRejected(file);
-         return false;
+         return CacheState.ABSENT;
       } catch (Throwable error) {
          quarantineRejected(file);
          LOG.warn("Ignoring invalid chunk cache {}; it remains eligible for backfill", new Object[]{file, error});
-         return false;
+         return CacheState.ABSENT;
       }
    }
 

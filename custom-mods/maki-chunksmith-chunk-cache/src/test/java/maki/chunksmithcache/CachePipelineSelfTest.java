@@ -149,6 +149,13 @@ public final class CachePipelineSelfTest {
             try { RecoveryClaims.claimExists(claim); }
             catch(java.io.IOException expected) { failed=true; }
             require(failed,"claim inspection I/O errors cannot be treated as confirmed absence");
+            Path available=Files.createDirectories(ambiguous.resolve("epoch/r.0.0")).resolve("c.1.2.nbt.gz");
+            Files.writeString(available,"available cache");
+            failed=false;
+            try { PromotionClaim.take(available,false); }
+            catch(java.io.IOException expected) { failed=true; }
+            require(failed && Files.isRegularFile(available),
+                "final promotion acquisition propagates ownership I/O failure without consuming or quarantining the cache");
             Files.delete(promotions);
             require(!RecoveryClaims.claimExists(claim),"a genuinely missing claim is a confirmed absence");
             Files.createDirectories(claim);

@@ -974,13 +974,16 @@ public final class BackfillController {
                         continue;
                      }
                      NormalChunkStorage.State normal = NormalChunkStorage.inspect(var0, var15);
-                     if (normal != NormalChunkStorage.State.FULL && !CacheManager.cacheExists(var0, var15, var2)) {
+                     CacheManager.CacheState cache = CacheManager.cacheState(var0,var15,var2);
+                     if (normal != NormalChunkStorage.State.FULL && cache == CacheManager.CacheState.ABSENT) {
                         if (normal == NormalChunkStorage.State.UNKNOWN) {
                            state.normalStateUnknown++;
                         } else {
                            var1.exhaustedAt = 0L;
                            return new BackfillController.Target(var15, (Path)var4.get(var20), var10, var11, var12,false);
                         }
+                     } else if (cache == CacheManager.CacheState.UNKNOWN) {
+                        state.normalStateUnknown++;
                      }
                   }
                }
@@ -1023,8 +1026,17 @@ public final class BackfillController {
                Path region=CacheManager.lodRoot(var4).resolve("r."+Math.floorDiv(pos.x,32)+"."+Math.floorDiv(pos.z,32)+".cslod");
                int slot=Math.floorMod(pos.x,32)+Math.floorMod(pos.z,32)*32;
                int[] header=readSlot(region,slot);
-               if (CacheManager.cacheExists(var4,pos,var3.fingerprint()) || NormalChunkStorage.inspect(var4,pos)==NormalChunkStorage.State.FULL) {
+               CacheManager.CacheState cache=CacheManager.cacheState(var4,pos,var3.fingerprint());
+               NormalChunkStorage.State normal=NormalChunkStorage.inspect(var4,pos);
+               if (retrySatisfied(cache,normal)) {
                   var1.retries.complete(retryDimension,pos.toLong());
+                  persistRetries(var1,var4.getServer());
+                  continue;
+               }
+               if (retryBlockedByCache(cache)) {
+                  var1.retries.defer(retryDimension,pos.toLong(),System.currentTimeMillis(),
+                     cache==CacheManager.CacheState.UNKNOWN?"cache-claim-inspection-failed":"promotion-claim-active");
+                  persistRetries(var1,var4.getServer());
                   continue;
                }
                // Explicit failure debt can precede the first LOD slot. The speculative native
@@ -1035,7 +1047,13 @@ public final class BackfillController {
          }
          BackfillController.Target var9;
          while ((var9 = nextCandidate(var4, var5, var3.fingerprint(), var1)) != null) {
-            if (CacheManager.cacheExists(var4, var9.pos(), var3.fingerprint())) {
+            CacheManager.CacheState cache=CacheManager.cacheState(var4,var9.pos(),var3.fingerprint());
+            if (cache != CacheManager.CacheState.ABSENT) {
+               if (retryBlockedByCache(cache)) {
+                  var1.retries.defer(retryDimension,var9.pos().toLong(),System.currentTimeMillis(),
+                     cache==CacheManager.CacheState.UNKNOWN?"cache-claim-inspection-failed":"promotion-claim-active");
+                  persistRetries(var1,var4.getServer());
+               }
                advanceCursor(var4, var5);
                continue;
             }
@@ -1046,6 +1064,14 @@ public final class BackfillController {
       }
 
       return null;
+   }
+
+   static boolean retrySatisfied(CacheManager.CacheState cache,NormalChunkStorage.State normal) {
+      return cache==CacheManager.CacheState.COMPLETE || normal==NormalChunkStorage.State.FULL;
+   }
+
+   static boolean retryBlockedByCache(CacheManager.CacheState cache) {
+      return cache==CacheManager.CacheState.CLAIMED || cache==CacheManager.CacheState.UNKNOWN;
    }
 
    private static Candidate continueScope(State state) {

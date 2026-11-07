@@ -32,6 +32,16 @@ public final class BackfillRetriesSelfTest {
         require(restored.waiting(dimension,1,15000),"restart retains debt");
         restored.complete(dimension,1);
         require(!restored.waiting(dimension,1,15000),"success retires only its target");
+        require(BackfillController.retrySatisfied(CacheManager.CacheState.COMPLETE,NormalChunkStorage.State.ABSENT),
+            "validated schema3 cache can retire retry debt");
+        require(BackfillController.retrySatisfied(CacheManager.CacheState.UNKNOWN,NormalChunkStorage.State.FULL),
+            "authoritative normal FULL can retire debt even when cache ownership is unreadable");
+        require(!BackfillController.retrySatisfied(CacheManager.CacheState.UNKNOWN,NormalChunkStorage.State.ABSENT)
+            && BackfillController.retryBlockedByCache(CacheManager.CacheState.UNKNOWN),
+            "inconclusive claim inspection blocks generation without retiring retry debt");
+        require(!BackfillController.retrySatisfied(CacheManager.CacheState.CLAIMED,NormalChunkStorage.State.ABSENT)
+            && BackfillController.retryBlockedByCache(CacheManager.CacheState.CLAIMED),
+            "an active promotion claim is ownership, not proof that retry work completed");
         var first=new CsLodChunk("minecraft:overworld",0,0,0,java.util.List.of(),java.util.List.of(),java.util.List.of());
         var other=new CsLodChunk("minecraft:overworld",0,0,0,java.util.List.of(),java.util.List.of(),java.util.List.of());
         CompletableFuture<Boolean> receipt=new CompletableFuture<>();
