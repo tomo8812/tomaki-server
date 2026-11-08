@@ -109,10 +109,6 @@ final class GenerationStore {
         int z
     ) {
         try {
-            Path active = root.resolve(currentFingerprint);
-            FingerprintManifest.Manifest activeManifest =
-                FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
-
             for (Path candidate : childDirectories(root)) {
                 String name = candidate.getFileName().toString();
                 if (!name.matches("[0-9a-f]{24}") || name.equals(currentFingerprint)) continue;
@@ -121,8 +117,6 @@ final class GenerationStore {
                 if (old == null || !FingerprintManifest.sameCompatibilityInputsExcept(
                     old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate
                 )) continue;
-                if (alreadyRecovered(candidate, currentFingerprint, old.fingerprint(), activeManifest)) continue;
-
                 RetainedCoordinateState state =
                     retainedEntryState(candidate, old, expectedDimension, x, z);
                 if (state != RetainedCoordinateState.ABSENT) return state;
@@ -138,8 +132,6 @@ final class GenerationStore {
                     old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate
                 );
                 if (!exact && !semantic) continue;
-                if (alreadyRecovered(candidate, currentFingerprint, old.fingerprint(), activeManifest)) continue;
-
                 RetainedCoordinateState state =
                     retainedEntryState(candidate, old, expectedDimension, x, z);
                 if (state != RetainedCoordinateState.ABSENT) return state;
