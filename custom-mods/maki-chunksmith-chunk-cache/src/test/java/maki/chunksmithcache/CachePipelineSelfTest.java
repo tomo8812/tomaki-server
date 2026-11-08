@@ -294,6 +294,19 @@ public final class CachePipelineSelfTest {
             require(!Files.exists(CacheManager.generatedCompleteMarker(schema2))
                     && Files.isRegularFile(CacheManager.generatedCompleteMarker(schema3)),
                 "interrupted migration restores promotion-only/generated-complete sidecars from validated payloads");
+
+            // Simulate a crash after atomic schema-3 publication but before the
+            // completion sidecar was written. A validated generated-complete
+            // payload must recreate the marker, while schema-2 must not.
+            Files.deleteIfExists(CacheManager.generatedCompleteMarker(schema3));
+            CompoundTag schema3Envelope=NbtIo.readCompressed(schema3,NbtAccounter.create(1L<<20));
+            require(CacheManager.ensureGeneratedCompleteMarker(schema3,schema3Envelope,true)
+                    && Files.isRegularFile(CacheManager.generatedCompleteMarker(schema3)),
+                "validated schema3 payload repairs a missing completion marker");
+            CompoundTag schema2Envelope=NbtIo.readCompressed(schema2,NbtAccounter.create(1L<<20));
+            require(!CacheManager.ensureGeneratedCompleteMarker(schema2,schema2Envelope,true)
+                    && !Files.exists(CacheManager.generatedCompleteMarker(schema2)),
+                "promotion-only schema2 payload cannot manufacture a generated-complete marker");
         } finally { deleteTree(root); }
     }
 
@@ -356,34 +369,80 @@ public final class CachePipelineSelfTest {
                 for(int i=0;i<9;i++) require(Files.isRegularFile(root.resolve(".quarantine/retained-"+i+"/r.0.0/c."+i+".0.nbt.gz")),
                     "warning thresholds must never auto-delete retained cache data");
 
-                // Keep the retained-data warning inventory independent from the active-capacity
-                // accounting assertions below.
-                deleteTree(root.resolve(".quarantine"));
-                for(int i=1;i<=2;i++) deleteTree(root.resolve(String.format("%024x",i)));
-                deleteTree(root.resolve(activeFingerprint));
-                Files.deleteIfExists(root.resolve(FingerprintManifest.CURRENT_FILE_NAME));
+                Path activeEntry=Files.createDirectories(root.resolve(activeFingerprint).resolve("r.0.0"))
+                    .resolve("c.100.0.nbt.gz");
+                Files.write(activeEntry,new byte[1_000_000]);
+                String largeInactiveFingerprint="bbbbbbbbbbbbbbbbbbbbbbbb";
+                Path largeInactive=Files.createDirectories(root.resolve(largeInactiveFingerprint).resolve("r.0.0"))
+                    .resolve("c.200.0.nbt.gz");
+                Files.write(largeInactive,new byte[1_000_000]);
 
-                Files.write(root.resolve("entry.nbt.gz"),new byte[80]);
-                Files.createDirectories(root.resolve(".quarantine"));
-                Files.write(root.resolve(".quarantine/old.nbt.gz"),new byte[1000]);
-                Files.writeString(configuration,"cache.max-active-bytes=100\ncache.minimum-free-bytes=1\n");
+                Files.writeString(configuration,"cache.max-active-bytes=1500000\ncache.minimum-free-bytes=1\n");
                 CacheDiskBudget disk=CacheDiskBudget.at(root);
                 require(disk.tryAcquire(1)==null,"unmeasured disk fails closed");
                 disk.refresh(configuration);
-                var lease=disk.tryAcquire(20);
-                require(lease!=null && disk.tryAcquire(1)==null,"active quota excludes quarantine and includes reserved bytes");
+                var lease=disk.tryAcquire(400_000);
+                require(lease!=null && disk.tryAcquire(100_001)==null,
+                    "active quota counts current generation plus reservations but excludes retained inactive generations");
                 lease.close();
-                require(disk.tryAcquire(21)==null,"full active cache rejects promptly");
-                Files.move(root.resolve("entry.nbt.gz"),root.resolve(".quarantine/moved.nbt.gz"));
+                require(disk.tryAcquire(500_001)==null,
+                    "current generation payload still enforces the active capacity limit");
+
+                Path moved=root.resolve(".quarantine/moved-active.nbt.gz");
+                Files.move(activeEntry,moved);
                 disk.invalidateInventory(); disk.refresh(configuration);
-                var recovered=disk.tryAcquire(100);
-                require(recovered!=null,"generation quarantine invalidates active quota promptly");
+                var recovered=disk.tryAcquire(1_500_000);
+                require(recovered!=null,
+                    "moving the active payload out of the current fingerprint immediately frees active quota even while retained generations remain");
                 recovered.close();
-                Files.writeString(configuration,"cache.max-active-bytes=100\ncache.minimum-free-bytes="+Long.MAX_VALUE+"\n");
+
+                Files.writeString(configuration,"cache.max-active-bytes=1500000\ncache.minimum-free-bytes="+Long.MAX_VALUE+"\n");
                 disk.refresh(configuration);
                 require("cache-disk-reserve".equals(disk.pressure(1)),"normal world save space is reserved");
             } finally { Files.deleteIfExists(configuration); }
         } finally { deleteTree(root); }
+
+        Path retryRoot=Files.createTempDirectory("cache-recovery-retry-test");
+        try {
+            String sourceFingerprint="111111111111111111111111";
+            String targetFingerprint="222222222222222222222222";
+            Path source=Files.createDirectories(retryRoot.resolve(sourceFingerprint));
+            Path payload=Files.createDirectories(source.resolve("r.0.0")).resolve("c.1.0.nbt.gz");
+            Files.write(payload,new byte[]{1,2,3});
+            FingerprintManifest.Manifest activeManifest=new FingerprintManifest.Manifest(
+                targetFingerprint,1L,java.util.Set.of(targetFingerprint,sourceFingerprint),List.of()
+            );
+            Files.writeString(
+                source.resolve("recovery-info.txt"),
+                "sourceFingerprint="+sourceFingerprint+"\n"
+                    +"targetFingerprint="+targetFingerprint+"\n"
+                    +"migrationContract="+CacheGenerationMigration.MIGRATION_CONTRACT+"\n"
+                    +"sourcePreserved=true\n"
+                    +"acceptedSourceEntries=0\n"
+                    +"retainedInvalidEntries=1\n"
+            );
+            require(!GenerationStore.alreadyRecovered(source,targetFingerprint,sourceFingerprint,activeManifest),
+                "retained invalid/unreadable entries keep a generation eligible for retry after temporary I/O failure");
+
+            long newest=Files.getLastModifiedTime(payload).toMillis();
+            Files.writeString(
+                source.resolve("recovery-info.txt"),
+                "sourceFingerprint="+sourceFingerprint+"\n"
+                    +"targetFingerprint="+targetFingerprint+"\n"
+                    +"migrationContract="+CacheGenerationMigration.MIGRATION_CONTRACT+"\n"
+                    +"sourcePreserved=true\n"
+                    +"acceptedSourceEntries=0\n"
+                    +"retainedInvalidEntries=0\n"
+                    +"sourceInventoryEntries=1\n"
+                    +"sourceInventoryBytes=3\n"
+                    +"sourceInventoryNewestMillis="+newest+"\n"
+            );
+            require(GenerationStore.alreadyRecovered(source,targetFingerprint,sourceFingerprint,activeManifest),
+                "clean unchanged source may be skipped after a completed migration scan");
+            Files.write(payload,new byte[]{1,2,3,4});
+            require(!GenerationStore.alreadyRecovered(source,targetFingerprint,sourceFingerprint,activeManifest),
+                "source inventory changes invalidate recovery-info and force a re-scan");
+        } finally { deleteTree(retryRoot); }
     }
 
     private static void abi() throws Exception {
