@@ -61,6 +61,15 @@ final class CompatibilityInput {
         }
 
         if (key.startsWith("mods/") && key.endsWith(".jar")) {
+            if (AuditedModCompatibility.declaresGenerationOverride(file)) {
+                return List.of(new FingerprintManifest.Entry(
+                    key,
+                    rawSize,
+                    rawSha256,
+                    FingerprintManifest.Impact.RELEVANT,
+                    "MOD declares an indirect zfastnoise generation override or its metadata cannot be safely inspected; fail-closed relevant"
+                ));
+            }
             FingerprintManifest.Impact classified = policy.classify(key, file);
             if (classified == FingerprintManifest.Impact.IGNORED) {
                 return List.of(new FingerprintManifest.Entry(
