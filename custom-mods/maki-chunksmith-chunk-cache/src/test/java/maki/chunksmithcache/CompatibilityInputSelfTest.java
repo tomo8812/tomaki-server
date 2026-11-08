@@ -172,9 +172,9 @@ public final class CompatibilityInputSelfTest {
         List<FingerprintManifest.Entry> current = new ArrayList<>();
         current.add(entry("policy:compatibility", "new-policy", FingerprintManifest.Impact.RELEVANT));
         current.add(CompatibilityInput.zfastnoiseCanonicalEntry(true, true));
-        current.add(contractEntry("maki_lod_cpu", "load-control-only-v1"));
-        current.add(contractEntry("maki_lod_cpu_online_fix", "adaptive-cap-only-v1"));
-        current.add(contractEntry("maki_diorama_share", "waypoint-sharing-only-v1"));
+        // These source-owned workload/QoL MODs are no longer generated-result inputs.
+        // Their historical exact attestations normalize away rather than becoming
+        // relevant compatibility contracts in the current generation.
         current.add(entry("mods/worldgen.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
 
         require(FingerprintManifest.sameCompatibilityInputsExcept(manifest(old), manifest(current), Set.of("policy:compatibility")),
