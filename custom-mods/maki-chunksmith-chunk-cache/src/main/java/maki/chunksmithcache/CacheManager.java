@@ -150,6 +150,94 @@ public final class CacheManager {
       }
    }
 
+   /**
+    * Preserve Chunksmith's native generated-state result, but do not allow a false
+    * result to race retained FULL migration. NeoForgeWorld performs its native
+    * status probe on/through the server thread; any retained-generation scan is
+    * deferred to READ_IO after the dimension reconciliation settles.
+    */
+   public static CompletableFuture<Boolean> protectChunksmithGeneratedResult(
+      ServerLevel level,
+      ChunkPos pos,
+      CompletableFuture<Boolean> nativeResult
+   ) {
+      if (level == null || pos == null || nativeResult == null) return nativeResult;
+      if (nativeResult.isDone() && !nativeResult.isCompletedExceptionally()
+         && Boolean.TRUE.equals(nativeResult.getNow(false))) {
+         return nativeResult;
+      }
+
+      Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(level);
+      if (snapshot == null) return nativeResult;
+      CompletableFuture<Boolean> rotation = rotateGenerations(level, snapshot, "chunksmith-generated");
+
+      return nativeResult.thenCompose(generated -> {
+         if (Boolean.TRUE.equals(generated) || chunksmithGeneratedHint(level, pos)) {
+            return CompletableFuture.completedFuture(true);
+         }
+         if (reconciliationAllowsMiss(rotation)) {
+            return CompletableFuture.completedFuture(false);
+         }
+
+         CompletableFuture<?> settled = rotation.isDone()
+            ? CompletableFuture.completedFuture(null)
+            : rotation.handle((complete, error) -> null);
+         return settled.thenCompose(ignored ->
+            chunksmithRetainedGeneratedHint(level, pos, snapshot, rotation)
+         );
+      });
+   }
+
+   private static CompletableFuture<Boolean> chunksmithRetainedGeneratedHint(
+      ServerLevel level,
+      ChunkPos pos,
+      Fingerprint.Snapshot snapshot,
+      CompletableFuture<Boolean> rotation
+   ) {
+      if (chunksmithGeneratedHint(level, pos)) {
+         return CompletableFuture.completedFuture(true);
+      }
+      if (reconciliationAllowsMiss(rotation)) {
+         return CompletableFuture.completedFuture(false);
+      }
+
+      try {
+         return CompletableFuture.supplyAsync(() -> {
+            // Re-check after reconciliation because the payload may have been
+            // published between the native status probe and this retained scan.
+            if (chunksmithGeneratedHint(level, pos)) return true;
+
+            GenerationStore.RetainedCoordinateState retained = GenerationStore.retainedCoordinateState(
+               cacheRoot(level).resolve(dimensionKey(level)),
+               snapshot.manifest(Set.of(snapshot.fingerprint())),
+               snapshot.fingerprint(),
+               snapshot.legacyFingerprint(),
+               snapshot.policy(),
+               level.dimension().location().toString(),
+               pos.x,
+               pos.z
+            );
+            if (!retainedBlocksChunksmithGeneration(retained)) {
+               PipelineMetrics.count("chunksmith-reconciliation-localized-miss");
+               return false;
+            }
+            PipelineMetrics.count(retained == GenerationStore.RetainedCoordinateState.REUSABLE
+               ? "chunksmith-reconciliation-coordinate-pending"
+               : "chunksmith-reconciliation-coordinate-unknown");
+            return true;
+         }, READ_IO);
+      } catch (RejectedExecutionException rejected) {
+         // Admission uncertainty must fail closed: Chunksmith may retry the probe,
+         // but must not generate over retained source that we could not inspect.
+         PipelineMetrics.count("chunksmith-reconciliation-inspection-rejected");
+         return CompletableFuture.completedFuture(true);
+      }
+   }
+
+   static boolean retainedBlocksChunksmithGeneration(GenerationStore.RetainedCoordinateState retained) {
+      return retained != GenerationStore.RetainedCoordinateState.ABSENT;
+   }
+
    private record CaptureKey(ServerLevel level, long pos) {}
    private record CaptureFlight(CompletableFuture<Boolean> result, long startedNanos) {}
 

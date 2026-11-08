@@ -173,11 +173,14 @@ tasks.register('verifyIssue66CacheVisibility') {
     doLast {
         def cache = issue66CacheManagerSource.getText('UTF-8')
         def mixin = issue66WorldMixinSource.getText('UTF-8')
-        ['CAPTURE_PENDING', 'BackfillGuard.suppress', 'chunksmithGeneratedHint'].each { token ->
+        ['CAPTURE_PENDING', 'BackfillGuard.suppress', 'chunksmithGeneratedHint',
+         'protectChunksmithGeneratedResult', 'retainedBlocksChunksmithGeneration'].each { token ->
             if (!cache.contains(token)) throw new GradleException('Issue #66 regression: cache overlap protection missing ' + token)
         }
         if (!mixin.contains('isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;')
-                || !mixin.contains('chunksmithGeneratedHint')) {
+                || !mixin.contains('chunksmithGeneratedHint')
+                || !mixin.contains('at=@At("RETURN")')
+                || !mixin.contains('protectChunksmithGeneratedResult')) {
             throw new GradleException('Issue #66 regression: cache-backed generated-state Mixin missing')
         }
         def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath

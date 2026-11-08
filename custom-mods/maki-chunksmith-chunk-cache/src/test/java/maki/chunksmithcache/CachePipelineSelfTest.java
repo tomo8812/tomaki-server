@@ -903,6 +903,13 @@ public final class CachePipelineSelfTest {
         require(CacheManager.claimOnCacheRead(CacheEnvelope.Reuse.PROMOTION_ONLY,false),
             "ordinary promotion-only player loads retain the durable promotion claim boundary");
 
+        require(!CacheManager.retainedBlocksChunksmithGeneration(GenerationStore.RetainedCoordinateState.ABSENT),
+            "Chunksmith may generate only when retained reconciliation proves the coordinate absent");
+        require(CacheManager.retainedBlocksChunksmithGeneration(GenerationStore.RetainedCoordinateState.REUSABLE),
+            "Chunksmith treats a reusable retained FULL as generated while migration is pending");
+        require(CacheManager.retainedBlocksChunksmithGeneration(GenerationStore.RetainedCoordinateState.UNKNOWN),
+            "Chunksmith fails closed when retained-coordinate ownership cannot be inspected");
+
         CompletableFuture<Boolean> pending = new CompletableFuture<>();
         require(!CacheManager.reconciliationAllowsMiss(pending),
             "cache miss is not authoritative while generation reconciliation is in flight");

@@ -37,6 +37,27 @@ public abstract class NeoForgeWorldMixin {
          cir.setReturnValue(CompletableFuture.completedFuture(true));
       }
    }
+
+   @Inject(
+      method="isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;",
+      at=@At("RETURN"),
+      cancellable=true,
+      require=1
+   )
+   private void maki$retainedFullCountsAsGenerated(
+      int x,int z,CallbackInfoReturnable<CompletableFuture<Boolean>> cir
+   ) {
+      // The off-thread entry delegates back to the server thread in Chunksmith.
+      // Wrap only that server-thread invocation so retained-cache I/O never runs
+      // synchronously on the caller or server thread.
+      if(Thread.currentThread()!=this.world.getServer().getRunningThread()) return;
+      CompletableFuture<Boolean> nativeResult=cir.getReturnValue();
+      if(nativeResult!=null) {
+         cir.setReturnValue(CacheManager.protectChunksmithGeneratedResult(
+            this.world,new ChunkPos(x,z),nativeResult
+         ));
+      }
+   }
    @Redirect(method="lambda$getChunkAtAsync$8", at=@At(value="INVOKE",
       target="Lcom/kishku7/chunksmith/lod/LodSupport;offer(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;)V"), require=1)
    private void maki$offerAndCapture(ServerLevel level, LevelChunk chunk) {
