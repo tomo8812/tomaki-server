@@ -21,7 +21,7 @@ import net.minecraft.nbt.NbtIo;
  * can be proven are copied into the current generation; every source is retained.
  */
 final class CacheGenerationMigration {
-    static final String MIGRATION_CONTRACT = "entry-migration-v10";
+    static final String MIGRATION_CONTRACT = "entry-migration-v11";
     private static final long MIGRATION_RESERVATION_OVERHEAD = 65_536L;
     private static final Pattern CACHE_FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
 
@@ -54,6 +54,20 @@ final class CacheGenerationMigration {
         CacheDiskBudget budget,
         SourceAuthorization authorization
     ) throws IOException {
+        return copyReusableEntriesPreservingSource(
+            source, target, expectedDimension, null, currentManifest, budget, authorization
+        );
+    }
+
+    static Stats copyReusableEntriesPreservingSource(
+        Path source,
+        Path target,
+        String expectedDimension,
+        FingerprintManifest.Manifest sourceManifestOverride,
+        FingerprintManifest.Manifest currentManifest,
+        CacheDiskBudget budget,
+        SourceAuthorization authorization
+    ) throws IOException {
         Files.createDirectories(target);
         List<Path> files;
         try (Stream<Path> stream = Files.walk(source)) {
@@ -82,8 +96,9 @@ final class CacheGenerationMigration {
         long legacyInvalid = 0L;
         long legacyActiveWins = 0L;
         List<String> legacyOutcomes = new ArrayList<>();
-        FingerprintManifest.Manifest sourceManifest =
-            FingerprintManifest.readIfValid(source.resolve(FingerprintManifest.FILE_NAME));
+        FingerprintManifest.Manifest sourceManifest = sourceManifestOverride != null
+            ? sourceManifestOverride
+            : FingerprintManifest.readIfValid(source.resolve(FingerprintManifest.FILE_NAME));
         boolean sourceAuthorized = false;
 
         for (int index = 0; index < files.size(); index++) {

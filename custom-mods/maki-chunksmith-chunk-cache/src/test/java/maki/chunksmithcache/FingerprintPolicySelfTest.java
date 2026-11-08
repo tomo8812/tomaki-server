@@ -126,6 +126,35 @@ public final class FingerprintPolicySelfTest {
                 "changed Disabler structure policy must invalidate retained generation compatibility"
             );
 
+            List<FingerprintManifest.Entry> oldWithDeletedNeutral = new ArrayList<>(newPolicyEntries);
+            oldWithDeletedNeutral.add(entry(
+                "config/millenaire-common.toml", "logging-only", FingerprintManifest.Impact.RELEVANT
+            ));
+            FingerprintPolicy currentPolicy = FingerprintPolicy.forTesting(List.of());
+            require(
+                FingerprintManifest.sameCompatibilityInputsExcept(
+                    manifest(oldWithDeletedNeutral, 7L),
+                    manifest(newPolicyEntries, 8L),
+                    Set.of("policy:compatibility"),
+                    null,
+                    currentPolicy
+                ),
+                "deleted configuration that current policy classifies neutral must not block generation-equivalent adoption"
+            );
+            FingerprintPolicy explicitlySensitivePolicy = FingerprintPolicy.forTesting(
+                Set.of(), List.of("config/millenaire-common.toml"), List.of()
+            );
+            require(
+                !FingerprintManifest.sameCompatibilityInputsExcept(
+                    manifest(oldWithDeletedNeutral, 9L),
+                    manifest(newPolicyEntries, 10L),
+                    Set.of("policy:compatibility"),
+                    null,
+                    explicitlySensitivePolicy
+                ),
+                "deleted configuration remains incompatible when the current operator policy marks it generation-sensitive"
+            );
+
             List<FingerprintManifest.Entry> changedWorldgen = replace(newPolicyEntries, "mods/chunksmith.jar", "wg-b");
             require(
                 !FingerprintManifest.sameCompatibilityInputsExcept(

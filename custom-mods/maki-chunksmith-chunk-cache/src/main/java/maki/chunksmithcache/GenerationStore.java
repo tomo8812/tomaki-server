@@ -104,6 +104,8 @@ final class GenerationStore {
         Path root,
         FingerprintManifest.Manifest current,
         String currentFingerprint,
+        String legacyFingerprint,
+        FingerprintPolicy currentPolicy,
         String expectedDimension,
         int x,
         int z
@@ -114,9 +116,13 @@ final class GenerationStore {
                 if (!name.matches("[0-9a-f]{24}") || name.equals(currentFingerprint)) continue;
                 FingerprintManifest.Manifest old =
                     FingerprintManifest.readIfValid(candidate.resolve(FingerprintManifest.FILE_NAME));
-                if (old == null || !FingerprintManifest.sameCompatibilityInputsExcept(
-                    old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate
-                )) continue;
+                boolean exactLegacyWithoutManifest = old == null && name.equals(legacyFingerprint);
+                if (exactLegacyWithoutManifest) {
+                    old = exactLegacySourceManifest(current, legacyFingerprint);
+                }
+                if (old == null || (!exactLegacyWithoutManifest && !FingerprintManifest.sameCompatibilityInputsExcept(
+                    old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate, currentPolicy
+                ))) continue;
                 RetainedCoordinateState state =
                     retainedEntryState(candidate, old, current, expectedDimension, x, z);
                 if (state != RetainedCoordinateState.ABSENT) return state;
@@ -129,7 +135,7 @@ final class GenerationStore {
                 if (old == null) continue;
                 boolean exact = old.fingerprint().equals(currentFingerprint);
                 boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(
-                    old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate
+                    old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate, currentPolicy
                 );
                 if (!exact && !semantic) continue;
                 RetainedCoordinateState state =
@@ -198,6 +204,18 @@ final class GenerationStore {
         return reuse == CacheEnvelope.Reuse.PROMOTION_ONLY || reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE
             ? RetainedCoordinateState.REUSABLE
             : RetainedCoordinateState.ABSENT;
+    }
+
+    static FingerprintManifest.Manifest exactLegacySourceManifest(
+        FingerprintManifest.Manifest current,
+        String legacyFingerprint
+    ) {
+        return new FingerprintManifest.Manifest(
+            legacyFingerprint,
+            current.createdAtMillis(),
+            Set.of(legacyFingerprint),
+            current.entries()
+        );
     }
 
     static FingerprintManifest.Manifest authorizeMigrationSource(
@@ -276,18 +294,18 @@ final class GenerationStore {
             FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
             boolean exact = manifest.fingerprint().equals(snapshot.fingerprint());
             boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(
-                manifest, current, GENERATION_COMPATIBILITY_EXCLUSIONS, source
+                manifest, current, GENERATION_COMPATIBILITY_EXCLUSIONS, source, snapshot.policy()
             );
             if (!exact && !semantic) {
                 List<String> changed = FingerprintManifest.changedCompatibilityInputs(
-                    manifest, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, source
+                    manifest, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, source, snapshot.policy()
                 );
                 return "restore refused: quarantined inputs are not proven generation-equivalent; current="
                     + snapshot.fingerprint() + " quarantined=" + manifest.fingerprint() + " changed=" + changed;
             }
             Path active = dimensionRoot(level).resolve(snapshot.fingerprint());
             List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
-                manifest, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, source
+                manifest, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, source, snapshot.policy()
             );
             CacheDiskBudget migrationBudget = migrationBudget(level, snapshot);
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
@@ -332,9 +350,11 @@ final class GenerationStore {
         if (alreadyRecovered(legacy, snapshot.fingerprint(), snapshot.legacyFingerprint(), existing)) return true;
 
         Stats before = stats(legacy);
+        FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+        FingerprintManifest.Manifest exactLegacy = exactLegacySourceManifest(current, snapshot.legacyFingerprint());
         CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
-            legacy, active, expectedDimension, snapshot.manifest(Set.of(snapshot.fingerprint())), budget,
-            sourceManifest -> authorizeMigrationSource(active, snapshot.manifest(Set.of(snapshot.fingerprint())), sourceManifest)
+            legacy, active, expectedDimension, exactLegacy, current, budget,
+            sourceManifest -> authorizeMigrationSource(active, current, sourceManifest)
         );
         Set<String> accepted = new LinkedHashSet<>();
         accepted.add(snapshot.fingerprint());
@@ -373,7 +393,7 @@ final class GenerationStore {
         for (Path candidate : candidates) {
             FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(candidate.resolve(FingerprintManifest.FILE_NAME));
             if (old == null || !FingerprintManifest.sameCompatibilityInputsExcept(
-                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate
+                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate, snapshot.policy()
             )) continue;
 
             String oldFingerprint = candidate.getFileName().toString();
@@ -381,7 +401,7 @@ final class GenerationStore {
             if (alreadyRecovered(candidate, snapshot.fingerprint(), oldFingerprint, existing)) continue;
             Stats before = stats(candidate);
             List<String> proofDetails = FingerprintManifest.compatibilityProofs(
-                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate
+                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate, snapshot.policy()
             );
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
                 candidate, active, expectedDimension, current, budget,
@@ -440,7 +460,7 @@ final class GenerationStore {
 
             boolean exact = old.fingerprint().equals(snapshot.fingerprint());
             boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(
-                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate
+                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate, snapshot.policy()
             );
             if (!exact && !semantic) {
                 List<String> changed = FingerprintManifest.changedCompatibilityInputs(
@@ -455,7 +475,7 @@ final class GenerationStore {
 
             Stats before = stats(candidate);
             List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
-                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate
+                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate, snapshot.policy()
             );
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
                 candidate, active, expectedDimension, current, budget,
@@ -489,13 +509,13 @@ final class GenerationStore {
         for (Path generation : generations) {
             FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(generation.resolve(FingerprintManifest.FILE_NAME));
             if (old != null && FingerprintManifest.sameCompatibilityInputsExcept(
-                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, generation
+                old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, generation, snapshot.policy()
             )) continue;
             Stats generationStats = stats(generation);
             List<String> changed = old == null
                 ? List.of("unknown: no compatibility manifest")
                 : FingerprintManifest.changedCompatibilityInputs(
-                    old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, generation
+                    old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, generation, snapshot.policy()
                 );
             LOG.warn(
                 "Retaining inactive chunk-cache generation {} for {}; entries={} bytes={} changedInputs={} automatic generation-wide quarantine/deletion disabled; trigger={}",

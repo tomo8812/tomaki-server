@@ -173,7 +173,7 @@ final class FingerprintManifest {
     }
 
     static boolean sameCompatibilityInputsExcept(Manifest oldManifest, Manifest newManifest, Set<String> excludedKeys) {
-        return sameCompatibilityInputsExcept(oldManifest, newManifest, excludedKeys, null);
+        return sameCompatibilityInputsExcept(oldManifest, newManifest, excludedKeys, null, null);
     }
 
     static boolean sameCompatibilityInputsExcept(
@@ -182,16 +182,26 @@ final class FingerprintManifest {
         Set<String> excludedKeys,
         Path historicalGeneration
     ) {
+        return sameCompatibilityInputsExcept(oldManifest, newManifest, excludedKeys, historicalGeneration, null);
+    }
+
+    static boolean sameCompatibilityInputsExcept(
+        Manifest oldManifest,
+        Manifest newManifest,
+        Set<String> excludedKeys,
+        Path historicalGeneration,
+        FingerprintPolicy currentPolicy
+    ) {
         Entry currentRawZfastnoise = findEntry(
             newManifest.entries(),
             CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
         );
         Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
-        Set<String> currentIgnoredKeys = ignoredKeys(newManifest.entries());
+        Set<String> currentNeutralKeys = currentNeutralKeys(oldManifest.entries(), newManifest.entries(), currentPolicy);
         Map<String, Entry> oldEntries = compatibilityByKey(
             oldManifest.entries(),
             excludedKeys,
-            currentIgnoredKeys,
+            currentNeutralKeys,
             currentRawZfastnoise,
             currentEffectiveZfastnoise,
             historicalGeneration
@@ -211,14 +221,27 @@ final class FingerprintManifest {
         int limit,
         Path historicalGeneration
     ) {
+        return changedCompatibilityInputs(
+            oldManifest, newManifest, excludedKeys, limit, historicalGeneration, null
+        );
+    }
+
+    static List<String> changedCompatibilityInputs(
+        Manifest oldManifest,
+        Manifest newManifest,
+        Set<String> excludedKeys,
+        int limit,
+        Path historicalGeneration,
+        FingerprintPolicy currentPolicy
+    ) {
         Entry currentRawZfastnoise = findEntry(
             newManifest.entries(),
             CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
         );
         Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
-        Set<String> currentIgnoredKeys = ignoredKeys(newManifest.entries());
+        Set<String> currentNeutralKeys = currentNeutralKeys(oldManifest.entries(), newManifest.entries(), currentPolicy);
         Map<String, Entry> oldEntries = compatibilityByKey(
-            oldManifest.entries(), excludedKeys, currentIgnoredKeys, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
+            oldManifest.entries(), excludedKeys, currentNeutralKeys, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
         );
         Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null, null);
         if (oldEntries == null || newEntries == null) {
@@ -260,12 +283,32 @@ final class FingerprintManifest {
         int limit,
         Path historicalGeneration
     ) {
+        return compatibilityProofs(
+            oldManifest, newManifest, excludedKeys, limit, historicalGeneration, null
+        );
+    }
+
+    static List<String> compatibilityProofs(
+        Manifest oldManifest,
+        Manifest newManifest,
+        Set<String> excludedKeys,
+        int limit,
+        Path historicalGeneration,
+        FingerprintPolicy currentPolicy
+    ) {
         Map<String, Entry> current = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null, null);
         if (current == null) return List.of();
-        Set<String> currentIgnoredKeys = ignoredKeys(newManifest.entries());
+        Set<String> currentNeutralKeys = currentNeutralKeys(oldManifest.entries(), newManifest.entries(), currentPolicy);
         List<String> proofs = new ArrayList<>();
+        Set<String> newKeys = byKey(newManifest.entries()).keySet();
+        for (String key : currentNeutralKeys.stream().sorted().toList()) {
+            if (!newKeys.contains(key)) {
+                proofs.add(key + "(removed; current policy classifies generation-neutral)");
+                if (proofs.size() >= limit) return List.copyOf(proofs);
+            }
+        }
         for (Entry original : oldManifest.entries()) {
-            if (excludedKeys.contains(original.key()) || currentIgnoredKeys.contains(original.key())) continue;
+            if (excludedKeys.contains(original.key()) || currentNeutralKeys.contains(original.key())) continue;
             Entry normalized = CompatibilityInput.normalizeHistoricalEntry(original, historicalGeneration);
             if (normalized == original || normalized == null || normalized.impact() != Impact.RELEVANT) continue;
             Entry currentEntry = current.get(normalized.key());
@@ -319,6 +362,23 @@ final class FingerprintManifest {
         Set<String> result = new LinkedHashSet<>();
         for (Entry entry : entries) {
             if (entry.impact() == Impact.IGNORED) result.add(entry.key());
+        }
+        return Set.copyOf(result);
+    }
+
+    private static Set<String> currentNeutralKeys(
+        List<Entry> oldEntries,
+        List<Entry> newEntries,
+        FingerprintPolicy currentPolicy
+    ) {
+        LinkedHashSet<String> result = new LinkedHashSet<>(ignoredKeys(newEntries));
+        if (currentPolicy == null) return Set.copyOf(result);
+        Set<String> currentKeys = byKey(newEntries).keySet();
+        for (Entry oldEntry : oldEntries) {
+            if (currentKeys.contains(oldEntry.key())) continue;
+            if (currentPolicy.classifyMissingConfigurationPath(oldEntry.key()) == Impact.IGNORED) {
+                result.add(oldEntry.key());
+            }
         }
         return Set.copyOf(result);
     }

@@ -160,6 +160,15 @@ final class FingerprintPolicy {
             : "generation-neutral input";
     }
 
+    FingerprintManifest.Impact classifyMissingConfigurationPath(String logicalPath) {
+        String normalized = normalize(logicalPath);
+        if (!isConfigurationPath(normalized)) return FingerprintManifest.Impact.RELEVANT;
+        if (isAlwaysExcluded(normalized)) return FingerprintManifest.Impact.IGNORED;
+        if (isGenerationSensitivePath(normalized)) return FingerprintManifest.Impact.RELEVANT;
+        if (matchesIgnoredPath(normalized)) return FingerprintManifest.Impact.IGNORED;
+        return FingerprintManifest.Impact.IGNORED;
+    }
+
     String compatibilitySignature() {
         List<String> ignored = ignoredPaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
         List<String> sensitive = generationSensitivePaths.stream().map(FingerprintPolicy::normalize).sorted().toList();

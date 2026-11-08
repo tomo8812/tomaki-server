@@ -537,6 +537,8 @@ public final class CacheManager {
                cacheRoot(level).resolve(dimensionKey(level)),
                snapshot.manifest(Set.of(snapshot.fingerprint())),
                snapshot.fingerprint(),
+               snapshot.legacyFingerprint(),
+               snapshot.policy(),
                level.dimension().location().toString(),
                pos.x,
                pos.z
@@ -687,6 +689,8 @@ public final class CacheManager {
                   cacheRoot(var0).resolve(dimensionKey(var0)),
                   snapshot.manifest(Set.of(snapshot.fingerprint())),
                   snapshot.fingerprint(),
+                  snapshot.legacyFingerprint(),
+                  snapshot.policy(),
                   var0.dimension().location().toString(),
                   var1.x,
                   var1.z

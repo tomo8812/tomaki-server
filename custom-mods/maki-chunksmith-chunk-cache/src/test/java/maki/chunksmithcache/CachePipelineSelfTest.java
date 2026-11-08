@@ -509,9 +509,22 @@ public final class CachePipelineSelfTest {
                     && !Files.exists(CacheManager.generatedCompleteMarker(schema2)),
                 "promotion-only schema2 payload cannot manufacture a generated-complete marker");
 
+            Files.deleteIfExists(source.resolve(FingerprintManifest.FILE_NAME));
+            FingerprintManifest.Manifest exactLegacyEvidence =
+                GenerationStore.exactLegacySourceManifest(targetManifest,sourceFingerprint);
+            CacheGenerationMigration.Stats exactLegacyReplay =
+                CacheGenerationMigration.copyReusableEntriesPreservingSource(
+                    source,target,"minecraft:overworld",exactLegacyEvidence,targetManifest,migrationBudget,
+                    migrationAuthorization(target,targetManifest)
+                );
+            require(exactLegacyReplay.acceptedSourceEntries()==4
+                    && exactLegacyReplay.legacyReusedEntries()==1
+                    && !Files.exists(source.resolve(FingerprintManifest.FILE_NAME)),
+                "manifestless exact-legacy generation uses directory-fingerprint proof without rewriting retained source");
+
             CacheGenerationMigration.Stats terminalInvalidOnly =
                 CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                    source,target,"minecraft:overworld",targetManifest,migrationBudget,
+                    source,target,"minecraft:overworld",exactLegacyEvidence,targetManifest,migrationBudget,
                     migrationAuthorization(target,targetManifest)
                 );
             require(terminalInvalidOnly.retainedUnreadableEntries()==0
@@ -549,25 +562,25 @@ public final class CachePipelineSelfTest {
             Files.writeString(malformed,"not-nbt");
 
             require(GenerationStore.retainedCoordinateState(
-                    dimension,current,targetFingerprint,"minecraft:overworld",11,0)
+                    dimension,current,targetFingerprint,sourceFingerprint,FingerprintPolicy.forTesting(List.of()),"minecraft:overworld",11,0)
                     == GenerationStore.RetainedCoordinateState.ABSENT,
                 "a failed generation migration does not block a coordinate with no retained candidate");
             require(GenerationStore.retainedCoordinateState(
-                    dimension,current,targetFingerprint,"minecraft:overworld",10,0)
+                    dimension,current,targetFingerprint,sourceFingerprint,FingerprintPolicy.forTesting(List.of()),"minecraft:overworld",10,0)
                     == GenerationStore.RetainedCoordinateState.REUSABLE,
                 "a promotion-safe retained entry keeps its own coordinate fail-closed until migration completes");
             require(GenerationStore.retainedCoordinateState(
-                    dimension,current,targetFingerprint,"minecraft:overworld",12,0)
+                    dimension,current,targetFingerprint,sourceFingerprint,FingerprintPolicy.forTesting(List.of()),"minecraft:overworld",12,0)
                     == GenerationStore.RetainedCoordinateState.REUSABLE,
                 "structure-free schema1 retained evidence blocks replacement generation until migration completes");
             require(GenerationStore.retainedCoordinateState(
-                    dimension,current,targetFingerprint,"minecraft:overworld",13,0)
+                    dimension,current,targetFingerprint,sourceFingerprint,FingerprintPolicy.forTesting(List.of()),"minecraft:overworld",13,0)
                     == GenerationStore.RetainedCoordinateState.ABSENT,
                 "malformed retained bytes are terminal invalid data rather than dimension-wide retry debt");
 
             Files.writeString(second.resolve("r.0.0"),"not-a-directory");
             require(GenerationStore.retainedCoordinateState(
-                    dimension,current,targetFingerprint,"minecraft:overworld",14,0)
+                    dimension,current,targetFingerprint,sourceFingerprint,FingerprintPolicy.forTesting(List.of()),"minecraft:overworld",14,0)
                     == GenerationStore.RetainedCoordinateState.UNKNOWN,
                 "target-specific retained-path ambiguity still fails closed");
         } finally { deleteTree(dimension); }
