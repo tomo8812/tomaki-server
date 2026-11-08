@@ -45,18 +45,7 @@ final class CacheDiskBudget {
                 additionsBefore = additions;
                 epoch = inventoryEpoch;
             }
-            long bytes = 0;
-            if (inventory) {
-                try (var walk = Files.walk(root)) {
-                    var files = walk.filter(Files::isRegularFile).iterator();
-                    while (files.hasNext()) {
-                        Path file = files.next();
-                        boolean quarantine=false;
-                        for(Path segment:root.relativize(file)) if(segment.toString().equals(".quarantine") || segment.toString().equals(".corrupt")) { quarantine=true; break; }
-                        if (!quarantine) bytes = Math.addExact(bytes, Files.size(file));
-                    }
-                }
-            }
+            long bytes = inventory ? inventoriedActiveBytes() : 0L;
             synchronized (this) {
                 maxBytes = max;
                 minimumFree = reserve;
@@ -70,6 +59,79 @@ final class CacheDiskBudget {
         } catch (Exception error) {
             synchronized (this) { observationFailure = "cache-disk-unavailable"; }
         }
+    }
+
+    /**
+     * The active quota is for writable/current cache state, not retained historical
+     * generations. Retained generations are monitored separately by GenerationStore.
+     *
+     * A root can be either the global chunksmith_chunk_cache directory (production)
+     * or a single dimension directory (self-tests/maintenance helpers). A valid
+     * current manifest gives us an exact active fingerprint. If a manifest is absent
+     * or unreadable we fail closed and count the unknown subtree rather than
+     * underestimating storage.
+     */
+    private long inventoriedActiveBytes() throws IOException {
+        FingerprintManifest.Manifest direct =
+            FingerprintManifest.readIfValid(root.resolve(FingerprintManifest.CURRENT_FILE_NAME));
+        if (direct != null) return dimensionActiveBytes(root, direct);
+
+        long bytes = 0L;
+        try (var children = Files.list(root)) {
+            for (Path child : children.toList()) {
+                if (Files.isRegularFile(child)) {
+                    bytes = Math.addExact(bytes, Files.size(child));
+                    continue;
+                }
+                if (!Files.isDirectory(child)) continue;
+                String name = child.getFileName().toString();
+                if (".quarantine".equals(name) || ".corrupt".equals(name)) continue;
+
+                FingerprintManifest.Manifest current =
+                    FingerprintManifest.readIfValid(child.resolve(FingerprintManifest.CURRENT_FILE_NAME));
+                bytes = Math.addExact(
+                    bytes,
+                    current == null ? subtreeBytesFailClosed(child) : dimensionActiveBytes(child, current)
+                );
+            }
+        }
+        return bytes;
+    }
+
+    private static long dimensionActiveBytes(
+        Path dimension,
+        FingerprintManifest.Manifest current
+    ) throws IOException {
+        long bytes = 0L;
+        Path currentManifest = dimension.resolve(FingerprintManifest.CURRENT_FILE_NAME);
+        if (Files.isRegularFile(currentManifest)) bytes = Math.addExact(bytes, Files.size(currentManifest));
+
+        Path active = dimension.resolve(current.fingerprint());
+        if (Files.isDirectory(active)) bytes = Math.addExact(bytes, subtreeBytesFailClosed(active));
+
+        // Promotion claims are authoritative ownership state outside disposable
+        // generations. They still consume cache storage and must remain budgeted.
+        Path promotions = RecoveryClaims.root(dimension);
+        if (Files.isDirectory(promotions)) bytes = Math.addExact(bytes, subtreeBytesFailClosed(promotions));
+        return bytes;
+    }
+
+    private static long subtreeBytesFailClosed(Path subtree) throws IOException {
+        long bytes = 0L;
+        try (var walk = Files.walk(subtree)) {
+            for (Path file : walk.filter(Files::isRegularFile).toList()) {
+                boolean excluded = false;
+                for (Path segment : subtree.relativize(file)) {
+                    String name = segment.toString();
+                    if (".quarantine".equals(name) || ".corrupt".equals(name)) {
+                        excluded = true;
+                        break;
+                    }
+                }
+                if (!excluded) bytes = Math.addExact(bytes, Files.size(file));
+            }
+        }
+        return bytes;
     }
 
     private static long positive(Properties properties, String key, long fallback) {
