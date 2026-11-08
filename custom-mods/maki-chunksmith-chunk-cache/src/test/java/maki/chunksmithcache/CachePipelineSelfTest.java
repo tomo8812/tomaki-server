@@ -321,14 +321,17 @@ public final class CachePipelineSelfTest {
             writeEnvelope(source,1,1,false,false);
             writeEnvelope(source,2,2,true,false);
             writeEnvelope(source,3,3,true,true);
-            Path unreadable=source.resolve("r.0.0/c.4.0.nbt.gz");
-            Files.createDirectories(unreadable.getParent());
-            Files.writeString(unreadable,"not-nbt");
+            Path malformed=source.resolve("r.0.0/c.4.0.nbt.gz");
+            Files.createDirectories(malformed.getParent());
+            Files.writeString(malformed,"not-nbt");
             writeEnvelope(source,3,5,true,true);
             Path structurallyInvalid=source.resolve("r.0.0/c.5.0.nbt.gz");
             CompoundTag invalidEnvelope=NbtIo.readCompressed(structurallyInvalid,NbtAccounter.create(1L<<20));
             invalidEnvelope.putString("dimension","minecraft:the_nether");
             NbtIo.writeCompressed(invalidEnvelope,structurallyInvalid);
+            writeEnvelope(source,3,6,true,true);
+            Path temporarilyUnavailable=source.resolve("r.0.0/c.6.0.nbt.gz");
+            Path hiddenUnavailable=source.resolve("r.0.0/c.6.0.nbt.gz.hidden");
             Path configuration=root.resolve("migration.properties");
             Files.writeString(configuration,"cache.max-active-bytes=1073741824\ncache.minimum-free-bytes=1\n");
             CacheDiskBudget migrationBudget=CacheDiskBudget.at(root.resolve("budget"));
@@ -344,18 +347,20 @@ public final class CachePipelineSelfTest {
                     GenerationStore.authorizeMigrationSource(target,targetManifest,migrationSource);
                     require(StoredFingerprintAcceptance.accepts(target,targetFingerprint,sourceFingerprint),
                         "active manifest accepts the retained source fingerprint before publication");
+                    Files.move(temporarilyUnavailable,hiddenUnavailable);
                     authorizationCalls.incrementAndGet();
                 }
             );
             require(authorizationCalls.get()==1,
                 "migration authorizes a compatible source exactly once before publishing reusable entries");
-            require(stats.sourceEntries()==5 && stats.adoptedEntries()==2 && stats.duplicateEntries()==0,
+            require(stats.sourceEntries()==6 && stats.adoptedEntries()==2 && stats.duplicateEntries()==0,
                 "migration accounts all source/adopted/duplicate entries");
             require(stats.promotionOnlyEntries()==1 && stats.retainedUnprovenEntries()==1
-                    && stats.retainedUnreadableEntries()==1 && stats.retainedInvalidEntries()==1,
-                "schema2 is promotion-only while schema1, unreadable, and structurally invalid data remain retained");
+                    && stats.retainedUnreadableEntries()==1 && stats.retainedInvalidEntries()==2,
+                "filesystem-unavailable data is retryable while malformed and structurally invalid NBT are terminal");
             require(!stats.completeForCurrentPass(),
-                "transient unreadable entries keep generation reconciliation retryable in the current server run");
+                "filesystem read failures keep generation reconciliation retryable in the current server run");
+            Files.move(hiddenUnavailable,temporarilyUnavailable);
             require(!Files.exists(target.resolve("r.0.0/c.1.0.nbt.gz")),
                 "schema1 without entity proof is never copied into active cache");
             Path schema2=target.resolve("r.0.0/c.2.0.nbt.gz");
@@ -368,9 +373,10 @@ public final class CachePipelineSelfTest {
             require(Files.isRegularFile(source.resolve("r.0.0/c.1.0.nbt.gz"))
                     && Files.isRegularFile(source.resolve("r.0.0/c.2.0.nbt.gz"))
                     && Files.isRegularFile(source.resolve("r.0.0/c.3.0.nbt.gz"))
-                    && Files.isRegularFile(unreadable)
-                    && Files.isRegularFile(structurallyInvalid),
-                "automatic migration preserves every original source file");
+                    && Files.isRegularFile(malformed)
+                    && Files.isRegularFile(structurallyInvalid)
+                    && Files.isRegularFile(temporarilyUnavailable),
+                "automatic migration preserves or restores every original source file");
 
             // Simulate a crash after payload publication but before the target manifest was
             // updated. The next run must recognize byte-identical migrated payloads, repair
@@ -382,9 +388,9 @@ public final class CachePipelineSelfTest {
                     source,target,"minecraft:overworld",migrationBudget,
                     migrationAuthorization(target,targetManifest)
                 );
-            require(replay.adoptedEntries()==0 && replay.recoveredExistingEntries()==2
-                    && replay.acceptedSourceEntries()==2 && replay.duplicateEntries()==0,
-                "interrupted migration recovers exact existing copies instead of treating them as unrelated collisions");
+            require(replay.adoptedEntries()==1 && replay.recoveredExistingEntries()==2
+                    && replay.acceptedSourceEntries()==3 && replay.duplicateEntries()==0,
+                "retry adopts the formerly unavailable entry and recovers exact existing copies");
             require(!Files.exists(CacheManager.generatedCompleteMarker(schema2))
                     && Files.isRegularFile(CacheManager.generatedCompleteMarker(schema3)),
                 "interrupted migration restores promotion-only/generated-complete sidecars from validated payloads");
@@ -402,16 +408,15 @@ public final class CachePipelineSelfTest {
                     && !Files.exists(CacheManager.generatedCompleteMarker(schema2)),
                 "promotion-only schema2 payload cannot manufacture a generated-complete marker");
 
-            Files.delete(unreadable);
             CacheGenerationMigration.Stats terminalInvalidOnly =
                 CacheGenerationMigration.copyReusableEntriesPreservingSource(
                     source,target,"minecraft:overworld",migrationBudget,
                     migrationAuthorization(target,targetManifest)
                 );
             require(terminalInvalidOnly.retainedUnreadableEntries()==0
-                    && terminalInvalidOnly.retainedInvalidEntries()==1
+                    && terminalInvalidOnly.retainedInvalidEntries()==2
                     && terminalInvalidOnly.completeForCurrentPass(),
-                "successfully read structural invalidity is retained but does not create an endless retry loop");
+                "malformed gzip/NBT and structural invalidity are retained without creating an endless retry loop");
         } finally { deleteTree(root); }
     }
 
