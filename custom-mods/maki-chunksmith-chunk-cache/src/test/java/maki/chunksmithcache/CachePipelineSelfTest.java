@@ -671,6 +671,35 @@ public final class CachePipelineSelfTest {
             releaseWriter.countDown();
             require(writerDone.await(5,java.util.concurrent.TimeUnit.SECONDS),"cache writer fixture released");
         }
+
+        var generationStarted=new java.util.concurrent.CountDownLatch(1);
+        var releaseGeneration=new java.util.concurrent.CountDownLatch(1);
+        var generationDone=new java.util.concurrent.CountDownLatch(1);
+        var manualRestoreLaneRan=new java.util.concurrent.CountDownLatch(1);
+        require(CacheManager.submitGenerationMaintenance(() -> {
+            generationStarted.countDown();
+            try {
+                releaseGeneration.await(5,java.util.concurrent.TimeUnit.SECONDS);
+            } catch(InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                generationDone.countDown();
+            }
+        }),"automatic generation maintenance fixture is accepted");
+        require(generationStarted.await(5,java.util.concurrent.TimeUnit.SECONDS),
+            "automatic generation maintenance fixture started");
+        try {
+            require(CacheManager.submitGenerationMaintenance(manualRestoreLaneRan::countDown),
+                "manual restore lane is accepted behind automatic reconciliation");
+            require(!manualRestoreLaneRan.await(100,java.util.concurrent.TimeUnit.MILLISECONDS),
+                "manual restore cannot run concurrently with automatic reconciliation manifest updates");
+        } finally {
+            releaseGeneration.countDown();
+        }
+        require(generationDone.await(5,java.util.concurrent.TimeUnit.SECONDS),
+            "automatic generation maintenance fixture released");
+        require(manualRestoreLaneRan.await(5,java.util.concurrent.TimeUnit.SECONDS),
+            "manual restore runs after automatic reconciliation on the same single worker");
     }
 
     private static void abi() throws Exception {
