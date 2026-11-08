@@ -1,5 +1,6 @@
 package maki.chunksmithcache;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -7,8 +8,11 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -18,6 +22,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.storage.LevelResource;
 import org.slf4j.Logger;
@@ -29,6 +36,8 @@ final class GenerationStore {
     private static final String QUARANTINE_INFO = "quarantine-info.txt";
     private static final String RECOVERY_INFO = "recovery-info.txt";
     private static final Set<String> GENERATION_COMPATIBILITY_EXCLUSIONS = Set.of("policy:compatibility", "cache:envelope-schema");
+
+    enum RetainedCoordinateState { ABSENT, REUSABLE, UNKNOWN }
 
     private GenerationStore() {}
 
@@ -85,6 +94,110 @@ final class GenerationStore {
 
     static boolean acceptsStoredFingerprint(Path generationDirectory, String expectedFingerprint, String storedFingerprint) {
         return StoredFingerprintAcceptance.accepts(generationDirectory, expectedFingerprint, storedFingerprint);
+    }
+
+    /**
+     * Decide whether an incomplete dimension-wide reconciliation actually matters to one
+     * coordinate. Only sources that reconcile() would still attempt are considered.
+     */
+    static RetainedCoordinateState retainedCoordinateState(
+        Path root,
+        FingerprintManifest.Manifest current,
+        String currentFingerprint,
+        String expectedDimension,
+        int x,
+        int z
+    ) {
+        try {
+            Path active = root.resolve(currentFingerprint);
+            FingerprintManifest.Manifest activeManifest =
+                FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
+
+            for (Path candidate : childDirectories(root)) {
+                String name = candidate.getFileName().toString();
+                if (!name.matches("[0-9a-f]{24}") || name.equals(currentFingerprint)) continue;
+                FingerprintManifest.Manifest old =
+                    FingerprintManifest.readIfValid(candidate.resolve(FingerprintManifest.FILE_NAME));
+                if (old == null || !FingerprintManifest.sameCompatibilityInputsExcept(
+                    old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate
+                )) continue;
+                if (alreadyRecovered(candidate, currentFingerprint, old.fingerprint(), activeManifest)) continue;
+
+                RetainedCoordinateState state =
+                    retainedEntryState(candidate, old, expectedDimension, x, z);
+                if (state != RetainedCoordinateState.ABSENT) return state;
+            }
+
+            Path quarantine = root.resolve(QUARANTINE_DIR);
+            for (Path candidate : childDirectories(quarantine)) {
+                FingerprintManifest.Manifest old =
+                    FingerprintManifest.readIfValid(candidate.resolve(FingerprintManifest.FILE_NAME));
+                if (old == null) continue;
+                boolean exact = old.fingerprint().equals(currentFingerprint);
+                boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(
+                    old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate
+                );
+                if (!exact && !semantic) continue;
+                if (alreadyRecovered(candidate, currentFingerprint, old.fingerprint(), activeManifest)) continue;
+
+                RetainedCoordinateState state =
+                    retainedEntryState(candidate, old, expectedDimension, x, z);
+                if (state != RetainedCoordinateState.ABSENT) return state;
+            }
+            return RetainedCoordinateState.ABSENT;
+        } catch (IOException | RuntimeException unavailable) {
+            return RetainedCoordinateState.UNKNOWN;
+        }
+    }
+
+    private static List<Path> childDirectories(Path root) throws IOException {
+        try (Stream<Path> stream = Files.list(root)) {
+            return stream.filter(Files::isDirectory).toList();
+        } catch (NoSuchFileException missing) {
+            return List.of();
+        }
+    }
+
+    private static RetainedCoordinateState retainedEntryState(
+        Path source,
+        FingerprintManifest.Manifest sourceManifest,
+        String expectedDimension,
+        int x,
+        int z
+    ) {
+        Path entry = source.resolve("r." + Math.floorDiv(x, 32) + "." + Math.floorDiv(z, 32))
+            .resolve("c." + x + "." + z + ".nbt.gz");
+        BasicFileAttributes attributes;
+        try {
+            attributes = Files.readAttributes(entry, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+        } catch (NoSuchFileException missing) {
+            return RetainedCoordinateState.ABSENT;
+        } catch (IOException unavailable) {
+            return RetainedCoordinateState.UNKNOWN;
+        }
+        if (!attributes.isRegularFile()) return RetainedCoordinateState.ABSENT;
+
+        byte[] compressed;
+        try {
+            compressed = Files.readAllBytes(entry);
+        } catch (IOException unavailable) {
+            return RetainedCoordinateState.UNKNOWN;
+        }
+
+        CompoundTag envelope;
+        try (ByteArrayInputStream input = new ByteArrayInputStream(compressed)) {
+            envelope = NbtIo.readCompressed(input, NbtAccounter.create(64L << 20));
+        } catch (Throwable malformed) {
+            // Successfully reached bytes that cannot satisfy the cache contract. Migration
+            // treats these as terminal invalid data, not a retryable generation-wide debt.
+            return RetainedCoordinateState.ABSENT;
+        }
+
+        CacheEnvelope.Reuse reuse =
+            CacheGenerationMigration.classify(entry, envelope, sourceManifest, expectedDimension);
+        return reuse == CacheEnvelope.Reuse.PROMOTION_ONLY || reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE
+            ? RetainedCoordinateState.REUSABLE
+            : RetainedCoordinateState.ABSENT;
     }
 
     static FingerprintManifest.Manifest authorizeMigrationSource(
