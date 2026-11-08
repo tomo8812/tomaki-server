@@ -110,29 +110,24 @@ public final class CacheManager {
       Path file = path(level, pos, fingerprint);
       Path claim = PromotionClaim.claimedPath(file);
 
-      try {
-         if (RecoveryClaims.claimExists(claim)) return true;
-      } catch(IOException error) {
-         // Unknown ownership is generated/pending for admission purposes: never generate over it.
-         PipelineMetrics.count("promotion-claim-inspection-failed");
-         return true;
-      }
-      if (!Files.isRegularFile(file)) return false;
-      if (Files.isRegularFile(generatedCompleteMarker(file))) return true;
-
-      // Crash recovery for the narrow publication window between the atomic NBT
-      // move and sidecar creation. The normal fast path remains marker-only; a
-      // compressed read occurs only when a visible cache is unexpectedly missing
-      // its marker.
+      // Promotion moves the payload to the durable claim path. Observe claim
+      // ownership and payload visibility under the same coordinate lock so a move
+      // cannot fall between two independent existence checks.
       try (var ignored = CachePathLocks.lock(claim)) {
          try {
             if (RecoveryClaims.claimExists(claim)) return true;
          } catch(IOException error) {
+            // Unknown ownership is generated/pending for admission purposes: never generate over it.
             PipelineMetrics.count("promotion-claim-inspection-failed");
             return true;
          }
          if (!Files.isRegularFile(file)) return false;
          if (Files.isRegularFile(generatedCompleteMarker(file))) return true;
+
+         // Crash recovery for the narrow publication window between the atomic NBT
+         // move and sidecar creation. The normal fast path remains marker-only; a
+         // compressed read occurs only when a visible cache is unexpectedly missing
+         // its marker.
          try {
             CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
             return ensureGeneratedCompleteMarker(
