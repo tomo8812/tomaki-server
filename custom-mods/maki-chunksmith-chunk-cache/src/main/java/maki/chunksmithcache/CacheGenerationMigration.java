@@ -41,6 +41,8 @@ final class CacheGenerationMigration {
         long promotionOnly = 0L;
         long unproven = 0L;
         long invalid = 0L;
+        FingerprintManifest.Manifest sourceManifest =
+            FingerprintManifest.readIfValid(source.resolve(FingerprintManifest.FILE_NAME));
 
         for (Path path : files) {
             CompoundTag envelope;
@@ -51,7 +53,7 @@ final class CacheGenerationMigration {
                 continue;
             }
 
-            CacheEnvelope.Reuse reuse = classify(path, envelope);
+            CacheEnvelope.Reuse reuse = classify(path, envelope, sourceManifest);
             if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) {
                 unproven++;
                 continue;
@@ -68,6 +70,8 @@ final class CacheGenerationMigration {
                 continue;
             }
 
+            // Remove any stale receipt before a promotion-only payload can become visible.
+            if (reuse != CacheEnvelope.Reuse.GENERATED_COMPLETE) CacheManager.clearGeneratedComplete(destination);
             Files.copy(path, destination, StandardCopyOption.COPY_ATTRIBUTES);
             if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE) {
                 CacheManager.markGeneratedComplete(destination);
@@ -81,9 +85,19 @@ final class CacheGenerationMigration {
         return new Stats(files.size(), adopted, duplicates, promotionOnly, unproven, invalid);
     }
 
-    private static CacheEnvelope.Reuse classify(Path path, CompoundTag envelope) {
+    private static CacheEnvelope.Reuse classify(
+        Path path,
+        CompoundTag envelope,
+        FingerprintManifest.Manifest sourceManifest
+    ) {
         CacheEnvelope.Reuse reuse = CacheEnvelope.reuse(envelope);
         if (reuse == CacheEnvelope.Reuse.INVALID || reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) return reuse;
+        if (sourceManifest == null) return CacheEnvelope.Reuse.LEGACY_UNPROVEN;
+        String storedFingerprint = envelope.getString("fingerprint");
+        if (!sourceManifest.fingerprint().equals(storedFingerprint)
+            && !sourceManifest.storedFingerprints().contains(storedFingerprint)) {
+            return CacheEnvelope.Reuse.INVALID;
+        }
         if (!envelope.contains("chunk")
             || NormalChunkStorage.fromTag(envelope.getCompound("chunk")) != NormalChunkStorage.State.FULL) {
             return CacheEnvelope.Reuse.INVALID;
