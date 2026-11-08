@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -66,21 +67,37 @@ final class CacheGenerationMigration {
 
             Path destination = target.resolve(source.relativize(path));
             Files.createDirectories(destination.getParent());
-            if (Files.exists(destination)) {
-                duplicates++;
-                continue;
+            Path temporary = destination.resolveSibling(
+                destination.getFileName() + ".migrate-" + Long.toUnsignedString(System.nanoTime())
+            );
+            try {
+                Files.copy(path, temporary, StandardCopyOption.COPY_ATTRIBUTES);
+                Path claim = PromotionClaim.claimedPath(destination);
+                try (var ignored = CachePathLocks.lock(claim)) {
+                    if (RecoveryClaims.claimExists(claim) || Files.exists(destination)) {
+                        duplicates++;
+                        continue;
+                    }
+                    // Remove a stale sidecar before a promotion-only payload can become visible.
+                    if (reuse != CacheEnvelope.Reuse.GENERATED_COMPLETE) {
+                        CacheManager.clearGeneratedComplete(destination);
+                    }
+                    try {
+                        Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE);
+                    } catch (AtomicMoveNotSupportedException unsupported) {
+                        Files.move(temporary, destination);
+                    }
+                    if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE) {
+                        CacheManager.markGeneratedComplete(destination);
+                    } else {
+                        CacheManager.clearGeneratedComplete(destination);
+                        promotionOnly++;
+                    }
+                    adopted++;
+                }
+            } finally {
+                Files.deleteIfExists(temporary);
             }
-
-            // Remove any stale receipt before a promotion-only payload can become visible.
-            if (reuse != CacheEnvelope.Reuse.GENERATED_COMPLETE) CacheManager.clearGeneratedComplete(destination);
-            Files.copy(path, destination, StandardCopyOption.COPY_ATTRIBUTES);
-            if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE) {
-                CacheManager.markGeneratedComplete(destination);
-            } else {
-                CacheManager.clearGeneratedComplete(destination);
-                promotionOnly++;
-            }
-            adopted++;
         }
 
         return new Stats(files.size(), adopted, duplicates, promotionOnly, unproven, invalid);
