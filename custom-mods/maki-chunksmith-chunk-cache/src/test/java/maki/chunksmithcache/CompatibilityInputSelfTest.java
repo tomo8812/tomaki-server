@@ -103,12 +103,12 @@ public final class CompatibilityInputSelfTest {
         Path newQol = temp.resolve("example-qol.jar");
         writeModJar(newQol, "example_qol", "1.0.0", "ui-only");
         byte[] qolBytes = Files.readAllBytes(newQol);
-        FingerprintPolicy qolPolicy = FingerprintPolicy.forTesting(Set.of("example_qol"), List.of());
+        FingerprintPolicy qolPolicy = FingerprintPolicy.forTesting(List.of());
         List<FingerprintManifest.Entry> qol = CompatibilityInput.entries(
             "mods/example-qol.jar", newQol, qolBytes.length, sha256(qolBytes), qolPolicy
         );
         require(qol.size() == 1 && qol.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
-            "an explicitly audited new QoL MOD must not become a generation input");
+            "an ordinary QoL MOD must not become a generation input by default");
 
         Path indirectOverride = temp.resolve("maki-lod-cpu-10.0.0.jar");
         writeOverrideModJar(indirectOverride, "maki_lod_cpu", "10.0.0", "future-code");
@@ -124,15 +124,20 @@ public final class CompatibilityInputSelfTest {
         byte[] protectedBytes = Files.readAllBytes(protectedWorldgen);
         List<FingerprintManifest.Entry> protectedEntries = CompatibilityInput.entries(
             "mods/zfastnoise-future.jar", protectedWorldgen, protectedBytes.length, sha256(protectedBytes),
-            FingerprintPolicy.forTesting(Set.of("zfastnoise"), List.of())
+            FingerprintPolicy.forTesting(List.of())
         );
         require(protectedEntries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
             "known generation-sensitive MOD IDs cannot be operator-exempted");
 
         Path unknownWorldgen = temp.resolve("worldgen.jar");
         writeModJar(unknownWorldgen, "worldgen_mod", "1.0.1", "terrain-change");
-        require(jarEntries("mods/worldgen.jar", unknownWorldgen).getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            "unknown/worldgen mod must remain relevant");
+        byte[] unknownWorldgenBytes = Files.readAllBytes(unknownWorldgen);
+        List<FingerprintManifest.Entry> declaredWorldgenEntries = CompatibilityInput.entries(
+            "mods/worldgen.jar", unknownWorldgen, unknownWorldgenBytes.length, sha256(unknownWorldgenBytes),
+            FingerprintPolicy.forTesting(Set.of("worldgen_mod"), List.of(), List.of())
+        );
+        require(declaredWorldgenEntries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
+            "operator-declared code-driven worldgen MOD must remain relevant");
     }
 
     private static void testInstalledModAudit(Path temp) throws Exception {
