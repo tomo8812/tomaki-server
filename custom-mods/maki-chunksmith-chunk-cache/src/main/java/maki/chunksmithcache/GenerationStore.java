@@ -1,7 +1,11 @@
 package maki.chunksmithcache;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -9,6 +13,7 @@ import java.nio.file.attribute.FileTime;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -449,6 +454,7 @@ final class GenerationStore {
                 + "sourceInventoryEntries=" + inventory.entries() + "\n"
                 + "sourceInventoryBytes=" + inventory.bytes() + "\n"
                 + "sourceInventoryNewestMillis=" + inventory.newestModifiedMillis() + "\n"
+                + "sourceInventorySha256=" + inventory.sha256() + "\n"
                 + "adoptedEntries=" + migration.adoptedEntries() + "\n"
                 + "recoveredExistingEntries=" + migration.recoveredExistingEntries() + "\n"
                 + "acceptedSourceEntries=" + migration.acceptedSourceEntries() + "\n"
@@ -536,7 +542,8 @@ final class GenerationStore {
             SourceInventory recorded = new SourceInventory(
                 recoveryLong(text, "sourceInventoryEntries"),
                 recoveryLong(text, "sourceInventoryBytes"),
-                recoveryLong(text, "sourceInventoryNewestMillis")
+                recoveryLong(text, "sourceInventoryNewestMillis"),
+                recoveryString(text, "sourceInventorySha256")
             );
             SourceInventory current = sourceInventory(source);
             boolean unchanged = recorded.equals(current);
@@ -548,32 +555,61 @@ final class GenerationStore {
     }
 
     private static long recoveryLong(String text, String key) throws IOException {
+        String value = recoveryString(text, key);
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException malformed) {
+            throw new IOException("Invalid " + key + " in " + RECOVERY_INFO, malformed);
+        }
+    }
+
+    private static String recoveryString(String text, String key) throws IOException {
         String prefix = key + "=";
         for (String line : text.split("\\R")) {
-            if (!line.startsWith(prefix)) continue;
-            try {
-                return Long.parseLong(line.substring(prefix.length()));
-            } catch (NumberFormatException malformed) {
-                throw new IOException("Invalid " + key + " in " + RECOVERY_INFO, malformed);
-            }
+            if (line.startsWith(prefix)) return line.substring(prefix.length());
         }
         throw new IOException("Missing " + key + " in " + RECOVERY_INFO);
     }
 
-    private static SourceInventory sourceInventory(Path source) throws IOException {
+    static SourceInventory sourceInventory(Path source) throws IOException {
         long entries = 0L;
         long bytes = 0L;
         long newest = 0L;
-        try (Stream<Path> stream = Files.walk(source)) {
-            for (Path path : stream.filter(Files::isRegularFile)
-                    .filter(value -> value.getFileName().toString().endsWith(".nbt.gz"))
-                    .toList()) {
-                entries++;
-                bytes = Math.addExact(bytes, Files.size(path));
-                newest = Math.max(newest, Files.getLastModifiedTime(path).toMillis());
-            }
+        MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 unavailable", impossible);
         }
-        return new SourceInventory(entries, bytes, newest);
+
+        List<Path> files;
+        try (Stream<Path> stream = Files.walk(source)) {
+            files = stream.filter(Files::isRegularFile)
+                .filter(value -> value.getFileName().toString().endsWith(".nbt.gz"))
+                .sorted(Comparator.comparing(value ->
+                    source.relativize(value).toString().replace('\\', '/')))
+                .toList();
+        }
+
+        byte[] buffer = new byte[8192];
+        for (Path path : files) {
+            entries++;
+            long size = Files.size(path);
+            bytes = Math.addExact(bytes, size);
+            newest = Math.max(newest, Files.getLastModifiedTime(path).toMillis());
+
+            String relative = source.relativize(path).toString().replace('\\', '/');
+            digest.update(relative.getBytes(StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+            try (InputStream input = Files.newInputStream(path)) {
+                int read;
+                while ((read = input.read(buffer)) >= 0) {
+                    if (read != 0) digest.update(buffer, 0, read);
+                }
+            }
+            digest.update((byte) 0);
+        }
+        return new SourceInventory(entries, bytes, newest, HexFormat.of().formatHex(digest.digest()));
     }
 
     private static Path unique(Path target) {
@@ -604,7 +640,7 @@ final class GenerationStore {
     record QuarantineInfo(String id, long entries, long bytes, long modifiedAtMillis) {}
     record RetainedDataStats(long generations, long bytes) {}
     private record Stats(long entries, long bytes) {}
-    private record SourceInventory(long entries, long bytes, long newestModifiedMillis) {}
+    record SourceInventory(long entries, long bytes, long newestModifiedMillis, String sha256) {}
     private record QuarantineEntry(Path path, Stats stats, long modifiedAtMillis) {}
     private record QuarantineCandidate(Path path, FingerprintManifest.Manifest manifest) {}
 }
