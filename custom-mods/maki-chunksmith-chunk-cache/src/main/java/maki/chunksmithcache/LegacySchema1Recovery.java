@@ -11,16 +11,20 @@ import net.minecraft.nbt.Tag;
  *
  * The historical writer did not persist detached persistent entities. Recovery
  * therefore does not claim historical entity completeness. It may reuse terrain
- * only when the saved structure metadata shows that no structure-generated
- * entity set needs reconstruction and every known code-driven generation input
- * is within the audited server stack. Natural-spawn history is intentionally
- * outside this contract.
+ * only for the audited overworld recovery domain, when the saved structure
+ * metadata shows that no structure-generated entity set needs reconstruction and
+ * every known code-driven generation input is within the audited server stack.
+ * Other dimensions fail closed because vanilla Features may place required
+ * persistent entities without structure starts/references. Natural-spawn history
+ * is intentionally outside this contract.
  */
 final class LegacySchema1Recovery {
-    static final String POLICY = "schema1-functional-entities-v1";
+    static final String POLICY = "schema1-functional-entities-v2";
     static final String POLICY_TAG = "legacyRecoveryPolicy";
     static final String SOURCE_SHA_TAG = "legacySourceSha256";
     static final String REQUIRED_ENTITIES_TAG = "requiredGeneratedEntitiesComplete";
+
+    private static final String RECOVERABLE_DIMENSION = "minecraft:overworld";
 
     private static final Set<String> AUDITED_CODE_DRIVEN_MODS = Set.of(
         "chunksmith", "zfastnoise", "epicterrain", "millenaire",
@@ -45,6 +49,13 @@ final class LegacySchema1Recovery {
         }
         if (sourceManifest == null || currentManifest == null) {
             return new Decision(Outcome.HOLD, "generation-manifest-unavailable");
+        }
+        String dimension = envelope.getString("dimension");
+        if (!RECOVERABLE_DIMENSION.equals(dimension)) {
+            return new Decision(
+                Outcome.FULL_REGENERATE,
+                "dimension-not-audited-for-schema1-functional-recovery:" + dimension
+            );
         }
 
         String inputRisk = unauditedDirectEntityInput(currentManifest);

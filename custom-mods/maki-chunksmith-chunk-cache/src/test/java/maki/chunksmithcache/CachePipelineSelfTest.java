@@ -326,6 +326,7 @@ public final class CachePipelineSelfTest {
         );
         CompoundTag envelope=new CompoundTag();
         envelope.putInt("schema",1);
+        envelope.putString("dimension","minecraft:overworld");
         CompoundTag chunk=new CompoundTag();
         chunk.putString("Status","minecraft:full");
         CompoundTag structures=new CompoundTag();
@@ -344,6 +345,18 @@ public final class CachePipelineSelfTest {
                 && !upgraded.getBoolean("entitiesComplete")
                 && !upgraded.getBoolean("lodCommitted"),
             "legacy recovery is promotion-only without fabricating historical entity or LOD completeness");
+
+        CompoundTag endEnvelope=envelope.copy();
+        endEnvelope.putString("dimension","minecraft:the_end");
+        require(LegacySchema1Recovery.decide(endEnvelope,source,current).outcome()
+                ==LegacySchema1Recovery.Outcome.FULL_REGENERATE,
+            "schema1 End FULL fails closed because feature-generated End Crystals are outside structure metadata");
+
+        CompoundTag netherEnvelope=envelope.copy();
+        netherEnvelope.putString("dimension","minecraft:the_nether");
+        require(LegacySchema1Recovery.decide(netherEnvelope,source,current).outcome()
+                ==LegacySchema1Recovery.Outcome.FULL_REGENERATE,
+            "schema1 recovery is limited to the audited production overworld domain");
 
         CompoundTag structureEnvelope=envelope.copy();
         CompoundTag activeStart=new CompoundTag();
