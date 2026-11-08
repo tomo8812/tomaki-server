@@ -64,16 +64,19 @@ final class RecoveryClaims {
         Path canonical=root(key).resolve(region).resolve(file);
 
         if(claimExists(canonical)) return canonical;
+
+        // Conflict payloads intentionally remain under .promotions after initialization. They
+        // still represent unresolved interrupted state when normal FULL storage is unavailable.
+        Path conflict=findConflictClaim(key,file);
+        if(conflict!=null) return conflict;
         if(READY.contains(key)) return null;
 
         Path legacy=findLegacyClaim(key,region,file);
         if(legacy!=null) return legacy;
 
-        Path conflict=findConflictClaim(key,file);
-        if(conflict!=null) return conflict;
-
-        // Background initialize() may have moved the exact legacy source after the first check.
-        return claimExists(canonical) ? canonical : null;
+        // Background initialize() may have moved the exact legacy source after the first checks.
+        if(claimExists(canonical)) return canonical;
+        return findConflictClaim(key,file);
     }
 
     private static Path findLegacyClaim(Path dimension,String region,String file) throws IOException {
