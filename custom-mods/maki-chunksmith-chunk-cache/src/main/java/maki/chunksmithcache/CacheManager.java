@@ -573,39 +573,47 @@ public final class CacheManager {
          rotateGenerations(var0, snapshot, "scan");
       }
       Path file = path(var0, var1, var2);
-      // A claim blocks generation but does not by itself prove the LOD retry obligation
-      // is complete: adoptLive can create a payload-free marker while capture is pending.
-      try {
-         if (RecoveryClaims.claimExists(PromotionClaim.claimedPath(file))) return CacheState.CLAIMED;
-      } catch(IOException claimError) {
-         PipelineMetrics.count("promotion-claim-inspection-failed");
-         return CacheState.UNKNOWN;
-      }
-      if (!Files.isRegularFile(file)) {
-         return CacheState.ABSENT;
-      }
+      Path claim = PromotionClaim.claimedPath(file);
 
-      try {
-         CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
-         CacheEnvelope.Reuse reuse = CacheEnvelope.reuse(root);
-         if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE
-            && ensureGeneratedCompleteMarker(file, root, validEnvelopeIdentity(root, var0, var1, var2))) {
-            return CacheState.COMPLETE;
+      // Scan classification, marker repair, and promotion all share the same
+      // coordinate-claim lock. This prevents a player load from moving a verified
+      // payload to .promotions after validation but before marker repair, which
+      // would otherwise recreate an orphaned marker at the old available path.
+      try (var ignored = CachePathLocks.lock(claim)) {
+         // A claim blocks generation but does not by itself prove the LOD retry obligation
+         // is complete: adoptLive can create a payload-free marker while capture is pending.
+         try {
+            if (RecoveryClaims.claimExists(claim)) return CacheState.CLAIMED;
+         } catch(IOException claimError) {
+            PipelineMetrics.count("promotion-claim-inspection-failed");
+            return CacheState.UNKNOWN;
          }
-         if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY && validEnvelopeIdentity(root, var0, var1, var2)) {
-            // Safe for a real player promotion, but it cannot retire LOD/backfill debt.
+         if (!Files.isRegularFile(file)) {
             return CacheState.ABSENT;
          }
-         if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) {
-            PipelineMetrics.count("legacy-cache-retained-unproven");
+
+         try {
+            CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
+            CacheEnvelope.Reuse reuse = CacheEnvelope.reuse(root);
+            if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE
+               && ensureGeneratedCompleteMarker(file, root, validEnvelopeIdentity(root, var0, var1, var2))) {
+               return CacheState.COMPLETE;
+            }
+            if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY && validEnvelopeIdentity(root, var0, var1, var2)) {
+               // Safe for a real player promotion, but it cannot retire LOD/backfill debt.
+               return CacheState.ABSENT;
+            }
+            if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) {
+               PipelineMetrics.count("legacy-cache-retained-unproven");
+               return CacheState.ABSENT;
+            }
+            quarantineRejected(file);
+            return CacheState.ABSENT;
+         } catch (Throwable error) {
+            quarantineRejected(file);
+            LOG.warn("Ignoring invalid chunk cache {}; it remains eligible for backfill", new Object[]{file, error});
             return CacheState.ABSENT;
          }
-         quarantineRejected(file);
-         return CacheState.ABSENT;
-      } catch (Throwable error) {
-         quarantineRejected(file);
-         LOG.warn("Ignoring invalid chunk cache {}; it remains eligible for backfill", new Object[]{file, error});
-         return CacheState.ABSENT;
       }
    }
 
