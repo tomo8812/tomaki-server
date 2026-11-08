@@ -69,13 +69,36 @@ public final class CompatibilityInputSelfTest {
         require(unknown.size() == 1 && unknown.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
             "source-owned generation-neutral MOD updates must not rotate cache generations");
 
-        Path millenaire105 = temp.resolve("maki-millenaire-lod-compat-1.0.5.jar");
-        Path millenaire106 = temp.resolve("maki-millenaire-lod-compat-1.0.6.jar");
-        writeModJar(millenaire105, "maki_millenaire_lod", "1.0.5", "old snapshot plumbing");
-        writeModJar(millenaire106, "maki_millenaire_lod", "1.0.6", "new snapshot plumbing");
-        require(fingerprint(jarEntries("mods/" + millenaire105.getFileName(), millenaire105))
-                .equals(fingerprint(jarEntries("mods/" + millenaire106.getFileName(), millenaire106))),
-            "Millenaire compatibility 1.0.5/1.0.6 must share the audited generated-result contract");
+        String millenaire105Name = "maki-millenaire-lod-compat-1.0.5.jar";
+        String millenaire106Name = "maki-millenaire-lod-compat-1.0.6.jar";
+        String millenaire105Sha = AuditedModCompatibility.trustedMillenaireRawSha(millenaire105Name);
+        String millenaire106Sha = AuditedModCompatibility.trustedMillenaireRawSha(millenaire106Name);
+        require(millenaire105Sha != null && millenaire106Sha != null && !millenaire105Sha.equals(millenaire106Sha),
+            "Millenaire 1.0.5/1.0.6 must have distinct exact audited artifact hashes");
+
+        List<FingerprintManifest.Entry> millenaireContract = List.of(
+            contractEntry("maki_millenaire_lod", "millenaire-disposable-generation-v1")
+        );
+        require(FingerprintManifest.sameCompatibilityInputsExcept(
+                manifest(List.of(rawJarEntry("mods/" + millenaire105Name, millenaire105Sha))),
+                manifest(millenaireContract), Set.of()),
+            "exact audited Millenaire 1.0.5 may normalize to the shared generated-result contract");
+        require(FingerprintManifest.sameCompatibilityInputsExcept(
+                manifest(List.of(rawJarEntry("mods/" + millenaire106Name, millenaire106Sha))),
+                manifest(millenaireContract), Set.of()),
+            "exact audited Millenaire 1.0.6 may normalize to the shared generated-result contract");
+
+        Path tamperedMillenaire = temp.resolve(millenaire106Name);
+        writeModJar(tamperedMillenaire, "maki_millenaire_lod", "1.0.6", "unreviewed generation change");
+        List<FingerprintManifest.Entry> tamperedMillenaireEntries =
+            jarEntries("mods/" + millenaire106Name, tamperedMillenaire);
+        require(tamperedMillenaireEntries.size() == 1
+                && tamperedMillenaireEntries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
+            "same Millenaire filename/version with unreviewed bytes must fail closed");
+        require(!FingerprintManifest.sameCompatibilityInputsExcept(
+                manifest(List.of(rawJarEntry("mods/" + millenaire106Name, sha256("tampered".getBytes(StandardCharsets.UTF_8))))),
+                manifest(millenaireContract), Set.of()),
+            "historical Millenaire filename alone cannot prove the shared generation contract");
 
         Path newQol = temp.resolve("example-qol.jar");
         writeModJar(newQol, "example_qol", "1.0.0", "ui-only");
@@ -126,6 +149,7 @@ public final class CompatibilityInputSelfTest {
         assertAudited(mods.resolve("emi-1.1.24+1.21.1+neoforge.jar"), "emi");
         assertAudited(mods.resolve("clientsort-neoforge-3.89.2+1.21.1.jar"), "clientsort");
         assertAudited(mods.resolve("sound-physics-remastered-neoforge-1.21.1-1.5.2.jar"), "sound_physics_remastered");
+        assertMillenaireAudited(mods.resolve("maki-millenaire-lod-compat-1.0.6.jar"));
 
         Path repacked = temp.resolve("jade-renamed-repacked.jar");
         repack(jade, repacked, false);
@@ -213,6 +237,20 @@ public final class CompatibilityInputSelfTest {
         require(Files.readString(active.resolve("old-only.nbt.gz")).equals("recover-me"),
             "non-conflicting quarantined cache entries must be recovered");
         require(!Files.exists(source), "successfully merged quarantine source must be removed");
+    }
+
+    private static void assertMillenaireAudited(Path jar) throws Exception {
+        require(Files.isRegularFile(jar), "missing installed Millenaire compatibility JAR " + jar);
+        String rawSha = sha256(Files.readAllBytes(jar));
+        require(rawSha.equals(AuditedModCompatibility.trustedMillenaireRawSha(jar.getFileName().toString())),
+            "installed Millenaire compatibility JAR must match its exact reviewed artifact hash");
+        List<FingerprintManifest.Entry> entries = jarEntries("mods/" + jar.getFileName(), jar);
+        require(entries.size() == 2
+                && entries.getFirst().key().equals("compat:mod:maki_millenaire_lod")
+                && entries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT
+                && entries.get(1).key().equals(AuditedModCompatibility.RAW_AUDIT_PREFIX + "maki_millenaire_lod")
+                && entries.get(1).impact() == FingerprintManifest.Impact.IGNORED,
+            "installed Millenaire compatibility JAR must resolve to audited contract + raw audit");
     }
 
     private static void assertAudited(Path jar, String modId) throws Exception {
