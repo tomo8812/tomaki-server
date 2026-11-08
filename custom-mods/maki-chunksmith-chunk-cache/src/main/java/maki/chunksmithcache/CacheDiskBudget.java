@@ -29,6 +29,14 @@ final class CacheDiskBudget {
     static CacheDiskBudget at(Path root) { return ROOTS.computeIfAbsent(root.toAbsolutePath().normalize(), CacheDiskBudget::new); }
 
     void refresh(Path config) {
+        refresh(config, null, null);
+    }
+
+    void refreshForMigration(Path config, Path dimension, String targetFingerprint) {
+        refresh(config, dimension.toAbsolutePath().normalize(), targetFingerprint);
+    }
+
+    private void refresh(Path config, Path migrationDimension, String migrationTargetFingerprint) {
         try {
             Properties properties = new Properties();
             if (Files.isRegularFile(config)) try (var input = Files.newInputStream(config)) { properties.load(input); }
@@ -45,7 +53,7 @@ final class CacheDiskBudget {
                 additionsBefore = additions;
                 epoch = inventoryEpoch;
             }
-            long bytes = inventory ? inventoriedActiveBytes() : 0L;
+            long bytes = inventory ? inventoriedActiveBytes(migrationDimension, migrationTargetFingerprint) : 0L;
             synchronized (this) {
                 maxBytes = max;
                 minimumFree = reserve;
@@ -71,10 +79,13 @@ final class CacheDiskBudget {
      * or unreadable we fail closed and count the unknown subtree rather than
      * underestimating storage.
      */
-    private long inventoriedActiveBytes() throws IOException {
+    private long inventoriedActiveBytes(Path migrationDimension, String migrationTargetFingerprint) throws IOException {
         FingerprintManifest.Manifest direct =
             FingerprintManifest.readIfValid(root.resolve(FingerprintManifest.CURRENT_FILE_NAME));
-        if (direct != null) return dimensionActiveBytes(root, direct);
+        if (migrationDimension != null && root.equals(migrationDimension)) {
+            return dimensionActiveBytes(root, migrationTargetFingerprint);
+        }
+        if (direct != null) return dimensionActiveBytes(root, direct.fingerprint());
 
         long bytes = 0L;
         try (var children = Files.list(root)) {
@@ -87,11 +98,16 @@ final class CacheDiskBudget {
                 String name = child.getFileName().toString();
                 if (".quarantine".equals(name) || ".corrupt".equals(name)) continue;
 
+                Path normalizedChild = child.toAbsolutePath().normalize();
+                if (migrationDimension != null && normalizedChild.equals(migrationDimension)) {
+                    bytes = Math.addExact(bytes, dimensionActiveBytes(child, migrationTargetFingerprint));
+                    continue;
+                }
                 FingerprintManifest.Manifest current =
                     FingerprintManifest.readIfValid(child.resolve(FingerprintManifest.CURRENT_FILE_NAME));
                 bytes = Math.addExact(
                     bytes,
-                    current == null ? subtreeBytesFailClosed(child) : dimensionActiveBytes(child, current)
+                    current == null ? subtreeBytesFailClosed(child) : dimensionActiveBytes(child, current.fingerprint())
                 );
             }
         }
@@ -100,13 +116,13 @@ final class CacheDiskBudget {
 
     private static long dimensionActiveBytes(
         Path dimension,
-        FingerprintManifest.Manifest current
+        String activeFingerprint
     ) throws IOException {
         long bytes = 0L;
         Path currentManifest = dimension.resolve(FingerprintManifest.CURRENT_FILE_NAME);
         if (Files.isRegularFile(currentManifest)) bytes = Math.addExact(bytes, Files.size(currentManifest));
 
-        Path active = dimension.resolve(current.fingerprint());
+        Path active = dimension.resolve(activeFingerprint);
         if (Files.isDirectory(active)) bytes = Math.addExact(bytes, subtreeBytesFailClosed(active));
 
         // Promotion claims are authoritative ownership state outside disposable
