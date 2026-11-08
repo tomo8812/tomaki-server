@@ -51,9 +51,10 @@ final class RecoveryClaims {
     /**
      * Locate ownership for one coordinate without requiring dimension-wide recovery to succeed.
      *
-     * When startup recovery is READY this is the canonical claim lookup only. Before READY, it
-     * also checks every legacy location that this MOD has used: active/old generations,
-     * quarantined generations, and preserved conflict payloads. A final canonical recheck closes
+     * When startup recovery is READY this checks the canonical claim plus the in-memory index of
+     * preserved conflicts. Before READY, it also checks every legacy location that this MOD has
+     * used: active/old generations, quarantined generations, and conflict payloads. A final
+     * canonical recheck closes
      * the race where the background recovery moves a legacy payload while this targeted probe runs.
      *
      * Any I/O error on a path that could own this coordinate propagates. Errors elsewhere in the
