@@ -57,9 +57,12 @@ public final class CacheManager {
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
    private static final Map<String,Long> ROTATION_RETRY = new ConcurrentHashMap<>();
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
+   private static final ConcurrentHashMap<Path,ConcurrentHashMap<String,Long>> NEXT_LOCAL_RECOVERY_WARNING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
    private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
    private static final long MAINTENANCE_RETRY_MS = TimeUnit.MINUTES.toMillis(1L);
+   private static final long LOCAL_RECOVERY_WARNING_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1L);
+   private static final long LOCAL_OWNERSHIP_TIMEOUT_SECONDS = 10L;
    private static final ThreadPoolExecutor WRITE_IO = new ThreadPoolExecutor(
       1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(128), daemonFactory("maki-chunk-cache-write"), new AbortPolicy()
    );
@@ -371,7 +374,7 @@ public final class CacheManager {
          }
 
          try {
-            return CompletableFuture.supplyAsync(() -> {
+            CompletableFuture<Path> probe=CompletableFuture.supplyAsync(() -> {
                try {
                   Path claim=RecoveryClaims.claimForCoordinate(dimension,pos.x,pos.z);
                   if(claim==null) {
@@ -382,7 +385,7 @@ public final class CacheManager {
                      );
                   } else {
                      PipelineMetrics.count("promotion-recovery-local-claim");
-                     LOG.warn(
+                     if(allowLocalRecoveryWarning(dimension,"claim")) LOG.warn(
                         "Chunk-cache load remains blocked for {} {}: dimension recovery is unavailable and targeted ownership proof found {}; repair cache-directory access and retry recovery; recoveryFailure={}",
                         dimension.getFileName(),pos,claim,failureSummary(recoveryFailure)
                      );
@@ -390,7 +393,8 @@ public final class CacheManager {
                   return claim;
                } catch(IOException targetFailure) {
                   PipelineMetrics.count("promotion-recovery-local-proof-failed");
-                  LOG.warn(
+                  String category="proof-"+unwrapFailure(targetFailure).getClass().getName();
+                  if(allowLocalRecoveryWarning(dimension,category)) LOG.warn(
                      "Chunk-cache load remains blocked for {} {}: dimension recovery failed and target ownership absence cannot be proven; repair cache-directory access before retrying this coordinate; recoveryFailure={}",
                      dimension.getFileName(),pos,failureSummary(recoveryFailure),targetFailure
                   );
@@ -400,6 +404,17 @@ public final class CacheManager {
                   );
                }
             },READ_IO);
+            return boundedOwnershipProbe(probe,LOCAL_OWNERSHIP_TIMEOUT_SECONDS,TimeUnit.SECONDS)
+               .whenComplete((claim,error) -> {
+                  Throwable failure=unwrapFailure(error);
+                  if(failure instanceof java.util.concurrent.TimeoutException) {
+                     PipelineMetrics.count("promotion-recovery-local-timeout");
+                     if(allowLocalRecoveryWarning(dimension,"timeout")) LOG.warn(
+                        "Chunk-cache load remains blocked for {} {}: coordinate-local ownership proof exceeded {}s after dimension recovery failed; ownership is unknown, so replacement generation remains disabled; repair cache-directory I/O and retry",
+                        dimension.getFileName(),pos,LOCAL_OWNERSHIP_TIMEOUT_SECONDS
+                     );
+                  }
+               });
          } catch(RejectedExecutionException rejected) {
             return CompletableFuture.failedFuture(new IOException(
                "Cannot queue coordinate-local chunk-cache ownership proof for "+dimension.getFileName()+" "+pos,
@@ -409,12 +424,36 @@ public final class CacheManager {
       });
    }
 
-   private static String failureSummary(Throwable error) {
+   static <T> CompletableFuture<T> boundedOwnershipProbe(CompletableFuture<T> probe,long timeout,TimeUnit unit) {
+      return probe.orTimeout(timeout,unit);
+   }
+
+   private static boolean allowLocalRecoveryWarning(Path dimension,String category) {
+      Path key=dimension.toAbsolutePath().normalize();
+      long now=System.nanoTime();
+      AtomicBoolean allowed=new AtomicBoolean();
+      NEXT_LOCAL_RECOVERY_WARNING.computeIfAbsent(key,ignored -> new ConcurrentHashMap<>()).compute(category,(ignored,next) -> {
+         if(next==null || now>=next) {
+            allowed.set(true);
+            return now+LOCAL_RECOVERY_WARNING_INTERVAL_NANOS;
+         }
+         return next;
+      });
+      return allowed.get();
+   }
+
+   private static Throwable unwrapFailure(Throwable error) {
+      if(error==null) return null;
       Throwable value=error;
       while(value.getCause()!=null && (value instanceof java.util.concurrent.CompletionException
          || value instanceof java.util.concurrent.ExecutionException)) value=value.getCause();
-      String message=value.getMessage();
-      return value.getClass().getSimpleName()+(message==null?"":": "+message);
+      return value;
+   }
+
+   private static String failureSummary(Throwable error) {
+      Throwable value=unwrapFailure(error);
+      String message=value==null?null:value.getMessage();
+      return value==null?"none":value.getClass().getSimpleName()+(message==null?"":": "+message);
    }
 
    private static CompletableFuture<Optional<CompoundTag>> loadReadyCache(ServerLevel var0, ChunkPos var1) {
@@ -753,7 +792,11 @@ public final class CacheManager {
       CAPTURE_PENDING.forEach((key,flight) -> { if(key.level().getServer()==server) flight.result().complete(false); });
       LIVE_INSPECTIONS.forEach(permit -> { if(permit.server==server) permit.close(); });
       PromotionLedger.clear(server);
-      for(ServerLevel level:server.getAllLevels()) RecoveryClaims.clear(cacheRoot(level).resolve(dimensionKey(level)));
+      for(ServerLevel level:server.getAllLevels()) {
+         Path dimension=cacheRoot(level).resolve(dimensionKey(level));
+         RecoveryClaims.clear(dimension);
+         NEXT_LOCAL_RECOVERY_WARNING.remove(dimension.toAbsolutePath().normalize());
+      }
       synchronized(NEXT_MAINTENANCE) { NEXT_MAINTENANCE.remove(server); }
       synchronized(NEXT_DISK_REFRESH) { NEXT_DISK_REFRESH.remove(server); }
    }
