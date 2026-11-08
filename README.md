@@ -45,7 +45,7 @@ terrain_slabs-neoforge-3.1.2.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
 maki-assembly-tracking-1.0.0.jar
-maki-chunksmith-chunk-cache-1.4.0.jar
+maki-chunksmith-chunk-cache-1.4.1.jar
 maki-diorama-share-1.0.1.jar
 maki-idle-pregen-1.1.1.jar
 maki-lod-cpu-1.4.1.jar
