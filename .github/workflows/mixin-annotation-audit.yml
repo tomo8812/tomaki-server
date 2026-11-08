@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: mixin-static-${{ github.event_name }}-${{ github.ref }}
@@ -77,7 +77,7 @@ jobs:
 
   source-build:
     needs: jar-audit
-    if: always() && needs.jar-audit.outputs.projects != '[]'
+    if: needs.jar-audit.outputs.projects != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -128,25 +128,6 @@ jobs:
           curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
           python3 .github/scripts/audit_mixin_annotations.py --mods-dir /tmp/maki-rebuilt --annotation-api /tmp/sponge-mixin.jar --github-actions --json-output reports/rebuilt-mixin-audit.json
 
-
-      - name: Commit reviewed deployment JAR
-        if: github.event_name == 'pull_request' && github.head_ref == 'fix/issue-79'
-        run: |
-          rebuilt=/tmp/maki-rebuilt/maki-chunksmith-chunk-cache-1.4.2.jar
-          shipped=mods/maki-chunksmith-chunk-cache-1.4.2.jar
-          test -f "$rebuilt"
-          if [ -f "$shipped" ] && cmp -s "$rebuilt" "$shipped"; then
-            echo "Deployment JAR already matches rebuilt source."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin "$GITHUB_HEAD_REF"
-          git checkout -B "$GITHUB_HEAD_REF" "origin/$GITHUB_HEAD_REF"
-          cp "$rebuilt" "$shipped"
-          git add "$shipped"
-          git commit -m "build(cache): refresh 1.4.2 deployment jar"
-          git push origin "HEAD:$GITHUB_HEAD_REF"
 
       - name: Upload rebuilt JAR audit
         if: always()
