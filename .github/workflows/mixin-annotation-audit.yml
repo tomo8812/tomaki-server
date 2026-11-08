@@ -149,7 +149,7 @@ jobs:
           git checkout -B "$GITHUB_HEAD_REF" "origin/$GITHUB_HEAD_REF"
           rm -f mods/maki-chunksmith-chunk-cache-1.4.1.jar
           cp "$rebuilt" "$shipped"
-          git add -A -- mods/maki-chunksmith-chunk-cache-1.4.1.jar "$shipped"
+          git add "$shipped"
           git commit -m "build(cache): publish schema1 recovery deployment jar"
           git push origin "HEAD:$GITHUB_HEAD_REF"
 
