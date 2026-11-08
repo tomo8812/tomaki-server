@@ -106,35 +106,39 @@ public final class CacheManager {
       String fingerprint = snapshot.fingerprint();
       Path file = path(level, pos, fingerprint);
       Path claim = PromotionClaim.claimedPath(file);
+
       try {
          if (RecoveryClaims.claimExists(claim)) return true;
-         if (!Files.isRegularFile(file)) return false;
-         if (Files.isRegularFile(generatedCompleteMarker(file))) return true;
-
-         // Crash recovery for the narrow publication window between the atomic NBT
-         // move and sidecar creation. The normal fast path remains marker-only; a
-         // compressed read occurs only when a visible cache is unexpectedly missing
-         // its marker.
-         try (var ignored = CachePathLocks.lock(claim)) {
-            if (RecoveryClaims.claimExists(claim)) return true;
-            if (!Files.isRegularFile(file)) return false;
-            if (Files.isRegularFile(generatedCompleteMarker(file))) return true;
-            CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
-            if (CacheEnvelope.reuse(root) != CacheEnvelope.Reuse.GENERATED_COMPLETE
-                || !validEnvelopeIdentity(root, level, pos, fingerprint)) {
-               return false;
-            }
-            markGeneratedComplete(file);
-            PipelineMetrics.count("generated-complete-marker-repaired");
-            return true;
-         }
       } catch(IOException error) {
          // Unknown ownership is generated/pending for admission purposes: never generate over it.
          PipelineMetrics.count("promotion-claim-inspection-failed");
          return true;
-      } catch(Throwable invalid) {
-         PipelineMetrics.count("generated-complete-marker-repair-failed");
-         return false;
+      }
+      if (!Files.isRegularFile(file)) return false;
+      if (Files.isRegularFile(generatedCompleteMarker(file))) return true;
+
+      // Crash recovery for the narrow publication window between the atomic NBT
+      // move and sidecar creation. The normal fast path remains marker-only; a
+      // compressed read occurs only when a visible cache is unexpectedly missing
+      // its marker.
+      try (var ignored = CachePathLocks.lock(claim)) {
+         try {
+            if (RecoveryClaims.claimExists(claim)) return true;
+         } catch(IOException error) {
+            PipelineMetrics.count("promotion-claim-inspection-failed");
+            return true;
+         }
+         if (!Files.isRegularFile(file)) return false;
+         if (Files.isRegularFile(generatedCompleteMarker(file))) return true;
+         try {
+            CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
+            return ensureGeneratedCompleteMarker(
+               file, root, validEnvelopeIdentity(root, level, pos, fingerprint)
+            );
+         } catch(Throwable invalid) {
+            PipelineMetrics.count("generated-complete-marker-repair-failed");
+            return false;
+         }
       }
    }
 
@@ -582,17 +586,8 @@ public final class CacheManager {
       try {
          CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
          CacheEnvelope.Reuse reuse = CacheEnvelope.reuse(root);
-         if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE && validEnvelopeIdentity(root, var0, var1, var2)) {
-            if (!Files.isRegularFile(generatedCompleteMarker(file))) {
-               try {
-                  markGeneratedComplete(file);
-                  PipelineMetrics.count("generated-complete-marker-repaired");
-               } catch (IOException markerError) {
-                  // The NBT itself is still a complete cache. Chunksmith admission has
-                  // its own validated fallback and will retry sidecar repair.
-                  PipelineMetrics.count("generated-complete-marker-repair-failed");
-               }
-            }
+         if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE
+            && ensureGeneratedCompleteMarker(file, root, validEnvelopeIdentity(root, var0, var1, var2))) {
             return CacheState.COMPLETE;
          }
          if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY && validEnvelopeIdentity(root, var0, var1, var2)) {
@@ -638,6 +633,21 @@ public final class CacheManager {
 
    static void clearGeneratedComplete(Path file) throws IOException {
       Files.deleteIfExists(generatedCompleteMarker(file));
+   }
+
+   static boolean ensureGeneratedCompleteMarker(Path file, CompoundTag root, boolean validIdentity) {
+      if (!validIdentity || CacheEnvelope.reuse(root) != CacheEnvelope.Reuse.GENERATED_COMPLETE) return false;
+      if (Files.isRegularFile(generatedCompleteMarker(file))) return true;
+      try {
+         markGeneratedComplete(file);
+         PipelineMetrics.count("generated-complete-marker-repaired");
+      } catch (IOException markerError) {
+         // The validated schema-3 payload is still authoritative for this admission
+         // decision. Retry marker persistence on the next observation rather than
+         // allowing duplicate FULL generation.
+         PipelineMetrics.count("generated-complete-marker-repair-failed");
+      }
+      return true;
    }
 
    private static Path quarantineRejected(Path file) {
