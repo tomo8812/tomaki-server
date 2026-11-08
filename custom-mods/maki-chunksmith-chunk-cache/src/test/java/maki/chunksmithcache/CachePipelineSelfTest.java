@@ -101,6 +101,19 @@ public final class CachePipelineSelfTest {
             marker.publicationResolved();
             require(marker.canRetire(),"payload-free marker retires only after native FULL ACK and pending capture termination");
 
+            Path generatedTemporary=directory.resolve("generated-publication.tmp");
+            Path generatedAvailable=directory.resolve("generated-publication.nbt.gz");
+            Files.writeString(generatedTemporary,"generated snapshot");
+            require(PromotionClaim.publishGenerated(generatedTemporary,generatedAvailable)
+                    && Files.isRegularFile(generatedAvailable)
+                    && Files.isRegularFile(CacheManager.generatedCompleteMarker(generatedAvailable)),
+                "generated publication makes payload and completion marker visible in one claim critical section");
+            PromotionClaim generatedClaim=PromotionClaim.take(generatedAvailable,false);
+            require(generatedClaim!=null
+                    && !Files.exists(generatedAvailable)
+                    && !Files.exists(CacheManager.generatedCompleteMarker(generatedAvailable)),
+                "promotion after generated publication consumes payload and removes the source marker");
+
             Path emptyLive=directory.resolve("empty-live.nbt.gz");
             Files.writeString(emptyLive,"schema3 empty fixture");
             PromotionClaim emptyAdopted=PromotionClaim.adoptLive(emptyLive,false);
@@ -262,9 +275,14 @@ public final class CachePipelineSelfTest {
             writeEnvelope(source,1,1,false,false);
             writeEnvelope(source,2,2,true,false);
             writeEnvelope(source,3,3,true,true);
-            Path invalid=source.resolve("r.0.0/c.4.0.nbt.gz");
-            Files.createDirectories(invalid.getParent());
-            Files.writeString(invalid,"not-nbt");
+            Path unreadable=source.resolve("r.0.0/c.4.0.nbt.gz");
+            Files.createDirectories(unreadable.getParent());
+            Files.writeString(unreadable,"not-nbt");
+            writeEnvelope(source,3,5,true,true);
+            Path structurallyInvalid=source.resolve("r.0.0/c.5.0.nbt.gz");
+            CompoundTag invalidEnvelope=NbtIo.readCompressed(structurallyInvalid,NbtAccounter.create(1L<<20));
+            invalidEnvelope.putString("dimension","minecraft:the_nether");
+            NbtIo.writeCompressed(invalidEnvelope,structurallyInvalid);
             Path configuration=root.resolve("migration.properties");
             Files.writeString(configuration,"cache.max-active-bytes=1073741824\ncache.minimum-free-bytes=1\n");
             CacheDiskBudget migrationBudget=CacheDiskBudget.at(root.resolve("budget"));
@@ -273,10 +291,13 @@ public final class CachePipelineSelfTest {
             CacheGenerationMigration.Stats stats=CacheGenerationMigration.copyReusableEntriesPreservingSource(
                 source,target,"minecraft:overworld",migrationBudget
             );
-            require(stats.sourceEntries()==4 && stats.adoptedEntries()==2 && stats.duplicateEntries()==0,
+            require(stats.sourceEntries()==5 && stats.adoptedEntries()==2 && stats.duplicateEntries()==0,
                 "migration accounts all source/adopted/duplicate entries");
-            require(stats.promotionOnlyEntries()==1 && stats.retainedUnprovenEntries()==1 && stats.retainedInvalidEntries()==1,
-                "schema2 is promotion-only while schema1/corrupt data remains retained");
+            require(stats.promotionOnlyEntries()==1 && stats.retainedUnprovenEntries()==1
+                    && stats.retainedUnreadableEntries()==1 && stats.retainedInvalidEntries()==1,
+                "schema2 is promotion-only while schema1, unreadable, and structurally invalid data remain retained");
+            require(!stats.completeForCurrentPass(),
+                "transient unreadable entries keep generation reconciliation retryable in the current server run");
             require(!Files.exists(target.resolve("r.0.0/c.1.0.nbt.gz")),
                 "schema1 without entity proof is never copied into active cache");
             Path schema2=target.resolve("r.0.0/c.2.0.nbt.gz");
@@ -289,7 +310,8 @@ public final class CachePipelineSelfTest {
             require(Files.isRegularFile(source.resolve("r.0.0/c.1.0.nbt.gz"))
                     && Files.isRegularFile(source.resolve("r.0.0/c.2.0.nbt.gz"))
                     && Files.isRegularFile(source.resolve("r.0.0/c.3.0.nbt.gz"))
-                    && Files.isRegularFile(invalid),
+                    && Files.isRegularFile(unreadable)
+                    && Files.isRegularFile(structurallyInvalid),
                 "automatic migration preserves every original source file");
 
             // Simulate a crash after payload publication but before the target manifest was
@@ -320,6 +342,16 @@ public final class CachePipelineSelfTest {
             require(!CacheManager.ensureGeneratedCompleteMarker(schema2,schema2Envelope,true)
                     && !Files.exists(CacheManager.generatedCompleteMarker(schema2)),
                 "promotion-only schema2 payload cannot manufacture a generated-complete marker");
+
+            Files.delete(unreadable);
+            CacheGenerationMigration.Stats terminalInvalidOnly =
+                CacheGenerationMigration.copyReusableEntriesPreservingSource(
+                    source,target,"minecraft:overworld",migrationBudget
+                );
+            require(terminalInvalidOnly.retainedUnreadableEntries()==0
+                    && terminalInvalidOnly.retainedInvalidEntries()==1
+                    && terminalInvalidOnly.completeForCurrentPass(),
+                "successfully read structural invalidity is retained but does not create an endless retry loop");
         } finally { deleteTree(root); }
     }
 
@@ -500,10 +532,12 @@ public final class CachePipelineSelfTest {
                     +"migrationContract="+CacheGenerationMigration.MIGRATION_CONTRACT+"\n"
                     +"sourcePreserved=true\n"
                     +"acceptedSourceEntries=0\n"
-                    +"retainedInvalidEntries=1\n"
+                    +"retainedUnreadableEntries=1\n"
+                    +"retainedInvalidEntries=0\n"
+                    +"deferredCapacityEntries=0\n"
             );
             require(!GenerationStore.alreadyRecovered(source,targetFingerprint,sourceFingerprint,activeManifest),
-                "retained invalid/unreadable entries keep a generation eligible for retry after temporary I/O failure");
+                "retained unreadable entries keep a generation eligible for retry after temporary I/O failure");
 
             long newest=Files.getLastModifiedTime(payload).toMillis();
             Files.writeString(
@@ -513,6 +547,7 @@ public final class CachePipelineSelfTest {
                     +"migrationContract="+CacheGenerationMigration.MIGRATION_CONTRACT+"\n"
                     +"sourcePreserved=true\n"
                     +"acceptedSourceEntries=0\n"
+                    +"retainedUnreadableEntries=0\n"
                     +"retainedInvalidEntries=0\n"
                     +"deferredCapacityEntries=0\n"
                     +"sourceInventoryEntries=1\n"
