@@ -206,17 +206,10 @@ final class AuditedModCompatibility {
     }
 
     static String policySignature() {
-        List<String> values = ATTESTATIONS.stream()
-            .map(value -> value.modId() + "@" + value.rawSha256() + ":" + value.canonicalSha256() + "->" + value.contract())
-            .sorted()
-            .toList();
-        List<String> neutral = GENERATION_NEUTRAL_PREFIXES.entrySet().stream()
-            .map(value -> value.getKey() + "@" + value.getValue())
-            .sorted()
-            .toList();
-        return "audited-mod-contracts-v2|neutral=" + String.join(",", neutral)
-            + "|millenaire=" + MILLENAIRE_CONTRACT + "@" + String.join(",", MILLENAIRE_EQUIVALENT_RELEASES.stream().sorted().toList())
-            + "|legacy-attestations=" + String.join("|", values);
+        // The registry contents are migration/audit knowledge, not generated-result
+        // inputs. Adding another proven-neutral artifact must not rotate the current
+        // generation. Bump the contract version only when the semantic rules change.
+        return "audited-mod-contracts-v2|neutral-role-contract-v1|millenaire=" + MILLENAIRE_CONTRACT;
     }
 
     static String canonicalJarSha256(Path jarPath) throws Exception {
