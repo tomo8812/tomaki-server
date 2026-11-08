@@ -187,6 +187,13 @@ final class GenerationStore {
 
         CacheEnvelope.Reuse reuse =
             CacheGenerationMigration.classify(entry, envelope, sourceManifest, expectedDimension);
+        if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN && envelope.getInt("schema") == 1 && sourceManifest != null) {
+            LegacySchema1Recovery.Decision legacy =
+                LegacySchema1Recovery.decide(envelope, sourceManifest, current);
+            if (legacy.outcome() == LegacySchema1Recovery.Outcome.REUSE_FULL) {
+                return RetainedCoordinateState.REUSABLE;
+            }
+        }
         return reuse == CacheEnvelope.Reuse.PROMOTION_ONLY || reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE
             ? RetainedCoordinateState.REUSABLE
             : RetainedCoordinateState.ABSENT;
@@ -283,7 +290,7 @@ final class GenerationStore {
             );
             CacheDiskBudget migrationBudget = migrationBudget(level, snapshot);
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                source, active, level.dimension().location().toString(), migrationBudget,
+                source, active, level.dimension().location().toString(), current, migrationBudget,
                 sourceManifest -> authorizeMigrationSource(active, current, sourceManifest)
             );
             long activeEntries = stats(active).entries();
@@ -325,7 +332,7 @@ final class GenerationStore {
 
         Stats before = stats(legacy);
         CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
-            legacy, active, expectedDimension, budget,
+            legacy, active, expectedDimension, snapshot.manifest(Set.of(snapshot.fingerprint())), budget,
             sourceManifest -> authorizeMigrationSource(active, snapshot.manifest(Set.of(snapshot.fingerprint())), sourceManifest)
         );
         Set<String> accepted = new LinkedHashSet<>();
@@ -376,7 +383,7 @@ final class GenerationStore {
                 old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate
             );
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                candidate, active, expectedDimension, budget,
+                candidate, active, expectedDimension, current, budget,
                 sourceManifest -> authorizeMigrationSource(active, current, sourceManifest)
             );
             complete &= migration.completeForCurrentPass();
@@ -450,7 +457,7 @@ final class GenerationStore {
                 old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate
             );
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                candidate, active, expectedDimension, budget,
+                candidate, active, expectedDimension, current, budget,
                 sourceManifest -> authorizeMigrationSource(active, current, sourceManifest)
             );
             complete &= migration.completeForCurrentPass();
@@ -565,6 +572,12 @@ final class GenerationStore {
                 + "acceptedSourceEntries=" + migration.acceptedSourceEntries() + "\n"
                 + "duplicateEntries=" + migration.duplicateEntries() + "\n"
                 + "promotionOnlyEntries=" + migration.promotionOnlyEntries() + "\n"
+                + "legacyReusedEntries=" + migration.legacyReusedEntries() + "\n"
+                + "legacyEntityRegeneratedEntries=" + migration.legacyEntityRegeneratedEntries() + "\n"
+                + "legacyFullRegenerationEntries=" + migration.legacyFullRegenerationEntries() + "\n"
+                + "legacyHeldEntries=" + migration.legacyHeldEntries() + "\n"
+                + "legacyInvalidEntries=" + migration.legacyInvalidEntries() + "\n"
+                + "legacyActiveWinsEntries=" + migration.legacyActiveWinsEntries() + "\n"
                 + "retainedUnprovenEntries=" + migration.retainedUnprovenEntries() + "\n"
                 + "retainedUnreadableEntries=" + migration.retainedUnreadableEntries() + "\n"
                 + "retainedInvalidEntries=" + migration.retainedInvalidEntries() + "\n"

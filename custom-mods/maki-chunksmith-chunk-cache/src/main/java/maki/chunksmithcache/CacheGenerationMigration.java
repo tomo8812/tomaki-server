@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -20,7 +21,7 @@ import net.minecraft.nbt.NbtIo;
  * can be proven are copied into the current generation; every source is retained.
  */
 final class CacheGenerationMigration {
-    static final String MIGRATION_CONTRACT = "entry-migration-v8";
+    static final String MIGRATION_CONTRACT = "entry-migration-v9";
     private static final long MIGRATION_RESERVATION_OVERHEAD = 65_536L;
     private static final Pattern CACHE_FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
 
@@ -35,6 +36,21 @@ final class CacheGenerationMigration {
         Path source,
         Path target,
         String expectedDimension,
+        CacheDiskBudget budget,
+        SourceAuthorization authorization
+    ) throws IOException {
+        FingerprintManifest.Manifest currentManifest =
+            FingerprintManifest.readIfValid(target.resolve(FingerprintManifest.FILE_NAME));
+        return copyReusableEntriesPreservingSource(
+            source, target, expectedDimension, currentManifest, budget, authorization
+        );
+    }
+
+    static Stats copyReusableEntriesPreservingSource(
+        Path source,
+        Path target,
+        String expectedDimension,
+        FingerprintManifest.Manifest currentManifest,
         CacheDiskBudget budget,
         SourceAuthorization authorization
     ) throws IOException {
@@ -59,6 +75,13 @@ final class CacheGenerationMigration {
         long unreadable = 0L;
         long invalid = 0L;
         long deferredCapacity = 0L;
+        long legacyReused = 0L;
+        long legacyEntityRegenerated = 0L;
+        long legacyFullRegeneration = 0L;
+        long legacyHeld = 0L;
+        long legacyInvalid = 0L;
+        long legacyActiveWins = 0L;
+        List<String> legacyOutcomes = new ArrayList<>();
         FingerprintManifest.Manifest sourceManifest =
             FingerprintManifest.readIfValid(source.resolve(FingerprintManifest.FILE_NAME));
         boolean sourceAuthorized = false;
@@ -85,13 +108,50 @@ final class CacheGenerationMigration {
                 continue;
             }
 
+            boolean legacySchema1 = envelope.getInt("schema") == 1;
             CacheEnvelope.Reuse reuse = classify(path, envelope, sourceManifest, expectedDimension);
-            if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) {
-                unproven++;
-                continue;
-            }
+            String legacySourceSha = null;
+            String legacyReason = null;
             if (reuse == CacheEnvelope.Reuse.INVALID) {
                 invalid++;
+                if (legacySchema1) {
+                    legacyInvalid++;
+                    legacyOutcomes.add(legacyOutcome(envelope, "INVALID", "cache-identity-invalid"));
+                }
+                continue;
+            }
+            if (legacySchema1) {
+                if (reuse != CacheEnvelope.Reuse.LEGACY_UNPROVEN || sourceManifest == null) {
+                    unproven++;
+                    legacyHeld++;
+                    legacyOutcomes.add(legacyOutcome(envelope, "HOLD", "generation-manifest-unproven"));
+                    continue;
+                }
+                LegacySchema1Recovery.Decision decision =
+                    LegacySchema1Recovery.decide(envelope, sourceManifest, currentManifest);
+                if (decision.outcome() == LegacySchema1Recovery.Outcome.FULL_REGENERATE) {
+                    legacyFullRegeneration++;
+                    legacyOutcomes.add(legacyOutcome(envelope, "FULL_REGEN", decision.reason()));
+                    continue;
+                }
+                if (decision.outcome() != LegacySchema1Recovery.Outcome.REUSE_FULL) {
+                    unproven++;
+                    legacyHeld++;
+                    legacyOutcomes.add(legacyOutcome(envelope, "HOLD", decision.reason()));
+                    continue;
+                }
+                legacySourceSha = sha256(compressed);
+                legacyReason = decision.reason();
+                envelope = LegacySchema1Recovery.upgradedEnvelope(envelope, legacySourceSha);
+                reuse = classify(path, envelope, sourceManifest, expectedDimension);
+                if (reuse != CacheEnvelope.Reuse.PROMOTION_ONLY) {
+                    invalid++;
+                    legacyInvalid++;
+                    legacyOutcomes.add(legacyOutcome(envelope, "INVALID", "functional-upgrade-contract-invalid"));
+                    continue;
+                }
+            } else if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) {
+                unproven++;
                 continue;
             }
 
@@ -117,12 +177,20 @@ final class CacheGenerationMigration {
                     continue;
                 }
                 if (Files.exists(destination)) {
-                    if (sameMigratedEntry(path, destination, reuse, sourceManifest, expectedDimension)) {
+                    if (sameMigratedEntry(path, destination, reuse, sourceManifest, expectedDimension, legacySourceSha)) {
                         restoreCompletionMarker(destination, reuse);
                         recoveredExisting++;
+                        if (legacySourceSha != null) {
+                            legacyReused++;
+                            legacyOutcomes.add(legacyOutcome(envelope, "REUSE_FULL_RECOVERED", legacyReason));
+                        }
                         if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY) promotionOnly++;
                     } else {
                         duplicates++;
+                        if (legacySourceSha != null) {
+                            legacyActiveWins++;
+                            legacyOutcomes.add(legacyOutcome(envelope, "ACTIVE_CACHE_WINS", "existing-active-payload-preserved"));
+                        }
                     }
                     continue;
                 }
@@ -144,7 +212,11 @@ final class CacheGenerationMigration {
                 boolean destinationPublished = false;
                 boolean accounted = false;
                 try {
-                    Files.copy(path, temporary, StandardCopyOption.COPY_ATTRIBUTES);
+                    if (legacySourceSha != null) {
+                        NbtIo.writeCompressed(envelope, temporary);
+                    } else {
+                        Files.copy(path, temporary, StandardCopyOption.COPY_ATTRIBUTES);
+                    }
 
                     // Remove a stale sidecar before a promotion-only payload can become visible.
                     if (reuse != CacheEnvelope.Reuse.GENERATED_COMPLETE) {
@@ -165,6 +237,10 @@ final class CacheGenerationMigration {
                     accounted = true;
 
                     if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY) promotionOnly++;
+                    if (legacySourceSha != null) {
+                        legacyReused++;
+                        legacyOutcomes.add(legacyOutcome(envelope, "REUSE_FULL", legacyReason));
+                    }
                     adopted++;
                 } finally {
                     if (destinationPublished && !accounted) {
@@ -182,9 +258,12 @@ final class CacheGenerationMigration {
             }
         }
 
+        writeLegacyOutcomeLedger(source, legacyOutcomes);
         return new Stats(
-            files.size(), adopted, recoveredExisting, duplicates, promotionOnly, unproven,
-            unreadable, invalid, deferredCapacity
+            files.size(), adopted, recoveredExisting, duplicates, promotionOnly,
+            legacyReused, legacyEntityRegenerated, legacyFullRegeneration,
+            legacyHeld, legacyInvalid, legacyActiveWins,
+            unproven, unreadable, invalid, deferredCapacity
         );
     }
 
@@ -201,11 +280,14 @@ final class CacheGenerationMigration {
         Path destination,
         CacheEnvelope.Reuse expectedReuse,
         FingerprintManifest.Manifest sourceManifest,
-        String expectedDimension
+        String expectedDimension,
+        String legacySourceSha
     ) {
         try {
-            if (!Files.isRegularFile(destination) || Files.mismatch(source, destination) != -1L) return false;
+            if (!Files.isRegularFile(destination)) return false;
+            if (legacySourceSha == null && Files.mismatch(source, destination) != -1L) return false;
             CompoundTag envelope = NbtIo.readCompressed(destination, NbtAccounter.create(64L << 20));
+            if (legacySourceSha != null && !LegacySchema1Recovery.isUpgradeOf(envelope, legacySourceSha)) return false;
             return classify(destination, envelope, sourceManifest, expectedDimension) == expectedReuse;
         } catch (Throwable unreadable) {
             return false;
@@ -227,7 +309,7 @@ final class CacheGenerationMigration {
         String expectedDimension
     ) {
         CacheEnvelope.Reuse reuse = CacheEnvelope.reuse(envelope);
-        if (reuse == CacheEnvelope.Reuse.INVALID || reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) return reuse;
+        if (reuse == CacheEnvelope.Reuse.INVALID) return reuse;
         if (sourceManifest == null) return CacheEnvelope.Reuse.LEGACY_UNPROVEN;
         if (!expectedDimension.equals(envelope.getString("dimension"))) return CacheEnvelope.Reuse.INVALID;
         String storedFingerprint = envelope.getString("fingerprint");
@@ -246,10 +328,41 @@ final class CacheGenerationMigration {
             int x = Integer.parseInt(matcher.group(1));
             int z = Integer.parseInt(matcher.group(2));
             if (envelope.getInt("x") != x || envelope.getInt("z") != z) return CacheEnvelope.Reuse.INVALID;
+            CompoundTag chunk = envelope.getCompound("chunk");
+            if ((chunk.contains("xPos") && chunk.getInt("xPos") != x)
+                || (chunk.contains("zPos") && chunk.getInt("zPos") != z)) {
+                return CacheEnvelope.Reuse.INVALID;
+            }
         } catch (RuntimeException invalidCoordinate) {
             return CacheEnvelope.Reuse.INVALID;
         }
         return reuse;
+    }
+
+    private static String sha256(byte[] bytes) {
+        var digest = CompatibilityFingerprint.digest();
+        digest.update(bytes);
+        return CompatibilityFingerprint.hex(digest.digest());
+    }
+
+    private static String legacyOutcome(CompoundTag envelope, String outcome, String reason) {
+        return envelope.getInt("x") + "\t" + envelope.getInt("z") + "\t" + outcome + "\t" + reason;
+    }
+
+    private static void writeLegacyOutcomeLedger(Path source, List<String> outcomes) throws IOException {
+        if (outcomes.isEmpty()) return;
+        outcomes.sort(String::compareTo);
+        Path ledger = source.resolve("legacy-schema1-recovery-v1.tsv");
+        Path temporary = ledger.resolveSibling(ledger.getFileName() + ".tmp");
+        StringBuilder body = new StringBuilder("policy\t").append(LegacySchema1Recovery.POLICY).append('\n');
+        body.append("x\tz\toutcome\treason\n");
+        for (String outcome : outcomes) body.append(outcome).append('\n');
+        Files.writeString(temporary, body.toString());
+        try {
+            Files.move(temporary, ledger, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+            Files.move(temporary, ledger, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     record Stats(
@@ -258,6 +371,12 @@ final class CacheGenerationMigration {
         long recoveredExistingEntries,
         long duplicateEntries,
         long promotionOnlyEntries,
+        long legacyReusedEntries,
+        long legacyEntityRegeneratedEntries,
+        long legacyFullRegenerationEntries,
+        long legacyHeldEntries,
+        long legacyInvalidEntries,
+        long legacyActiveWinsEntries,
         long retainedUnprovenEntries,
         long retainedUnreadableEntries,
         long retainedInvalidEntries,

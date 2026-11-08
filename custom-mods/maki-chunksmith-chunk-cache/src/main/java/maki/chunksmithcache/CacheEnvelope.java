@@ -25,6 +25,12 @@ final class CacheEnvelope {
             // similarly named field is present, it cannot upgrade the old contract.
             return Reuse.LEGACY_UNPROVEN;
         }
+        // Schema-1 recovery has a deliberately narrower entity contract: inject no
+        // cached historical entities, preserve native EntityStorage/POI authority,
+        // and prove only the required generation-time entity set.
+        if (schema == SCHEMA && LegacySchema1Recovery.isFunctionalEnvelope(envelope)) {
+            return Reuse.PROMOTION_ONLY;
+        }
         if (schema != 2 && schema != SCHEMA) return Reuse.INVALID;
         if (!envelope.getBoolean("entitiesComplete") || !validEntities(envelope)) return Reuse.INVALID;
 

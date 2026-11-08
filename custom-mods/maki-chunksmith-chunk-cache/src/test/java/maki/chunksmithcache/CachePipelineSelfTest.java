@@ -20,6 +20,7 @@ public final class CachePipelineSelfTest {
         publication();
         envelopes();
         cacheStateSemantics();
+        legacySchema1RecoveryPolicy();
         generationMigration();
         retainedCoordinateReconciliation();
         migrationCapacity();
@@ -314,6 +315,64 @@ public final class CachePipelineSelfTest {
         } finally { Files.deleteIfExists(file); }
     }
 
+    private static void legacySchema1RecoveryPolicy() {
+        String sourceFingerprint="111111111111111111111111";
+        String targetFingerprint="222222222222222222222222";
+        FingerprintManifest.Manifest source=new FingerprintManifest.Manifest(
+            sourceFingerprint,1L,java.util.Set.of(sourceFingerprint),List.of()
+        );
+        FingerprintManifest.Manifest current=new FingerprintManifest.Manifest(
+            targetFingerprint,2L,java.util.Set.of(targetFingerprint),List.of()
+        );
+        CompoundTag envelope=new CompoundTag();
+        envelope.putInt("schema",1);
+        CompoundTag chunk=new CompoundTag();
+        chunk.putString("Status","minecraft:full");
+        CompoundTag structures=new CompoundTag();
+        structures.put("starts",new CompoundTag());
+        structures.put("References",new CompoundTag());
+        chunk.put("structures",structures);
+        envelope.put("chunk",chunk);
+
+        LegacySchema1Recovery.Decision safe=LegacySchema1Recovery.decide(envelope,source,current);
+        require(safe.outcome()==LegacySchema1Recovery.Outcome.REUSE_FULL,
+            "structure-free schema1 FULL may reuse terrain when direct-entity inputs are audited");
+        String sourceSha="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        CompoundTag upgraded=LegacySchema1Recovery.upgradedEnvelope(envelope,sourceSha);
+        require(CacheEnvelope.reuse(upgraded)==CacheEnvelope.Reuse.PROMOTION_ONLY
+                && LegacySchema1Recovery.isUpgradeOf(upgraded,sourceSha)
+                && !upgraded.getBoolean("entitiesComplete")
+                && !upgraded.getBoolean("lodCommitted"),
+            "legacy recovery is promotion-only without fabricating historical entity or LOD completeness");
+
+        CompoundTag structureEnvelope=envelope.copy();
+        CompoundTag activeStart=new CompoundTag();
+        activeStart.putString("id","minecraft:mineshaft");
+        structureEnvelope.getCompound("chunk").getCompound("structures").getCompound("starts")
+            .put("minecraft:mineshaft",activeStart);
+        require(LegacySchema1Recovery.decide(structureEnvelope,source,current).outcome()
+                ==LegacySchema1Recovery.Outcome.FULL_REGENERATE,
+            "structure-bearing schema1 falls back to coherent FULL regeneration");
+
+        CompoundTag referencedEnvelope=envelope.copy();
+        referencedEnvelope.getCompound("chunk").getCompound("structures").getCompound("References")
+            .putLongArray("minecraft:mineshaft",new long[]{1L});
+        require(LegacySchema1Recovery.decide(referencedEnvelope,source,current).outcome()
+                ==LegacySchema1Recovery.Outcome.FULL_REGENERATE,
+            "structure-reference chunks also regenerate so multi-chunk structure ranges stay coherent");
+
+        FingerprintManifest.Entry unknownCodeMod=new FingerprintManifest.Entry(
+            "mods/custom-worldgen.jar",1L,CompatibilityFingerprint.sha256("custom"),
+            FingerprintManifest.Impact.RELEVANT,"generation-sensitive MOD id=custom_worldgen"
+        );
+        FingerprintManifest.Manifest unknownCurrent=new FingerprintManifest.Manifest(
+            targetFingerprint,2L,java.util.Set.of(targetFingerprint),List.of(unknownCodeMod)
+        );
+        require(LegacySchema1Recovery.decide(envelope,source,unknownCurrent).outcome()
+                ==LegacySchema1Recovery.Outcome.FULL_REGENERATE,
+            "unknown code-driven generation fails closed to FULL regeneration");
+    }
+
     private static void generationMigration() throws Exception {
         Path root=Files.createTempDirectory("cache-generation-migration");
         try {
@@ -352,7 +411,7 @@ public final class CachePipelineSelfTest {
 
             java.util.concurrent.atomic.AtomicInteger authorizationCalls=new java.util.concurrent.atomic.AtomicInteger();
             CacheGenerationMigration.Stats stats=CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                source,target,"minecraft:overworld",migrationBudget,
+                source,target,"minecraft:overworld",targetManifest,migrationBudget,
                 migrationSource -> {
                     require(!Files.exists(target.resolve("r.0.0/c.2.0.nbt.gz"))
                             && !Files.exists(target.resolve("r.0.0/c.3.0.nbt.gz")),
@@ -366,16 +425,31 @@ public final class CachePipelineSelfTest {
             );
             require(authorizationCalls.get()==1,
                 "migration authorizes a compatible source exactly once before publishing reusable entries");
-            require(stats.sourceEntries()==6 && stats.adoptedEntries()==2 && stats.duplicateEntries()==0,
+            require(stats.sourceEntries()==6 && stats.adoptedEntries()==3 && stats.duplicateEntries()==0,
                 "migration accounts all source/adopted/duplicate entries");
-            require(stats.promotionOnlyEntries()==1 && stats.retainedUnprovenEntries()==1
+            require(stats.promotionOnlyEntries()==2 && stats.legacyReusedEntries()==1
+                    && stats.legacyEntityRegeneratedEntries()==0 && stats.legacyFullRegenerationEntries()==0
+                    && stats.legacyHeldEntries()==0 && stats.legacyInvalidEntries()==0
+                    && stats.retainedUnprovenEntries()==0
                     && stats.retainedUnreadableEntries()==1 && stats.retainedInvalidEntries()==2,
-                "filesystem-unavailable data is retryable while malformed and structurally invalid NBT are terminal");
+                "safe schema1 is reused while temporary IO remains retryable and invalid NBT remains terminal");
             require(!stats.completeForCurrentPass(),
                 "filesystem read failures keep generation reconciliation retryable in the current server run");
             Files.move(hiddenUnavailable,temporarilyUnavailable);
-            require(!Files.exists(target.resolve("r.0.0/c.1.0.nbt.gz")),
-                "schema1 without entity proof is never copied into active cache");
+            Path schema1=target.resolve("r.0.0/c.1.0.nbt.gz");
+            require(Files.isRegularFile(schema1),
+                "structure-free schema1 FULL is migrated into active cache");
+            CompoundTag migratedSchema1=NbtIo.readCompressed(schema1,NbtAccounter.create(1L<<20));
+            require(CacheEnvelope.reuse(migratedSchema1)==CacheEnvelope.Reuse.PROMOTION_ONLY
+                    && LegacySchema1Recovery.POLICY.equals(migratedSchema1.getString(LegacySchema1Recovery.POLICY_TAG))
+                    && !migratedSchema1.getBoolean("entitiesComplete")
+                    && migratedSchema1.getCompound("chunk").getList("entities",net.minecraft.nbt.Tag.TAG_COMPOUND).isEmpty(),
+                "schema1 migration records functional recovery provenance and injects no cached historical entities");
+            CompoundTag originalSchema1=NbtIo.readCompressed(source.resolve("r.0.0/c.1.0.nbt.gz"),NbtAccounter.create(1L<<20));
+            require(originalSchema1.getInt("schema")==1 && !originalSchema1.contains("entitiesComplete"),
+                "schema1 recovery never rewrites retained source evidence");
+            require(Files.isRegularFile(source.resolve("legacy-schema1-recovery-v1.tsv")),
+                "schema1 recovery persists coordinate outcomes beside the untouched retained generation");
             Path schema2=target.resolve("r.0.0/c.2.0.nbt.gz");
             Path schema3=target.resolve("r.0.0/c.3.0.nbt.gz");
             require(Files.isRegularFile(schema2) && Files.isRegularFile(schema3),
@@ -398,12 +472,13 @@ public final class CachePipelineSelfTest {
             Files.deleteIfExists(CacheManager.generatedCompleteMarker(schema3));
             CacheGenerationMigration.Stats replay =
                 CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                    source,target,"minecraft:overworld",migrationBudget,
+                    source,target,"minecraft:overworld",targetManifest,migrationBudget,
                     migrationAuthorization(target,targetManifest)
                 );
-            require(replay.adoptedEntries()==1 && replay.recoveredExistingEntries()==2
-                    && replay.acceptedSourceEntries()==3 && replay.duplicateEntries()==0,
-                "retry adopts the formerly unavailable entry and recovers exact existing copies");
+            require(replay.adoptedEntries()==1 && replay.recoveredExistingEntries()==3
+                    && replay.acceptedSourceEntries()==4 && replay.legacyReusedEntries()==1
+                    && replay.duplicateEntries()==0,
+                "retry adopts the formerly unavailable entry and recovers exact existing schema1/2/3 copies");
             require(!Files.exists(CacheManager.generatedCompleteMarker(schema2))
                     && Files.isRegularFile(CacheManager.generatedCompleteMarker(schema3)),
                 "interrupted migration restores promotion-only/generated-complete sidecars from validated payloads");
@@ -423,7 +498,7 @@ public final class CachePipelineSelfTest {
 
             CacheGenerationMigration.Stats terminalInvalidOnly =
                 CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                    source,target,"minecraft:overworld",migrationBudget,
+                    source,target,"minecraft:overworld",targetManifest,migrationBudget,
                     migrationAuthorization(target,targetManifest)
                 );
             require(terminalInvalidOnly.retainedUnreadableEntries()==0
@@ -470,8 +545,8 @@ public final class CachePipelineSelfTest {
                 "a promotion-safe retained entry keeps its own coordinate fail-closed until migration completes");
             require(GenerationStore.retainedCoordinateState(
                     dimension,current,targetFingerprint,"minecraft:overworld",12,0)
-                    == GenerationStore.RetainedCoordinateState.ABSENT,
-                "schema1 retained evidence remains preserved but cannot masquerade as an auto-reusable candidate");
+                    == GenerationStore.RetainedCoordinateState.REUSABLE,
+                "structure-free schema1 retained evidence blocks replacement generation until migration completes");
             require(GenerationStore.retainedCoordinateState(
                     dimension,current,targetFingerprint,"minecraft:overworld",13,0)
                     == GenerationStore.RetainedCoordinateState.ABSENT,
@@ -570,6 +645,10 @@ public final class CachePipelineSelfTest {
     private static void writeEnvelope(Path generation,int schema,int x,boolean entitiesComplete,boolean lodCommitted) throws Exception {
         CompoundTag chunk=new CompoundTag();
         chunk.putString("Status","minecraft:full");
+        CompoundTag structures=new CompoundTag();
+        structures.put("starts",new CompoundTag());
+        structures.put("References",new CompoundTag());
+        chunk.put("structures",structures);
         if(schema>=2) chunk.put("entities",new ListTag());
         CompoundTag envelope=new CompoundTag();
         envelope.putInt("schema",schema);
