@@ -82,6 +82,28 @@ final class GenerationStore {
         return StoredFingerprintAcceptance.accepts(generationDirectory, expectedFingerprint, storedFingerprint);
     }
 
+    static FingerprintManifest.Manifest authorizeMigrationSource(
+        Path active,
+        FingerprintManifest.Manifest targetManifest,
+        FingerprintManifest.Manifest sourceManifest
+    ) throws IOException {
+        if (sourceManifest == null) throw new IOException("Cannot authorize migration source without a valid manifest");
+        Files.createDirectories(active);
+        FingerprintManifest.Manifest existing =
+            FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
+        Set<String> accepted = new LinkedHashSet<>();
+        accepted.add(targetManifest.fingerprint());
+        accepted.addAll(targetManifest.storedFingerprints());
+        if (existing != null && targetManifest.fingerprint().equals(existing.fingerprint())) {
+            accepted.addAll(existing.storedFingerprints());
+        }
+        accepted.add(sourceManifest.fingerprint());
+        accepted.addAll(sourceManifest.storedFingerprints());
+        FingerprintManifest.Manifest authorized = targetManifest.withStoredFingerprints(accepted);
+        FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), authorized);
+        return authorized;
+    }
+
     static Path quarantineCorrupt(Path cacheFile) {
         try {
             Path generation = generationDirectory(cacheFile);
@@ -146,22 +168,14 @@ final class GenerationStore {
                     + snapshot.fingerprint() + " quarantined=" + manifest.fingerprint() + " changed=" + changed;
             }
             Path active = dimensionRoot(level).resolve(snapshot.fingerprint());
-            FingerprintManifest.Manifest activeManifest = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
             List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
                 manifest, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, source
             );
             CacheDiskBudget migrationBudget = migrationBudget(level, snapshot);
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                source, active, level.dimension().location().toString(), migrationBudget
+                source, active, level.dimension().location().toString(), migrationBudget,
+                sourceManifest -> authorizeMigrationSource(active, current, sourceManifest)
             );
-            Set<String> accepted = new LinkedHashSet<>();
-            accepted.add(snapshot.fingerprint());
-            if (migration.acceptedSourceEntries() > 0L) {
-                accepted.add(manifest.fingerprint());
-                accepted.addAll(manifest.storedFingerprints());
-            }
-            if (activeManifest != null) accepted.addAll(activeManifest.storedFingerprints());
-            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
             long activeEntries = stats(active).entries();
             String proof = exact ? "exact generation fingerprint" : "audited generation compatibility";
             writeRecoveryInfo(source, manifest.fingerprint(), snapshot.fingerprint(), proof, proofDetails, migration, activeEntries, "manual-restore");
@@ -201,7 +215,8 @@ final class GenerationStore {
 
         Stats before = stats(legacy);
         CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
-            legacy, active, expectedDimension, budget
+            legacy, active, expectedDimension, budget,
+            sourceManifest -> authorizeMigrationSource(active, snapshot.manifest(Set.of(snapshot.fingerprint())), sourceManifest)
         );
         Set<String> accepted = new LinkedHashSet<>();
         accepted.add(snapshot.fingerprint());
@@ -251,18 +266,10 @@ final class GenerationStore {
                 old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate
             );
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                candidate, active, expectedDimension, budget
+                candidate, active, expectedDimension, budget,
+                sourceManifest -> authorizeMigrationSource(active, current, sourceManifest)
             );
             complete &= migration.completeForCurrentPass();
-
-            Set<String> accepted = new LinkedHashSet<>();
-            accepted.add(snapshot.fingerprint());
-            if (migration.acceptedSourceEntries() > 0L) {
-                accepted.add(oldFingerprint);
-                accepted.addAll(old.storedFingerprints());
-            }
-            if (existing != null) accepted.addAll(existing.storedFingerprints());
-            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
             long activeEntries = stats(active).entries();
             writeRecoveryInfo(candidate, oldFingerprint, snapshot.fingerprint(), "audited generation compatibility",
                 proofDetails, migration, activeEntries, trigger);
@@ -333,18 +340,10 @@ final class GenerationStore {
                 old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate
             );
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                candidate, active, expectedDimension, budget
+                candidate, active, expectedDimension, budget,
+                sourceManifest -> authorizeMigrationSource(active, current, sourceManifest)
             );
             complete &= migration.completeForCurrentPass();
-
-            Set<String> accepted = new LinkedHashSet<>();
-            accepted.add(snapshot.fingerprint());
-            if (migration.acceptedSourceEntries() > 0L) {
-                accepted.add(old.fingerprint());
-                accepted.addAll(old.storedFingerprints());
-            }
-            if (existing != null) accepted.addAll(existing.storedFingerprints());
-            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
 
             long activeEntries = stats(active).entries();
             String proof = exact ? "exact generation fingerprint" : "audited generation compatibility";
