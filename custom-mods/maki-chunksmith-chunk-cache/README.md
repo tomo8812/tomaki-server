@@ -29,10 +29,11 @@ This makes non-zero global CSLOD writes explainable even when the follow-owned G
 
 Version 1.1.0 replaces the old "hash every file, then recursively delete every other generation" policy with an auditable compatibility boundary:
 
-- unknown MODs, configs, serverconfigs, datapacks, level.dat worldgen state, seed, dimension, generator class and Minecraft DataVersion remain fail-closed compatibility inputs;
-- maki_chunksmith_chunk_cache itself is keyed by the explicit compatibility schema instead of its JAR bytes, so maintenance-only releases do not invalidate chunk data accidentally;
-- maki_lag_observer is classified as observation-only from its MOD id, and its hot-reload config is ignored by default because it only controls diagnostics;
-- additional observation-only MOD ids or non-worldgen paths require an explicit administrator policy in config/maki-chunksmith-chunk-cache.properties;
+- generation compatibility is based on evidence that can change generated results: Chunksmith/effective worldgen settings, datapacks, level.dat worldgen state, seed, dimension, generator class and Minecraft DataVersion remain relevant;
+- ordinary QoL/runtime MODs and unrelated configs are generation-neutral by default instead of becoming relevant solely because they are unknown;
+- known code-driven worldgen MODs remain protected, and JARs that contain worldgen/structure/dimension datapack resources are detected as generation-sensitive automatically;
+- operators can add code-driven generation MOD IDs or config paths through fingerprint.generation-sensitive-mod-ids / fingerprint.generation-sensitive-paths; explicit ignore paths cannot neutralize built-in generation-sensitive paths;
+- maki_chunksmith_chunk_cache itself is excluded from generated-result compatibility; cache envelope schema is validated per entry rather than mixed into the world-generation fingerprint;
 - config/chunksmith/tasks/** remains excluded exactly as before; mutable Chunksmith task progress is not a compatibility input;
 - every v2 generation gets manifest-v2.txt containing per-input digest, size, compatibility classification and reason;
 - a previous v2 manifest is compared with the current one so logs identify old/new fingerprints, changed inputs, trigger (capture, load, or scan), entry count and bytes;
@@ -41,9 +42,9 @@ Version 1.1.0 replaces the old "hash every file, then recursively delete every o
 - /makichunkcache quarantine list, discard <id>, and restore <id> run maintenance on the cache I/O executor. Restore is refused unless the quarantined manifest exactly matches the current compatibility fingerprint;
 - a 1.0.x generation can be adopted without regeneration only when its exact legacy fingerprint still matches the current full input set. Otherwise it is quarantined because compatibility cannot be proven.
 
-The compatibility classification is intentionally conservative. A diagnostic MOD should be added to the observation-only list only when its code is known not to alter generated/serialized chunk contents. If a future cache release changes serialization or promotion semantics, CompatibilityFingerprint.SCHEMA must be bumped.
+The current compatibility boundary is evidence-driven rather than an all-MOD allow/deny audit. Unknown QoL/runtime additions do not rotate the generation by themselves. Direct worldgen evidence, built-in code-driven generators and operator-declared generation inputs remain relevant; malformed/unreadable JAR inspection still fails closed.
 
-check also runs FingerprintPolicySelfTest, covering observation-only JAR changes, explicitly ignored non-worldgen config, real worldgen MOD changes, datapack changes, seed changes, the existing Chunksmith task exclusion, and corrupt manifest fail-closed behavior.
+check also runs FingerprintPolicySelfTest, covering default-neutral QoL/runtime updates, ordinary config changes, built-in and operator-declared worldgen inputs, JAR worldgen-resource detection, protected Chunksmith settings, datapack/seed changes, policy-transition re-adoption and corrupt manifest rejection.
 ## Issue #41 backfill ticket lifecycle
 
 Version 1.0.3 removes the circular dependency between the backfill idle-work claim and vanilla's expiring `UNKNOWN` chunk ticket.
@@ -125,7 +126,7 @@ Schema 2 includes generated entity roots/passengers and uses native chunk/entity
 
 ## Issue #79 generation compatibility and retained cache migration
 
-Version 1.4.1 separates generated-result compatibility from the cache envelope format. The generation fingerprint no longer changes merely because the cache envelope schema changes, and maintained operational/UI/ship MODs use stable role contracts rather than raw JAR bytes. Unknown MODs and known terrain/structure/worldgen inputs remain fail-closed; the Millénaire compatibility 1.0.5/1.0.6 releases are normalized only when their exact reviewed JAR hashes match the audited generated-result contract; a same-name rebuild fails closed.
+Version 1.4.1 separates generated-result compatibility from the cache envelope format. The generation fingerprint no longer changes merely because the cache envelope schema changes or because an unrelated QoL/runtime MOD/config changes. Chunksmith/effective worldgen inputs, known code-driven terrain/structure/village MODs, JAR worldgen resources and operator-declared generation inputs remain relevant. The Millénaire compatibility 1.0.5/1.0.6 releases are normalized only when their exact reviewed JAR hashes match the audited generated-result contract; a same-name rebuild fails closed. Policy transitions can re-adopt a previous generation when the only formerly-relevant inputs are now explicitly classified generation-neutral, while real generation-input differences still block adoption.
 
 Old data is evaluated per entry instead of invalidating an entire generation. Schema 1 is retained but not promoted automatically because its historical writer did not persist a provable complete entity set. Schema 2 contains an entity-complete FULL payload and may therefore be promoted to normal storage, but it does not satisfy LOD/backfill completion because it predates the record-correlated LOD acknowledgement. Schema 3 is complete only when both entity completeness and the LOD receipt are present. Re-adoption copies only proven-safe entries into the active generation while preserving the original source and reporting source/adopted/recovered-existing/duplicate/promotion-only/unproven/invalid counts. If a server stops after a payload was copied but before the active manifest was committed, the next reconciliation only recognizes a byte-identical source/destination pair, reconstructs its LOD-complete sidecar, and restores the source fingerprint authorization.
 
