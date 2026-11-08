@@ -355,6 +355,14 @@ public final class CachePipelineSelfTest {
                     "retained warning inventory includes quarantine plus inactive fingerprint generations but excludes active");
                 for(int i=0;i<9;i++) require(Files.isRegularFile(root.resolve(".quarantine/retained-"+i+"/r.0.0/c."+i+".0.nbt.gz")),
                     "warning thresholds must never auto-delete retained cache data");
+
+                // Keep the retained-data warning inventory independent from the active-capacity
+                // accounting assertions below.
+                deleteTree(root.resolve(".quarantine"));
+                for(int i=1;i<=2;i++) deleteTree(root.resolve(String.format("%024x",i)));
+                deleteTree(root.resolve(activeFingerprint));
+                Files.deleteIfExists(root.resolve(FingerprintManifest.CURRENT_FILE_NAME));
+
                 Files.write(root.resolve("entry.nbt.gz"),new byte[80]);
                 Files.createDirectories(root.resolve(".quarantine"));
                 Files.write(root.resolve(".quarantine/old.nbt.gz"),new byte[1000]);
