@@ -21,7 +21,7 @@ public final class CachePipelineSelfTest {
         envelopes();
         disk();
         abi();
-        System.out.println("CachePipelineSelfTest passed (bounded admission, promotion ACK/restart, entities envelope, disk reserve, native ABI)");
+        System.out.println("CachePipelineSelfTest passed (bounded admission, localized promotion recovery, ACK/restart, entities envelope, disk reserve, native ABI)");
     }
 
     private static void budget() {
@@ -147,6 +147,55 @@ public final class CachePipelineSelfTest {
             RecoveryClaims.prepare(broken,Runnable::run).join();
             require(Files.isRegularFile(RecoveryClaims.root(broken).resolve("r.0.0/c.1.2.nbt.gz.in-use")),"repair retries migration rather than retaining a failed readiness latch");
         } finally { RecoveryClaims.clear(broken); deleteTree(broken); }
+
+        Path localized=Files.createTempDirectory("cache-recovery-localized");
+        try {
+            Path promotions=Files.createDirectories(RecoveryClaims.root(localized));
+            Path blockedRegion=promotions.resolve("r.9.9");
+            Files.writeString(blockedRegion,"unrelated canonical region is inaccessible as a directory");
+            Path unrelated=Files.createDirectories(localized.resolve("old-generation/r.9.9"))
+                .resolve("c.300.300.nbt.gz.in-use");
+            Files.writeString(unrelated,"unrelated interrupted state");
+            require(RecoveryClaims.prepare(localized,Runnable::run).isCompletedExceptionally(),
+                "an unrelated recovery target collision reproduces dimension-wide initialization failure");
+            require(RecoveryClaims.claimForCoordinate(localized,1,2)==null,
+                "unrelated recovery failure does not block a coordinate whose ownership absence is proven");
+
+            Path direct=Files.createDirectories(localized.resolve("old-generation/r.0.0"))
+                .resolve("c.1.2.nbt.gz.in-use");
+            Files.writeString(direct,"target legacy claim");
+            require(direct.equals(RecoveryClaims.claimForCoordinate(localized,1,2)),
+                "targeted proof finds an active/old-generation legacy claim");
+
+            Path quarantined=Files.createDirectories(localized.resolve(".quarantine/older/r.0.0"))
+                .resolve("c.5.6.nbt.gz.in-use");
+            Files.writeString(quarantined,"target quarantine claim");
+            require(quarantined.equals(RecoveryClaims.claimForCoordinate(localized,5,6)),
+                "targeted proof finds a quarantined legacy claim");
+
+            Path conflict=Files.createDirectories(RecoveryClaims.root(localized).resolve(".conflicts/test"))
+                .resolve("c.7.8.nbt.gz.in-use");
+            Files.writeString(conflict,"conflicting interrupted state");
+            require(conflict.equals(RecoveryClaims.claimForCoordinate(localized,7,8)),
+                "targeted proof treats preserved conflict payloads as unresolved ownership");
+
+            Path uncertainGeneration=Files.createDirectories(localized.resolve("uncertain-generation"));
+            Files.writeString(uncertainGeneration.resolve("r.1.1"),"not-a-directory");
+            boolean uncertain=false;
+            try { RecoveryClaims.claimForCoordinate(localized,33,34); }
+            catch(java.io.IOException expected) { uncertain=true; }
+            require(uncertain,
+                "target-specific I/O ambiguity fails closed instead of being localized away");
+
+            Files.delete(blockedRegion);
+            RecoveryClaims.prepare(localized,Runnable::run).join();
+            Path canonical=RecoveryClaims.root(localized).resolve("r.0.0/c.1.2.nbt.gz.in-use");
+            require(canonical.equals(RecoveryClaims.claimForCoordinate(localized,1,2))
+                    && Files.isRegularFile(canonical),
+                "repair retries global recovery and migrates the target claim");
+            require(conflict.equals(RecoveryClaims.claimForCoordinate(localized,7,8)),
+                "conflict ownership remains visible after global recovery reaches READY");
+        } finally { RecoveryClaims.clear(localized); deleteTree(localized); }
 
         Path ambiguous=Files.createTempDirectory("cache-claim-inspection");
         try {
