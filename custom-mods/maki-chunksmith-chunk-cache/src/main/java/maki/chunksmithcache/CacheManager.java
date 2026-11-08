@@ -105,7 +105,8 @@ public final class CacheManager {
       if (snapshot == null) return false;
       Path file = path(level, pos, snapshot.fingerprint());
       try {
-         return Files.isRegularFile(file) || RecoveryClaims.claimExists(PromotionClaim.claimedPath(file));
+         return (Files.isRegularFile(file) && Files.isRegularFile(generatedCompleteMarker(file)))
+            || RecoveryClaims.claimExists(PromotionClaim.claimedPath(file));
       } catch(IOException error) {
          // Unknown ownership is generated/pending for admission purposes: never generate over it.
          PipelineMetrics.count("promotion-claim-inspection-failed");
@@ -278,6 +279,7 @@ public final class CacheManager {
          NbtIo.writeCompressed(envelope, temporary);
          if (work.result.isDone() || STOPPING.contains(server)) return;
          if (!PromotionClaim.publish(temporary,file)) { work.result.complete(false); return; }
+         markGeneratedComplete(file);
          work.storage.published(Files.size(file)-previous);
          PipelineMetrics.time("cache-write", System.nanoTime()-started);
          work.result.complete(true);
@@ -399,18 +401,16 @@ public final class CacheManager {
                      CompoundTag var4 = NbtIo.readCompressed(var3, NbtAccounter.create(64L << 20));
                      String storedFingerprint = var4.getString("fingerprint");
                      Path generationDirectory = var3.getParent().getParent();
-                     if (var4.getInt("schema") == SCHEMA
-                        && GenerationStore.acceptsStoredFingerprint(generationDirectory, var2, storedFingerprint)
+                     CacheEnvelope.Reuse reuse = CacheEnvelope.reuse(var4);
+                     boolean identityValid = GenerationStore.acceptsStoredFingerprint(generationDirectory, var2, storedFingerprint)
                         && var0.dimension().location().toString().equals(var4.getString("dimension"))
                         && var4.getInt("x") == var1.x
                         && var4.getInt("z") == var1.z
                         && var4.contains("chunk")
-                        && NormalChunkStorage.fromTag(var4.getCompound("chunk")) == NormalChunkStorage.State.FULL) {
+                        && NormalChunkStorage.fromTag(var4.getCompound("chunk")) == NormalChunkStorage.State.FULL;
+                     if ((reuse == CacheEnvelope.Reuse.PROMOTION_ONLY || reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE)
+                        && identityValid) {
                         CompoundTag var5x = var4.getCompound("chunk");
-                        if (!CacheEnvelope.completeEntities(var4)) {
-                           quarantineRejected(var3);
-                           return Optional.empty();
-                        }
                         try {
                            if (!PromotionLedger.claim(var0, var1, var3, !var5x.getList("entities", 10).isEmpty())) {
                               PipelineMetrics.count("promotion-claim-race-blocked");
@@ -423,10 +423,13 @@ public final class CacheManager {
                            throw new java.io.UncheckedIOException("Cannot acquire promotion ownership at "+claim,ownershipFailure);
                         }
                         return Optional.of(var5x);
-                     } else {
-                        quarantineRejected(var3);
+                     }
+                     if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) {
+                        PipelineMetrics.count("legacy-cache-retained-unproven");
                         return Optional.empty();
                      }
+                     quarantineRejected(var3);
+                     return Optional.empty();
                   } catch (java.io.UncheckedIOException ownershipFailure) {
                      throw ownershipFailure;
                   } catch (Throwable var6) {
@@ -503,6 +506,7 @@ public final class CacheManager {
          try {
             long bytes=Files.isRegularFile(file)?Files.size(file):0L;
             Files.deleteIfExists(file);
+            clearGeneratedComplete(file);
             CacheDiskBudget.at(file.getParent().getParent().getParent().getParent()).deleted(bytes);
             completed.run();
          } catch(IOException error) {
@@ -553,8 +557,17 @@ public final class CacheManager {
 
       try {
          CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
-         if (validEnvelope(root, var0, var1, var2)) {
+         CacheEnvelope.Reuse reuse = CacheEnvelope.reuse(root);
+         if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE && validEnvelopeIdentity(root, var0, var1, var2)) {
             return CacheState.COMPLETE;
+         }
+         if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY && validEnvelopeIdentity(root, var0, var1, var2)) {
+            // Safe for a real player promotion, but it cannot retire LOD/backfill debt.
+            return CacheState.ABSENT;
+         }
+         if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) {
+            PipelineMetrics.count("legacy-cache-retained-unproven");
+            return CacheState.ABSENT;
          }
          quarantineRejected(file);
          return CacheState.ABSENT;
@@ -565,10 +578,8 @@ public final class CacheManager {
       }
    }
 
-   private static boolean validEnvelope(CompoundTag root, ServerLevel level, ChunkPos pos, String fingerprint) {
+   private static boolean validEnvelopeIdentity(CompoundTag root, ServerLevel level, ChunkPos pos, String fingerprint) {
       return root != null
-         && root.getInt("schema") == SCHEMA
-         && CacheEnvelope.completeEntities(root)
          && GenerationStore.acceptsStoredFingerprint(path(level,pos,fingerprint).getParent().getParent(), fingerprint, root.getString("fingerprint"))
          && level.dimension().location().toString().equals(root.getString("dimension"))
          && root.getInt("x") == pos.x
@@ -581,7 +592,22 @@ public final class CacheManager {
       return level.getServer().getWorldPath(LevelResource.ROOT).resolve("chunksmith_chunk_cache");
    }
 
+   static Path generatedCompleteMarker(Path file) {
+      return file.resolveSibling(file.getFileName() + ".lod-complete");
+   }
+
+   static void markGeneratedComplete(Path file) throws IOException {
+      Path marker = generatedCompleteMarker(file);
+      Files.createDirectories(marker.getParent());
+      Files.writeString(marker, "schema=" + SCHEMA + "\n");
+   }
+
+   static void clearGeneratedComplete(Path file) throws IOException {
+      Files.deleteIfExists(generatedCompleteMarker(file));
+   }
+
    private static Path quarantineRejected(Path file) {
+      try { clearGeneratedComplete(file); } catch (IOException ignored) {}
       Path quarantined=GenerationStore.quarantineCorrupt(file);
       if(quarantined!=null) CacheDiskBudget.at(file.getParent().getParent().getParent().getParent()).invalidateInventory();
       return quarantined;
