@@ -19,17 +19,23 @@ import net.minecraft.nbt.NbtIo;
  * can be proven are copied into the current generation; every source is retained.
  */
 final class CacheGenerationMigration {
-    static final String MIGRATION_CONTRACT = "entry-migration-v5";
+    static final String MIGRATION_CONTRACT = "entry-migration-v6";
     private static final long MIGRATION_RESERVATION_OVERHEAD = 65_536L;
     private static final Pattern CACHE_FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
 
     private CacheGenerationMigration() {}
 
+    @FunctionalInterface
+    interface SourceAuthorization {
+        void authorize(FingerprintManifest.Manifest sourceManifest) throws IOException;
+    }
+
     static Stats copyReusableEntriesPreservingSource(
         Path source,
         Path target,
         String expectedDimension,
-        CacheDiskBudget budget
+        CacheDiskBudget budget,
+        SourceAuthorization authorization
     ) throws IOException {
         Files.createDirectories(target);
         List<Path> files;
@@ -54,6 +60,7 @@ final class CacheGenerationMigration {
         long deferredCapacity = 0L;
         FingerprintManifest.Manifest sourceManifest =
             FingerprintManifest.readIfValid(source.resolve(FingerprintManifest.FILE_NAME));
+        boolean sourceAuthorized = false;
 
         for (int index = 0; index < files.size(); index++) {
             Path path = files.get(index);
@@ -73,6 +80,19 @@ final class CacheGenerationMigration {
             if (reuse == CacheEnvelope.Reuse.INVALID) {
                 invalid++;
                 continue;
+            }
+
+            // Generation compatibility is proven by GenerationStore, but readers validate
+            // each visible payload against the active generation manifest. Authorize the
+            // source generation before the first reusable payload can become visible, then
+            // verify the durable manifest actually accepts this entry's stored fingerprint.
+            if (!sourceAuthorized) {
+                authorization.authorize(sourceManifest);
+                sourceAuthorized = true;
+            }
+            if (!targetAcceptsStoredFingerprint(target, envelope.getString("fingerprint"))) {
+                throw new IOException("Migration source fingerprint was not authorized before publication: "
+                    + envelope.getString("fingerprint"));
             }
 
             Path destination = target.resolve(source.relativize(path));
@@ -153,6 +173,14 @@ final class CacheGenerationMigration {
             files.size(), adopted, recoveredExisting, duplicates, promotionOnly, unproven,
             unreadable, invalid, deferredCapacity
         );
+    }
+
+    private static boolean targetAcceptsStoredFingerprint(Path target, String storedFingerprint) {
+        FingerprintManifest.Manifest manifest =
+            FingerprintManifest.readIfValid(target.resolve(FingerprintManifest.FILE_NAME));
+        return manifest != null
+            && (manifest.fingerprint().equals(storedFingerprint)
+                || manifest.storedFingerprints().contains(storedFingerprint));
     }
 
     private static boolean sameMigratedEntry(
