@@ -21,6 +21,7 @@ public final class CachePipelineSelfTest {
         envelopes();
         cacheStateSemantics();
         generationMigration();
+        retainedCoordinateReconciliation();
         migrationCapacity();
         disk();
         workerIsolation();
@@ -432,6 +433,58 @@ public final class CachePipelineSelfTest {
         } finally { deleteTree(root); }
     }
 
+    private static void retainedCoordinateReconciliation() throws Exception {
+        Path dimension=Files.createTempDirectory("cache-retained-coordinate");
+        try {
+            String sourceFingerprint="111111111111111111111111";
+            String secondFingerprint="333333333333333333333333";
+            String targetFingerprint="222222222222222222222222";
+            Path source=Files.createDirectories(dimension.resolve(sourceFingerprint));
+            Path second=Files.createDirectories(dimension.resolve(secondFingerprint));
+            Path target=Files.createDirectories(dimension.resolve(targetFingerprint));
+            FingerprintManifest.Manifest sourceManifest=new FingerprintManifest.Manifest(
+                sourceFingerprint,1L,java.util.Set.of(sourceFingerprint),List.of()
+            );
+            FingerprintManifest.Manifest secondManifest=new FingerprintManifest.Manifest(
+                secondFingerprint,1L,java.util.Set.of(secondFingerprint),List.of()
+            );
+            FingerprintManifest.Manifest current=new FingerprintManifest.Manifest(
+                targetFingerprint,2L,java.util.Set.of(targetFingerprint),List.of()
+            );
+            FingerprintManifest.writeAtomic(source.resolve(FingerprintManifest.FILE_NAME),sourceManifest);
+            FingerprintManifest.writeAtomic(second.resolve(FingerprintManifest.FILE_NAME),secondManifest);
+            FingerprintManifest.writeAtomic(target.resolve(FingerprintManifest.FILE_NAME),current);
+
+            writeEnvelope(source,3,10,true,false);
+            writeEnvelope(source,1,12,false,false);
+            Path malformed=source.resolve("r.0.0/c.13.0.nbt.gz");
+            Files.writeString(malformed,"not-nbt");
+
+            require(GenerationStore.retainedCoordinateState(
+                    dimension,current,targetFingerprint,"minecraft:overworld",11,0)
+                    == GenerationStore.RetainedCoordinateState.ABSENT,
+                "a failed generation migration does not block a coordinate with no retained candidate");
+            require(GenerationStore.retainedCoordinateState(
+                    dimension,current,targetFingerprint,"minecraft:overworld",10,0)
+                    == GenerationStore.RetainedCoordinateState.REUSABLE,
+                "a promotion-safe retained entry keeps its own coordinate fail-closed until migration completes");
+            require(GenerationStore.retainedCoordinateState(
+                    dimension,current,targetFingerprint,"minecraft:overworld",12,0)
+                    == GenerationStore.RetainedCoordinateState.ABSENT,
+                "schema1 retained evidence remains preserved but cannot masquerade as an auto-reusable candidate");
+            require(GenerationStore.retainedCoordinateState(
+                    dimension,current,targetFingerprint,"minecraft:overworld",13,0)
+                    == GenerationStore.RetainedCoordinateState.ABSENT,
+                "malformed retained bytes are terminal invalid data rather than dimension-wide retry debt");
+
+            Files.writeString(second.resolve("r.0.0"),"not-a-directory");
+            require(GenerationStore.retainedCoordinateState(
+                    dimension,current,targetFingerprint,"minecraft:overworld",14,0)
+                    == GenerationStore.RetainedCoordinateState.UNKNOWN,
+                "target-specific retained-path ambiguity still fails closed");
+        } finally { deleteTree(dimension); }
+    }
+
     private static void migrationCapacity() throws Exception {
         Path dimension=Files.createTempDirectory("cache-migration-capacity");
         Path configuration=dimension.resolveSibling(dimension.getFileName()+".properties");
@@ -736,6 +789,14 @@ public final class CachePipelineSelfTest {
             "FULL_PENDING_LOD can enter Backfill to consume its saved FULL");
         require(BackfillController.retryBlockedByCache(CacheManager.CacheState.UNKNOWN),
             "undecided generation migration blocks backfill generation");
+        require(CacheManager.cacheReadAdmission(true,true,false),
+            "Backfill-owned target bypasses the player-proximity promotion gate while its save guard is active");
+        require(!CacheManager.cacheReadAdmission(false,false,false),
+            "ordinary cache loads still obey the general promotion gate");
+        require(!CacheManager.claimOnCacheRead(CacheEnvelope.Reuse.PROMOTION_ONLY,true),
+            "FULL_PENDING_LOD Backfill reads the saved FULL non-destructively so LOD completion can republish it");
+        require(CacheManager.claimOnCacheRead(CacheEnvelope.Reuse.PROMOTION_ONLY,false),
+            "ordinary promotion-only player loads retain the durable promotion claim boundary");
 
         CompletableFuture<Boolean> pending = new CompletableFuture<>();
         require(!CacheManager.reconciliationAllowsMiss(pending),
