@@ -476,7 +476,7 @@ final class GenerationStore {
         return new Stats(entries, bytes);
     }
 
-    private static boolean alreadyRecovered(
+    static boolean alreadyRecovered(
         Path source,
         String targetFingerprint,
         String sourceFingerprint,
