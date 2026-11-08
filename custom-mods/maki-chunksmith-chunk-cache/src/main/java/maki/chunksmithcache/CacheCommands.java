@@ -34,10 +34,9 @@ final class CacheCommands {
         source.sendSuccess(() -> Component.literal(
             "Chunk-cache fingerprint=" + snapshot.fingerprint()
                 + ", legacy=" + snapshot.legacyFingerprint()
-                + ", quarantine retention=" + policy.retentionDays() + "d"
-                + ", maxGenerations=" + policy.maxGenerations()
-                + ", maxBytes=" + policy.maxBytes()
-                + ", minProtection=" + policy.minProtectionHours() + "h"), false);
+                + ", retained-data auto-delete=disabled"
+                + ", quarantine warnGenerations=" + policy.warnGenerations()
+                + ", warnBytes=" + policy.warnBytes()), false);
         return 1;
     }
 
