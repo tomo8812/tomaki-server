@@ -118,7 +118,7 @@ final class GenerationStore {
                     old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, candidate
                 )) continue;
                 RetainedCoordinateState state =
-                    retainedEntryState(candidate, old, expectedDimension, x, z);
+                    retainedEntryState(candidate, old, current, expectedDimension, x, z);
                 if (state != RetainedCoordinateState.ABSENT) return state;
             }
 
@@ -133,7 +133,7 @@ final class GenerationStore {
                 );
                 if (!exact && !semantic) continue;
                 RetainedCoordinateState state =
-                    retainedEntryState(candidate, old, expectedDimension, x, z);
+                    retainedEntryState(candidate, old, current, expectedDimension, x, z);
                 if (state != RetainedCoordinateState.ABSENT) return state;
             }
             return RetainedCoordinateState.ABSENT;
@@ -153,6 +153,7 @@ final class GenerationStore {
     private static RetainedCoordinateState retainedEntryState(
         Path source,
         FingerprintManifest.Manifest sourceManifest,
+        FingerprintManifest.Manifest currentManifest,
         String expectedDimension,
         int x,
         int z
@@ -189,7 +190,7 @@ final class GenerationStore {
             CacheGenerationMigration.classify(entry, envelope, sourceManifest, expectedDimension);
         if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN && envelope.getInt("schema") == 1 && sourceManifest != null) {
             LegacySchema1Recovery.Decision legacy =
-                LegacySchema1Recovery.decide(envelope, sourceManifest, current);
+                LegacySchema1Recovery.decide(envelope, sourceManifest, currentManifest);
             if (legacy.outcome() == LegacySchema1Recovery.Outcome.REUSE_FULL) {
                 return RetainedCoordinateState.REUSABLE;
             }
