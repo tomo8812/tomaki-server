@@ -26,14 +26,15 @@ final class FingerprintPolicy {
     // Code-driven generation inputs that cannot be inferred solely from datapack resources.
     private static final Set<String> BUILTIN_GENERATION_SENSITIVE_MOD_IDS = Set.of(
         "chunksmith", "zfastnoise", "epicterrain", "millenaire", "worldgenfeaturefix",
-        "maki_millenaire_lod", "terrain_slabs"
+        "maki_millenaire_lod", "terrain_slabs", "disabler"
     );
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_JAR_PREFIXES = List.of(
         "chunksmith-", "zfastnoise-", "epicterrain-", "millenaire-", "worldgenfeaturefix-",
-        "maki-millenaire-lod-compat-", "terrain_slabs-"
+        "maki-millenaire-lod-compat-", "terrain_slabs-", "disabler-"
     );
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_PATHS = List.of(
         "config/zfastnoise.mixin.properties",
+        "config/disabler-server.json",
         "serverconfig/millenaire-*.toml",
         "world/serverconfig/millenaire-*.toml",
         "config/epicterrain*",
@@ -163,7 +164,7 @@ final class FingerprintPolicy {
         List<String> ignored = ignoredPaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
         List<String> sensitive = generationSensitivePaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
         List<String> sensitiveMods = generationSensitiveModIds.stream().sorted().toList();
-        return "policy-v7|self-mod-id=" + OWN_MOD_ID
+        return "policy-v8|self-mod-id=" + OWN_MOD_ID
             + "|ignored-paths=" + String.join(",", ignored)
             + "|generation-sensitive-mod-ids=" + String.join(",", sensitiveMods)
             + "|generation-sensitive-paths=" + String.join(",", sensitive)

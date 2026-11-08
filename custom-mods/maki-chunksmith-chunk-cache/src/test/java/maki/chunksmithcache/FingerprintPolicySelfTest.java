@@ -22,6 +22,8 @@ public final class FingerprintPolicySelfTest {
             writeModJar(resourceWorldgenJar, "resource_worldgen", "payload-a", true);
             Path customWorldgenJar = temp.resolve("custom-worldgen.jar");
             writeModJar(customWorldgenJar, "custom_worldgen", "payload-a", false);
+            Path disablerJar = temp.resolve("disabler-neoforge-1.21.1-1.3.jar");
+            writeModJar(disablerJar, "disabler", "payload-a", false);
 
             FingerprintPolicy policy = FingerprintPolicy.forTesting(List.of("config/diagnostic-probe.properties"));
             require(policy.classify("mods/diagnostic-probe.jar", qolJar) == FingerprintManifest.Impact.IGNORED,
@@ -30,6 +32,10 @@ public final class FingerprintPolicySelfTest {
                 "Chunksmith code remains generation-sensitive");
             require(policy.classify("mods/resource-worldgen.jar", resourceWorldgenJar) == FingerprintManifest.Impact.RELEVANT,
                 "worldgen datapack resources inside a JAR must make it generation-sensitive");
+            require(policy.classify("mods/disabler-neoforge-1.21.1-1.3.jar", disablerJar) == FingerprintManifest.Impact.RELEVANT,
+                "Disabler code is generation-sensitive because it controls structure availability");
+            require(policy.classify("config/disabler-server.json", temp.resolve("unused")) == FingerprintManifest.Impact.RELEVANT,
+                "Disabler structure blocking config must rotate generated-result compatibility");
             require(policy.classify("config/random-qol.properties", temp.resolve("unused")) == FingerprintManifest.Impact.IGNORED,
                 "ordinary config must not rotate generation compatibility");
             require(policy.classify("config/chunksmith/config.json", temp.resolve("unused")) == FingerprintManifest.Impact.IGNORED,
@@ -54,6 +60,8 @@ public final class FingerprintPolicySelfTest {
                 "operator-declared generation config must be relevant");
             require(operatorPolicy.classify("world/serverconfig/millenaire-server.toml", temp.resolve("unused")) == FingerprintManifest.Impact.RELEVANT,
                 "built-in Millenaire generation config cannot be neutralized by ignore-paths");
+            require(operatorPolicy.classify("config/disabler-server.json", temp.resolve("unused")) == FingerprintManifest.Impact.RELEVANT,
+                "built-in Disabler structure policy cannot be neutralized by ignore-paths");
             require(operatorPolicy.classify("config/chunksmith/config.json", temp.resolve("unused")) == FingerprintManifest.Impact.IGNORED,
                 "current Chunksmith operational config remains generation-neutral");
 
@@ -99,6 +107,25 @@ public final class FingerprintPolicySelfTest {
                 ),
                 "policy-v6 must re-adopt unchanged generation inputs when old QoL/config inputs are reclassified neutral"
             );
+            List<FingerprintManifest.Entry> oldDisablerPolicy = new ArrayList<>(oldPolicyEntries);
+            oldDisablerPolicy.add(entry("config/disabler-server.json", "villages-off", FingerprintManifest.Impact.IGNORED));
+            List<FingerprintManifest.Entry> newDisablerPolicy = new ArrayList<>(newPolicyEntries);
+            newDisablerPolicy.add(entry("config/disabler-server.json", "villages-off", FingerprintManifest.Impact.RELEVANT));
+            require(
+                FingerprintManifest.sameCompatibilityInputsExcept(
+                    manifest(oldDisablerPolicy, 3L), manifest(newDisablerPolicy, 4L), Set.of("policy:compatibility")
+                ),
+                "unchanged historical Disabler config may migrate across its neutral-to-relevant policy correction"
+            );
+            require(
+                !FingerprintManifest.sameCompatibilityInputsExcept(
+                    manifest(oldDisablerPolicy, 5L),
+                    manifest(replace(newDisablerPolicy, "config/disabler-server.json", "villages-on"), 6L),
+                    Set.of("policy:compatibility")
+                ),
+                "changed Disabler structure policy must invalidate retained generation compatibility"
+            );
+
             List<FingerprintManifest.Entry> changedWorldgen = replace(newPolicyEntries, "mods/chunksmith.jar", "wg-b");
             require(
                 !FingerprintManifest.sameCompatibilityInputsExcept(

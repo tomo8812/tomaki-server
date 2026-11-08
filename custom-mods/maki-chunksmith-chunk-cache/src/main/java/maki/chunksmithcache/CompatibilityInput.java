@@ -112,6 +112,19 @@ final class CompatibilityInput {
         FingerprintManifest.Entry audited = AuditedModCompatibility.normalizeHistoricalEntry(entry);
         if (audited != entry) return audited;
 
+        // Disabler's structure blocking became an explicit generated-result input
+        // after schema-1 recovery started depending on vanilla-village suppression.
+        // Old manifests classified this exact config as neutral; unchanged bytes can
+        // be safely promoted to the new relevant classification, while any byte
+        // change still fails compatibility by size/SHA.
+        if ("config/disabler-server.json".equals(key)
+            && entry.impact() == FingerprintManifest.Impact.IGNORED) {
+            return new FingerprintManifest.Entry(
+                entry.key(), entry.size(), entry.sha256(), FingerprintManifest.Impact.RELEVANT,
+                "historical Disabler structure-generation config reclassified as relevant"
+            );
+        }
+
         if (ZFASTNOISE_PATH.equals(key)) {
             LegacyZfastnoiseAttestation attestation = legacyZfastnoiseAttestation(entry);
             if (attestation != null) {
