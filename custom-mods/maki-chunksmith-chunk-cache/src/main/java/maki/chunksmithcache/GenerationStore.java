@@ -153,7 +153,7 @@ final class GenerationStore {
             );
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
-            if (migration.adoptedEntries() > 0L) {
+            if (migration.acceptedSourceEntries() > 0L) {
                 accepted.add(manifest.fingerprint());
                 accepted.addAll(manifest.storedFingerprints());
             }
@@ -163,8 +163,8 @@ final class GenerationStore {
             String proof = exact ? "exact generation fingerprint" : "audited generation compatibility";
             writeRecoveryInfo(source, manifest.fingerprint(), snapshot.fingerprint(), proof, proofDetails, migration, activeEntries, "manual-restore");
             LOG.info(
-                "Re-adopted retained chunk-cache generation {} for {}; proof={}; sourceEntries={} adoptedEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} activeEntriesAfter={} sourcePreserved=true",
-                id, CacheManager.dimensionKey(level), proof, migration.sourceEntries(), migration.adoptedEntries(),
+                "Re-adopted retained chunk-cache generation {} for {}; proof={}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} activeEntriesAfter={} sourcePreserved=true",
+                id, CacheManager.dimensionKey(level), proof, migration.sourceEntries(), migration.adoptedEntries(), migration.recoveredExistingEntries(),
                 migration.duplicateEntries(), migration.promotionOnlyEntries(), migration.retainedUnprovenEntries(),
                 migration.retainedInvalidEntries(), activeEntries
             );
@@ -198,14 +198,14 @@ final class GenerationStore {
         CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(legacy, active, expectedDimension);
         Set<String> accepted = new LinkedHashSet<>();
         accepted.add(snapshot.fingerprint());
-        if (migration.adoptedEntries() > 0L) accepted.add(snapshot.legacyFingerprint());
+        if (migration.acceptedSourceEntries() > 0L) accepted.add(snapshot.legacyFingerprint());
         if (existing != null) accepted.addAll(existing.storedFingerprints());
         FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
         long activeEntries = stats(active).entries();
         writeRecoveryInfo(legacy, snapshot.legacyFingerprint(), snapshot.fingerprint(), "exact legacy generation inputs",
             List.of(), migration, activeEntries, trigger);
         LOG.info(
-            "Inspected exact-legacy chunk-cache generation {} for {}; sourceEntries={} adoptedEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} bytes={} sourcePreserved=true trigger={}",
+            "Inspected exact-legacy chunk-cache generation {} for {}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} bytes={} sourcePreserved=true trigger={}",
             snapshot.legacyFingerprint(), root.getFileName(), migration.sourceEntries(), migration.adoptedEntries(),
             migration.duplicateEntries(), migration.promotionOnlyEntries(), migration.retainedUnprovenEntries(),
             migration.retainedInvalidEntries(), before.bytes(), trigger
@@ -244,7 +244,7 @@ final class GenerationStore {
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
-            if (migration.adoptedEntries() > 0L) {
+            if (migration.acceptedSourceEntries() > 0L) {
                 accepted.add(oldFingerprint);
                 accepted.addAll(old.storedFingerprints());
             }
@@ -254,9 +254,9 @@ final class GenerationStore {
             writeRecoveryInfo(candidate, oldFingerprint, snapshot.fingerprint(), "audited generation compatibility",
                 proofDetails, migration, activeEntries, trigger);
             LOG.info(
-                "Re-adopted generation-equivalent chunk-cache {} as {} for {}; sourceEntries={} adoptedEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} activeEntriesAfter={} bytes={} proofDetails={} sourcePreserved=true trigger={}",
+                "Re-adopted generation-equivalent chunk-cache {} as {} for {}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} activeEntriesAfter={} bytes={} proofDetails={} sourcePreserved=true trigger={}",
                 oldFingerprint, snapshot.fingerprint(), root.getFileName(), migration.sourceEntries(),
-                migration.adoptedEntries(), migration.duplicateEntries(), migration.promotionOnlyEntries(),
+                migration.adoptedEntries(), migration.recoveredExistingEntries(), migration.duplicateEntries(), migration.promotionOnlyEntries(),
                 migration.retainedUnprovenEntries(), migration.retainedInvalidEntries(), activeEntries,
                 before.bytes(), proofDetails, trigger
             );
@@ -320,7 +320,7 @@ final class GenerationStore {
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
-            if (migration.adoptedEntries() > 0L) {
+            if (migration.acceptedSourceEntries() > 0L) {
                 accepted.add(old.fingerprint());
                 accepted.addAll(old.storedFingerprints());
             }
@@ -331,9 +331,9 @@ final class GenerationStore {
             String proof = exact ? "exact generation fingerprint" : "audited generation compatibility";
             writeRecoveryInfo(candidate, old.fingerprint(), snapshot.fingerprint(), proof, proofDetails, migration, activeEntries, trigger);
             LOG.info(
-                "Re-adopted retained chunk-cache generation {} as {} for {}; proof={}; sourceEntries={} adoptedEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} activeEntriesAfter={} bytes={} proofDetails={} sourcePreserved=true trigger={}",
+                "Re-adopted retained chunk-cache generation {} as {} for {}; proof={}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} activeEntriesAfter={} bytes={} proofDetails={} sourcePreserved=true trigger={}",
                 old.fingerprint(), snapshot.fingerprint(), root.getFileName(), proof, migration.sourceEntries(),
-                migration.adoptedEntries(), migration.duplicateEntries(), migration.promotionOnlyEntries(),
+                migration.adoptedEntries(), migration.recoveredExistingEntries(), migration.duplicateEntries(), migration.promotionOnlyEntries(),
                 migration.retainedUnprovenEntries(), migration.retainedInvalidEntries(), activeEntries,
                 before.bytes(), proofDetails, trigger
             );
@@ -367,18 +367,35 @@ final class GenerationStore {
         }
     }
 
-    static void inspectRetainedData(Path root, FingerprintPolicy policy) throws IOException {
+    static RetainedDataStats inspectRetainedData(Path root, FingerprintPolicy policy) throws IOException {
         RecoveryClaims.initialize(root);
+        List<QuarantineEntry> entries = new ArrayList<>();
+
         Path quarantine = root.resolve(QUARANTINE_DIR);
-        if (!Files.isDirectory(quarantine)) return;
-        List<QuarantineEntry> entries = quarantineEntries(quarantine);
+        if (Files.isDirectory(quarantine)) entries.addAll(quarantineEntries(quarantine));
+
+        FingerprintManifest.Manifest current =
+            FingerprintManifest.readIfValid(root.resolve(FingerprintManifest.CURRENT_FILE_NAME));
+        String activeFingerprint = current == null ? null : current.fingerprint();
+        if (Files.isDirectory(root)) {
+            try (Stream<Path> stream = Files.list(root)) {
+                for (Path path : stream.filter(Files::isDirectory).toList()) {
+                    String name = path.getFileName().toString();
+                    if (!name.matches("[0-9a-f]{24}") || name.equals(activeFingerprint)) continue;
+                    entries.add(new QuarantineEntry(path, stats(path), Files.getLastModifiedTime(path).toMillis()));
+                }
+            }
+        }
+
         long bytes = entries.stream().mapToLong(value -> value.stats().bytes()).sum();
-        if (entries.size() > policy.warnGenerations() || bytes > policy.warnBytes()) {
+        RetainedDataStats retained = new RetainedDataStats(entries.size(), bytes);
+        if (retained.generations() > policy.warnGenerations() || retained.bytes() > policy.warnBytes()) {
             LOG.warn(
-                "Retained chunk-cache quarantine exceeds warning threshold: generations={} bytes={} warnGenerations={} warnBytes={}; no automatic deletion will occur. New cache writes remain bounded by active capacity and the normal-world free-space reserve; discard requires an explicit administrator action.",
-                entries.size(), bytes, policy.warnGenerations(), policy.warnBytes()
+                "Retained chunk-cache data exceeds warning threshold: generations={} bytes={} warnGenerations={} warnBytes={}; includes quarantined and inactive fingerprint generations. No automatic deletion will occur. New cache writes remain bounded by active capacity and the normal-world free-space reserve; discard requires an explicit administrator action.",
+                retained.generations(), retained.bytes(), policy.warnGenerations(), policy.warnBytes()
             );
         }
+        return retained;
     }
 
     private static List<QuarantineEntry> quarantineEntries(Path quarantine) throws IOException {
@@ -410,6 +427,8 @@ final class GenerationStore {
                 + "proofDetails=" + proofDetails + "\n"
                 + "sourceEntries=" + migration.sourceEntries() + "\n"
                 + "adoptedEntries=" + migration.adoptedEntries() + "\n"
+                + "recoveredExistingEntries=" + migration.recoveredExistingEntries() + "\n"
+                + "acceptedSourceEntries=" + migration.acceptedSourceEntries() + "\n"
                 + "duplicateEntries=" + migration.duplicateEntries() + "\n"
                 + "promotionOnlyEntries=" + migration.promotionOnlyEntries() + "\n"
                 + "retainedUnprovenEntries=" + migration.retainedUnprovenEntries() + "\n"
@@ -469,10 +488,10 @@ final class GenerationStore {
             boolean matchingSource = text.contains("sourceFingerprint=" + sourceFingerprint + "\n");
             boolean matchingTarget = text.contains("targetFingerprint=" + targetFingerprint + "\n");
             boolean preserved = text.contains("sourcePreserved=true\n");
-            boolean copiedNothing = text.contains("adoptedEntries=0\n");
+            boolean acceptedNothing = text.contains("acceptedSourceEntries=0\n");
             boolean copiedSourceAccepted = activeManifest.storedFingerprints().contains(sourceFingerprint);
             return currentContract && matchingSource && matchingTarget && preserved
-                && (copiedNothing || copiedSourceAccepted);
+                && (acceptedNothing || copiedSourceAccepted);
         } catch (Throwable ignored) {
             return false;
         }
@@ -504,6 +523,7 @@ final class GenerationStore {
     }
 
     record QuarantineInfo(String id, long entries, long bytes, long modifiedAtMillis) {}
+    record RetainedDataStats(long generations, long bytes) {}
     private record Stats(long entries, long bytes) {}
     private record QuarantineEntry(Path path, Stats stats, long modifiedAtMillis) {}
     private record QuarantineCandidate(Path path, FingerprintManifest.Manifest manifest) {}
