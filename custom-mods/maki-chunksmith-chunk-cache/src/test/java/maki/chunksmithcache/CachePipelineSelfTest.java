@@ -19,6 +19,7 @@ public final class CachePipelineSelfTest {
         recovery();
         publication();
         envelopes();
+        generationMigration();
         disk();
         abi();
         System.out.println("CachePipelineSelfTest passed (bounded admission, promotion ACK/restart, entities envelope, disk reserve, native ABI)");
@@ -211,24 +212,28 @@ public final class CachePipelineSelfTest {
         envelope.putInt("schema",1);
         envelope.putBoolean("entitiesComplete",true);
         chunk.put("entities",new ListTag()); envelope.put("chunk",chunk);
-        require(!CacheEnvelope.completeEntities(envelope),"schema1 cannot claim entity completeness");
+        require(!CacheEnvelope.promotionSafe(envelope) && !CacheEnvelope.generatedComplete(envelope),
+            "schema1 cannot claim entity completeness");
         envelope.putInt("schema",2);
         envelope.putBoolean("lodCommitted",true);
-        require(!CacheEnvelope.completeEntities(envelope),"draft schema2 cannot prove native LOD acknowledgement");
+        require(CacheEnvelope.promotionSafe(envelope) && !CacheEnvelope.generatedComplete(envelope),
+            "schema2 entity-complete data is promotion-safe but cannot prove native LOD acknowledgement");
         envelope.putInt("schema",CacheEnvelope.SCHEMA);
         envelope.remove("lodCommitted");
-        require(!CacheEnvelope.completeEntities(envelope),"missing LOD acknowledgement is not complete");
+        require(CacheEnvelope.promotionSafe(envelope) && !CacheEnvelope.generatedComplete(envelope),
+            "schema3 without LOD acknowledgement can promote but cannot suppress retry debt");
         envelope.putBoolean("lodCommitted",true);
-        require(CacheEnvelope.completeEntities(envelope),"empty entity set is explicitly complete");
+        require(CacheEnvelope.promotionSafe(envelope) && CacheEnvelope.generatedComplete(envelope),
+            "schema3 with entity and LOD receipts is fully reusable");
         chunk.remove("entities");
-        require(!CacheEnvelope.completeEntities(envelope),"missing is not empty");
+        require(!CacheEnvelope.promotionSafe(envelope),"missing entities are not complete");
         ListTag invalid=new ListTag(); invalid.add(StringTag.valueOf("bad")); chunk.put("entities",invalid);
-        require(!CacheEnvelope.completeEntities(envelope),"reject wrongly typed entities rather than silently dropping them");
+        require(!CacheEnvelope.promotionSafe(envelope),"reject wrongly typed entities rather than silently dropping them");
         ListTag roots=new ListTag();
         CompoundTag root=new CompoundTag(); root.putString("id","minecraft:pig");
         ListTag passengers=new ListTag(); CompoundTag rider=new CompoundTag(); rider.putString("id","minecraft:chicken");
         passengers.add(rider); root.put("Passengers",passengers); roots.add(root); chunk.put("entities",roots);
-        require(CacheEnvelope.completeEntities(envelope),"root/passenger tree supported");
+        require(CacheEnvelope.promotionSafe(envelope),"root/passenger tree supported");
         Path file=Files.createTempFile("cache-entities",".nbt.gz");
         try {
             NbtIo.writeCompressed(envelope,file);
@@ -237,17 +242,76 @@ public final class CachePipelineSelfTest {
         } finally { Files.deleteIfExists(file); }
     }
 
+    private static void generationMigration() throws Exception {
+        Path root=Files.createTempDirectory("cache-generation-migration");
+        try {
+            Path source=Files.createDirectories(root.resolve("source"));
+            Path target=Files.createDirectories(root.resolve("target"));
+            writeEnvelope(source,1,1,false,false);
+            writeEnvelope(source,2,2,true,false);
+            writeEnvelope(source,3,3,true,true);
+            Path invalid=source.resolve("r.0.0/c.4.0.nbt.gz");
+            Files.createDirectories(invalid.getParent());
+            Files.writeString(invalid,"not-nbt");
+
+            CacheGenerationMigration.Stats stats=CacheGenerationMigration.copyReusableEntriesPreservingSource(source,target);
+            require(stats.sourceEntries()==4 && stats.adoptedEntries()==2 && stats.duplicateEntries()==0,
+                "migration accounts all source/adopted/duplicate entries");
+            require(stats.promotionOnlyEntries()==1 && stats.retainedUnprovenEntries()==1 && stats.retainedInvalidEntries()==1,
+                "schema2 is promotion-only while schema1/corrupt data remains retained");
+            require(!Files.exists(target.resolve("r.0.0/c.1.0.nbt.gz")),
+                "schema1 without entity proof is never copied into active cache");
+            Path schema2=target.resolve("r.0.0/c.2.0.nbt.gz");
+            Path schema3=target.resolve("r.0.0/c.3.0.nbt.gz");
+            require(Files.isRegularFile(schema2) && Files.isRegularFile(schema3),
+                "provably safe schema2/3 entries are re-adopted");
+            require(!Files.exists(CacheManager.generatedCompleteMarker(schema2))
+                    && Files.isRegularFile(CacheManager.generatedCompleteMarker(schema3)),
+                "only record-correlated schema3 entries may suppress LOD retry debt");
+            require(Files.isRegularFile(source.resolve("r.0.0/c.1.0.nbt.gz"))
+                    && Files.isRegularFile(source.resolve("r.0.0/c.2.0.nbt.gz"))
+                    && Files.isRegularFile(source.resolve("r.0.0/c.3.0.nbt.gz"))
+                    && Files.isRegularFile(invalid),
+                "automatic migration preserves every original source file");
+        } finally { deleteTree(root); }
+    }
+
+    private static void writeEnvelope(Path generation,int schema,int x,boolean entitiesComplete,boolean lodCommitted) throws Exception {
+        CompoundTag chunk=new CompoundTag();
+        chunk.putString("Status","minecraft:full");
+        if(schema>=2) chunk.put("entities",new ListTag());
+        CompoundTag envelope=new CompoundTag();
+        envelope.putInt("schema",schema);
+        if(entitiesComplete) envelope.putBoolean("entitiesComplete",true);
+        if(lodCommitted) envelope.putBoolean("lodCommitted",true);
+        envelope.putString("fingerprint","111111111111111111111111");
+        envelope.putString("dimension","minecraft:overworld");
+        envelope.putInt("x",x); envelope.putInt("z",0);
+        envelope.put("chunk",chunk);
+        Path file=generation.resolve("r.0.0/c."+x+".0.nbt.gz");
+        Files.createDirectories(file.getParent());
+        NbtIo.writeCompressed(envelope,file);
+    }
+
     private static void disk() throws Exception {
-        var oldSchema=new FingerprintManifest.Entry("cache:envelope-schema",1,CompatibilityFingerprint.sha256("2"),FingerprintManifest.Impact.RELEVANT,"protocol");
-        var newSchema=new FingerprintManifest.Entry("cache:envelope-schema",1,CompatibilityFingerprint.sha256("3"),FingerprintManifest.Impact.RELEVANT,"protocol");
-        require(!CompatibilityFingerprint.compute(List.of(oldSchema)).equals(CompatibilityFingerprint.compute(List.of(newSchema))),"protocol change cannot reuse old cache paths in generated hints");
-        var oldManifest=new FingerprintManifest.Manifest(CompatibilityFingerprint.compute(List.of()),0,java.util.Set.of(),List.of());
-        var newManifest=new FingerprintManifest.Manifest(CompatibilityFingerprint.compute(List.of(newSchema)),0,java.util.Set.of(),List.of(newSchema));
-        require(!FingerprintManifest.sameCompatibilityInputsExcept(oldManifest,newManifest,java.util.Set.of("policy:compatibility"),null),"historical semantic adoption cannot bypass the missing protocol proof");
+        var oldSchema=new FingerprintManifest.Entry("cache:envelope-schema",1,CompatibilityFingerprint.sha256("2"),FingerprintManifest.Impact.RELEVANT,"legacy protocol");
+        var oldManifest=new FingerprintManifest.Manifest("111111111111111111111111",0,java.util.Set.of(),List.of(oldSchema));
+        var newManifest=new FingerprintManifest.Manifest("222222222222222222222222",0,java.util.Set.of(),List.of());
+        require(FingerprintManifest.sameCompatibilityInputsExcept(
+                oldManifest,newManifest,java.util.Set.of("policy:compatibility","cache:envelope-schema"),null),
+            "serialization schema changes are migration concerns, not generation incompatibility");
         Path root=Files.createTempDirectory("cache-disk-test");
         try {
             Path configuration=root.resolveSibling(root.getFileName()+".properties");
             try {
+                for(int i=0;i<9;i++) {
+                    Path retained=Files.createDirectories(root.resolve(".quarantine/retained-"+i+"/r.0.0"))
+                        .resolve("c."+i+".0.nbt.gz");
+                    Files.write(retained,new byte[8]);
+                }
+                GenerationStore.inspectRetainedData(root,FingerprintPolicy.forTesting(List.of()));
+                for(int i=0;i<9;i++) require(Files.isRegularFile(root.resolve(".quarantine/retained-"+i+"/r.0.0/c."+i+".0.nbt.gz")),
+                    "warning thresholds must never auto-delete retained cache data");
                 Files.write(root.resolve("entry.nbt.gz"),new byte[80]);
                 Files.createDirectories(root.resolve(".quarantine"));
                 Files.write(root.resolve(".quarantine/old.nbt.gz"),new byte[1000]);
