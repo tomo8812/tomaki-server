@@ -261,7 +261,7 @@ public final class CachePipelineSelfTest {
             Files.createDirectories(invalid.getParent());
             Files.writeString(invalid,"not-nbt");
 
-            CacheGenerationMigration.Stats stats=CacheGenerationMigration.copyReusableEntriesPreservingSource(source,target);
+            CacheGenerationMigration.Stats stats=CacheGenerationMigration.copyReusableEntriesPreservingSource(source,target,"minecraft:overworld");
             require(stats.sourceEntries()==4 && stats.adoptedEntries()==2 && stats.duplicateEntries()==0,
                 "migration accounts all source/adopted/duplicate entries");
             require(stats.promotionOnlyEntries()==1 && stats.retainedUnprovenEntries()==1 && stats.retainedInvalidEntries()==1,
