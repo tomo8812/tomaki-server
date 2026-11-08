@@ -19,12 +19,18 @@ import net.minecraft.nbt.NbtIo;
  * can be proven are copied into the current generation; every source is retained.
  */
 final class CacheGenerationMigration {
-    static final String MIGRATION_CONTRACT = "entry-migration-v3";
+    static final String MIGRATION_CONTRACT = "entry-migration-v4";
+    private static final long MIGRATION_RESERVATION_OVERHEAD = 65_536L;
     private static final Pattern CACHE_FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
 
     private CacheGenerationMigration() {}
 
-    static Stats copyReusableEntriesPreservingSource(Path source, Path target, String expectedDimension) throws IOException {
+    static Stats copyReusableEntriesPreservingSource(
+        Path source,
+        Path target,
+        String expectedDimension,
+        CacheDiskBudget budget
+    ) throws IOException {
         Files.createDirectories(target);
         List<Path> files;
         try (Stream<Path> stream = Files.walk(source)) {
@@ -44,10 +50,12 @@ final class CacheGenerationMigration {
         long promotionOnly = 0L;
         long unproven = 0L;
         long invalid = 0L;
+        long deferredCapacity = 0L;
         FingerprintManifest.Manifest sourceManifest =
             FingerprintManifest.readIfValid(source.resolve(FingerprintManifest.FILE_NAME));
 
-        for (Path path : files) {
+        for (int index = 0; index < files.size(); index++) {
+            Path path = files.get(index);
             CompoundTag envelope;
             try {
                 envelope = NbtIo.readCompressed(path, NbtAccounter.create(64L << 20));
@@ -68,29 +76,42 @@ final class CacheGenerationMigration {
 
             Path destination = target.resolve(source.relativize(path));
             Files.createDirectories(destination.getParent());
-            Path temporary = destination.resolveSibling(
-                destination.getFileName() + ".migrate-" + Long.toUnsignedString(System.nanoTime())
-            );
-            try {
-                Files.copy(path, temporary, StandardCopyOption.COPY_ATTRIBUTES);
-                Path claim = PromotionClaim.claimedPath(destination);
-                try (var ignored = CachePathLocks.lock(claim)) {
-                    if (RecoveryClaims.claimExists(claim)) {
+            Path claim = PromotionClaim.claimedPath(destination);
+            try (var ignored = CachePathLocks.lock(claim)) {
+                if (RecoveryClaims.claimExists(claim)) {
+                    duplicates++;
+                    continue;
+                }
+                if (Files.exists(destination)) {
+                    if (sameMigratedEntry(path, destination, reuse, sourceManifest, expectedDimension)) {
+                        restoreCompletionMarker(destination, reuse);
+                        recoveredExisting++;
+                        if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY) promotionOnly++;
+                    } else {
                         duplicates++;
-                        continue;
                     }
-                    if (Files.exists(destination)) {
-                        if (sameMigratedEntry(
-                            path, destination, reuse, sourceManifest, expectedDimension
-                        )) {
-                            restoreCompletionMarker(destination, reuse);
-                            recoveredExisting++;
-                            if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY) promotionOnly++;
-                        } else {
-                            duplicates++;
-                        }
-                        continue;
-                    }
+                    continue;
+                }
+
+                long estimate = Math.addExact(Files.size(path), MIGRATION_RESERVATION_OVERHEAD);
+                CacheDiskBudget.Lease storage = budget.tryAcquire(estimate);
+                if (storage == null) {
+                    // Stop at the first admission failure. The source is retained and
+                    // recovery-info records the unprocessed suffix, so the next retry
+                    // resumes from durable source data without thrashing every remaining
+                    // NBT while the same capacity limit is still active.
+                    deferredCapacity += files.size() - index;
+                    break;
+                }
+
+                Path temporary = destination.resolveSibling(
+                    destination.getFileName() + ".migrate-" + Long.toUnsignedString(System.nanoTime())
+                );
+                boolean destinationPublished = false;
+                boolean accounted = false;
+                try {
+                    Files.copy(path, temporary, StandardCopyOption.COPY_ATTRIBUTES);
+
                     // Remove a stale sidecar before a promotion-only payload can become visible.
                     if (reuse != CacheEnvelope.Reuse.GENERATED_COMPLETE) {
                         CacheManager.clearGeneratedComplete(destination);
@@ -100,17 +121,35 @@ final class CacheGenerationMigration {
                     } catch (AtomicMoveNotSupportedException unsupported) {
                         Files.move(temporary, destination);
                     }
+                    destinationPublished = true;
+
                     restoreCompletionMarker(destination, reuse);
+                    long added = Files.size(destination);
+                    Path marker = CacheManager.generatedCompleteMarker(destination);
+                    if (Files.isRegularFile(marker)) added = Math.addExact(added, Files.size(marker));
+                    storage.published(added);
+                    accounted = true;
+
                     if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY) promotionOnly++;
                     adopted++;
+                } finally {
+                    if (destinationPublished && !accounted) {
+                        // Publication succeeded but a later sidecar/accounting operation
+                        // failed. Conservatively account whatever is now visible so another
+                        // writer cannot consume the normal-world reserve before refresh.
+                        long added = Files.isRegularFile(destination) ? Files.size(destination) : 0L;
+                        Path marker = CacheManager.generatedCompleteMarker(destination);
+                        if (Files.isRegularFile(marker)) added = Math.addExact(added, Files.size(marker));
+                        if (added > 0L) storage.published(added);
+                    }
+                    storage.close();
+                    Files.deleteIfExists(temporary);
                 }
-            } finally {
-                Files.deleteIfExists(temporary);
             }
         }
 
         return new Stats(
-            files.size(), adopted, recoveredExisting, duplicates, promotionOnly, unproven, invalid
+            files.size(), adopted, recoveredExisting, duplicates, promotionOnly, unproven, invalid, deferredCapacity
         );
     }
 
@@ -177,10 +216,15 @@ final class CacheGenerationMigration {
         long duplicateEntries,
         long promotionOnlyEntries,
         long retainedUnprovenEntries,
-        long retainedInvalidEntries
+        long retainedInvalidEntries,
+        long deferredCapacityEntries
     ) {
         long acceptedSourceEntries() {
             return adoptedEntries + recoveredExistingEntries;
+        }
+
+        boolean completeForCurrentCapacity() {
+            return deferredCapacityEntries == 0L;
         }
     }
 }
