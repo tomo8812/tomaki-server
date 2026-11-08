@@ -23,7 +23,7 @@ final class CacheGenerationMigration {
 
     private CacheGenerationMigration() {}
 
-    static Stats copyReusableEntriesPreservingSource(Path source, Path target) throws IOException {
+    static Stats copyReusableEntriesPreservingSource(Path source, Path target, String expectedDimension) throws IOException {
         Files.createDirectories(target);
         List<Path> files;
         try (Stream<Path> stream = Files.walk(source)) {
@@ -54,7 +54,7 @@ final class CacheGenerationMigration {
                 continue;
             }
 
-            CacheEnvelope.Reuse reuse = classify(path, envelope, sourceManifest);
+            CacheEnvelope.Reuse reuse = classify(path, envelope, sourceManifest, expectedDimension);
             if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) {
                 unproven++;
                 continue;
@@ -89,11 +89,13 @@ final class CacheGenerationMigration {
     private static CacheEnvelope.Reuse classify(
         Path path,
         CompoundTag envelope,
-        FingerprintManifest.Manifest sourceManifest
+        FingerprintManifest.Manifest sourceManifest,
+        String expectedDimension
     ) {
         CacheEnvelope.Reuse reuse = CacheEnvelope.reuse(envelope);
         if (reuse == CacheEnvelope.Reuse.INVALID || reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) return reuse;
         if (sourceManifest == null) return CacheEnvelope.Reuse.LEGACY_UNPROVEN;
+        if (!expectedDimension.equals(envelope.getString("dimension"))) return CacheEnvelope.Reuse.INVALID;
         String storedFingerprint = envelope.getString("fingerprint");
         if (!sourceManifest.fingerprint().equals(storedFingerprint)
             && !sourceManifest.storedFingerprints().contains(storedFingerprint)) {
