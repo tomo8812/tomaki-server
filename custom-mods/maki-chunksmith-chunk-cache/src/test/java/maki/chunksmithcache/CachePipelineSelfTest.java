@@ -17,6 +17,7 @@ public final class CachePipelineSelfTest {
         budget();
         promotions();
         recovery();
+        ownershipDeadline();
         publication();
         envelopes();
         disk();
@@ -221,6 +222,19 @@ public final class CachePipelineSelfTest {
             catch(java.io.IOException expected) { failed=true; }
             require(failed,"non-file ownership state fails closed instead of looking absent");
         } finally { RecoveryClaims.clear(ambiguous); deleteTree(ambiguous); }
+    }
+
+    private static void ownershipDeadline() {
+        CompletableFuture<Path> stalled=new CompletableFuture<>();
+        boolean timedOut=false;
+        try {
+            CacheManager.boundedOwnershipProbe(stalled,25,java.util.concurrent.TimeUnit.MILLISECONDS).join();
+        } catch(java.util.concurrent.CompletionException expected) {
+            Throwable cause=expected.getCause();
+            timedOut=cause instanceof TimeoutException;
+        }
+        require(timedOut && stalled.isCompletedExceptionally(),
+            "coordinate-local ownership proof deadline fails closed instead of waiting forever");
     }
 
     private static void publication() {
