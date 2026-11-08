@@ -43,6 +43,25 @@ final class AuditedModCompatibility {
         "maki-millenaire-lod-compat-1.0.6.jar"
     );
 
+    private static final Set<String> HISTORICAL_GENERATION_NEUTRAL_RELEASES = Set.of(
+        "maki-airship-compat-1.0.13.jar",
+        "maki-airship-foundation-compat-1.0.0.jar",
+        "maki-assembly-tracking-1.0.0.jar",
+        "maki-diorama-share-1.0.1.jar",
+        "maki-idle-pregen-1.1.1.jar",
+        "maki-lod-cpu-1.4.1.jar",
+        "maki-lod-cpu-online-fix-1.0.3.jar",
+        "maki-mods-observer-1.0.0.jar",
+        "maki-ship-anchor-fix-1.1.1.jar",
+        "maki-ship-edge-1.0.0.jar",
+        "maki-ship-footsteps-1.0.1.jar",
+        "maki-ship-save-1.0.2.jar",
+        "Jade-1.21.1-NeoForge-15.10.6.jar",
+        "emi-1.1.24+1.21.1+neoforge.jar",
+        "clientsort-neoforge-3.89.2+1.21.1.jar",
+        "sound-physics-remastered-neoforge-1.21.1-1.5.2.jar"
+    );
+
     private static final List<Attestation> ATTESTATIONS = List.of(
         new Attestation(
             "maki_lod_cpu",
@@ -137,6 +156,7 @@ final class AuditedModCompatibility {
         if (ids.size() != 1) return null;
         String modId = ids.iterator().next();
         String fileName = jarPath.getFileName().toString();
+        if (declaresGenerationOverride(jarPath)) return null;
 
         if (isBuiltInGenerationNeutral(modId, fileName)) {
             return List.of(auditEntry(modId, jarPath, rawSize, rawSha256,
@@ -152,7 +172,7 @@ final class AuditedModCompatibility {
         }
 
         List<Attestation> candidates = ATTESTATIONS.stream().filter(value -> value.modId().equals(modId)).toList();
-        if (candidates.isEmpty() || declaresZfastnoiseOverride(jarPath)) return null;
+        if (candidates.isEmpty()) return null;
 
         Attestation match = candidates.stream().filter(value -> value.rawSha256().equals(rawSha256)).findFirst().orElse(null);
         if (match == null) {
@@ -181,10 +201,7 @@ final class AuditedModCompatibility {
         }
         if (key.startsWith("mods/")) {
             String fileName = Path.of(key).getFileName().toString();
-            String lower = fileName.toLowerCase(Locale.ROOT);
-            for (Map.Entry<String, String> value : GENERATION_NEUTRAL_PREFIXES.entrySet()) {
-                if (lower.startsWith(value.getValue().toLowerCase(Locale.ROOT))) return null;
-            }
+            if (HISTORICAL_GENERATION_NEUTRAL_RELEASES.contains(fileName)) return null;
             if (MILLENAIRE_EQUIVALENT_RELEASES.contains(fileName)) {
                 return contractEntry(MILLENAIRE_COMPAT_ID, MILLENAIRE_CONTRACT,
                     "historical source-owned Millenaire compatibility release; generated-result contract unchanged");
@@ -195,7 +212,9 @@ final class AuditedModCompatibility {
             .filter(value -> value.rawSha256().equals(entry.sha256()))
             .findFirst()
             .orElse(null);
-        return match == null ? entry : contractEntry(match.modId(), match.contract(), "historical audited artifact; " + match.reason());
+        if (match == null) return entry;
+        if (GENERATION_NEUTRAL_PREFIXES.containsKey(match.modId())) return null;
+        return contractEntry(match.modId(), match.contract(), "historical audited artifact; " + match.reason());
     }
 
     static String trustedRawSha(String modId, String contract, int occurrence) {
@@ -269,7 +288,7 @@ final class AuditedModCompatibility {
         );
     }
 
-    private static boolean declaresZfastnoiseOverride(Path jarPath) {
+    static boolean declaresGenerationOverride(Path jarPath) {
         try (JarFile jar = new JarFile(jarPath.toFile())) {
             JarEntry metadata = jar.getJarEntry("META-INF/neoforge.mods.toml");
             if (metadata == null) return false;
