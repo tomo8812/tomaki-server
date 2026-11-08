@@ -262,8 +262,8 @@ public final class CompatibilityInputSelfTest {
     private static void assertAudited(Path jar, String modId) throws Exception {
         require(Files.isRegularFile(jar), "missing installed test JAR " + jar);
         List<FingerprintManifest.Entry> entries = jarEntries("mods/" + jar.getFileName(), jar);
-        require(entries.size() == 1, jar.getFileName() + " must resolve to one raw audit entry");
-        require(entries.getFirst().key().equals(AuditedModCompatibility.RAW_AUDIT_PREFIX + modId)
+        require(entries.size() == 1, jar.getFileName() + " must resolve to one ignored audit entry");
+        require(entries.getFirst().key().equals("mods/" + jar.getFileName())
             && entries.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
             jar.getFileName() + " must remain generation-neutral across content updates");
     }
