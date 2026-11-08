@@ -88,7 +88,7 @@ final class CacheCommands {
             source.sendFailure(Component.literal("Restore refused: current compatibility fingerprint is unavailable."));
             return 0;
         }
-        boolean queued = CacheManager.submitMaintenance(() -> {
+        boolean queued = CacheManager.submitGenerationMaintenance(() -> {
             String result = GenerationStore.restoreQuarantine(level, id, snapshot);
             source.getServer().execute(() -> source.sendSuccess(() -> Component.literal(result), false));
         });
