@@ -18,6 +18,7 @@ import net.minecraft.nbt.NbtIo;
  * can be proven are copied into the current generation; every source is retained.
  */
 final class CacheGenerationMigration {
+    static final String MIGRATION_CONTRACT = "entry-migration-v1";
     private static final Pattern CACHE_FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
 
     private CacheGenerationMigration() {}
