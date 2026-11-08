@@ -724,6 +724,10 @@ public final class CacheManager {
       }
    }
 
+   static boolean submitRetainedInspection(Runnable task) {
+      return submitMigration(task);
+   }
+
    static void maintenanceTick(MinecraftServer server) {
       long now = System.currentTimeMillis();
       if (STOPPING.contains(server)) return;
@@ -761,7 +765,7 @@ public final class CacheManager {
 
       ArrayList<ServerLevel> levels = new ArrayList<>();
       server.getAllLevels().forEach(levels::add);
-      boolean queued = submitMigration(() -> {
+      boolean queued = submitRetainedInspection(() -> {
          FingerprintPolicy policy = FingerprintPolicy.load(server.getServerDirectory());
          for (ServerLevel level : levels) {
             GenerationStore.prune(level, policy);
