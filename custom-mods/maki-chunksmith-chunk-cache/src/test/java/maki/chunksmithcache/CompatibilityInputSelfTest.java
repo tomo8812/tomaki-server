@@ -66,8 +66,36 @@ public final class CompatibilityInputSelfTest {
         Path unknownLod = temp.resolve("maki-lod-cpu-9.9.9.jar");
         writeModJar(unknownLod, "maki_lod_cpu", "9.9.9", "future-code");
         List<FingerprintManifest.Entry> unknown = jarEntries("mods/maki-lod-cpu-9.9.9.jar", unknownLod);
-        require(unknown.size() == 1 && unknown.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            "unknown future version of a known neutral mod must fail closed");
+        require(unknown.size() == 1 && unknown.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
+            "source-owned generation-neutral MOD updates must not rotate cache generations");
+
+        Path millenaire105 = temp.resolve("maki-millenaire-lod-compat-1.0.5.jar");
+        Path millenaire106 = temp.resolve("maki-millenaire-lod-compat-1.0.6.jar");
+        writeModJar(millenaire105, "maki_millenaire_lod", "1.0.5", "old snapshot plumbing");
+        writeModJar(millenaire106, "maki_millenaire_lod", "1.0.6", "new snapshot plumbing");
+        require(fingerprint(jarEntries("mods/" + millenaire105.getFileName(), millenaire105))
+                .equals(fingerprint(jarEntries("mods/" + millenaire106.getFileName(), millenaire106))),
+            "Millenaire compatibility 1.0.5/1.0.6 must share the audited generated-result contract");
+
+        Path newQol = temp.resolve("example-qol.jar");
+        writeModJar(newQol, "example_qol", "1.0.0", "ui-only");
+        byte[] qolBytes = Files.readAllBytes(newQol);
+        FingerprintPolicy qolPolicy = FingerprintPolicy.forTesting(Set.of("example_qol"), List.of());
+        List<FingerprintManifest.Entry> qol = CompatibilityInput.entries(
+            "mods/example-qol.jar", newQol, qolBytes.length, sha256(qolBytes), qolPolicy
+        );
+        require(qol.size() == 1 && qol.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
+            "an explicitly audited new QoL MOD must not become a generation input");
+
+        Path protectedWorldgen = temp.resolve("zfastnoise-future.jar");
+        writeModJar(protectedWorldgen, "zfastnoise", "9.9.9", "terrain-change");
+        byte[] protectedBytes = Files.readAllBytes(protectedWorldgen);
+        List<FingerprintManifest.Entry> protectedEntries = CompatibilityInput.entries(
+            "mods/zfastnoise-future.jar", protectedWorldgen, protectedBytes.length, sha256(protectedBytes),
+            FingerprintPolicy.forTesting(Set.of("zfastnoise"), List.of())
+        );
+        require(protectedEntries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
+            "known generation-sensitive MOD IDs cannot be operator-exempted");
 
         Path unknownWorldgen = temp.resolve("worldgen.jar");
         writeModJar(unknownWorldgen, "worldgen_mod", "1.0.1", "terrain-change");
@@ -100,8 +128,8 @@ public final class CompatibilityInputSelfTest {
         Path altered = temp.resolve("jade-altered.jar");
         repack(jade, altered, true);
         List<FingerprintManifest.Entry> alteredEntries = jarEntries("mods/Jade-future.jar", altered);
-        require(alteredEntries.size() == 1 && alteredEntries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            "same mod id with altered JAR content must fail closed until separately audited");
+        require(alteredEntries.size() == 1 && alteredEntries.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
+            "role-audited UI MOD content updates must remain generation-neutral");
 
         for (String name : List.of(
             "zfastnoise-1.0.13+1.21.1+neoforge.jar",
@@ -181,11 +209,10 @@ public final class CompatibilityInputSelfTest {
     private static void assertAudited(Path jar, String modId) throws Exception {
         require(Files.isRegularFile(jar), "missing installed test JAR " + jar);
         List<FingerprintManifest.Entry> entries = jarEntries("mods/" + jar.getFileName(), jar);
-        require(entries.size() == 2, jar.getFileName() + " must resolve to audited contract + raw audit");
-        require(entries.getFirst().key().equals("compat:mod:" + modId) && entries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            jar.getFileName() + " contract key mismatch");
-        require(entries.get(1).key().equals(AuditedModCompatibility.RAW_AUDIT_PREFIX + modId)
-            && entries.get(1).impact() == FingerprintManifest.Impact.IGNORED, jar.getFileName() + " raw audit mismatch");
+        require(entries.size() == 1, jar.getFileName() + " must resolve to one raw audit entry");
+        require(entries.getFirst().key().equals(AuditedModCompatibility.RAW_AUDIT_PREFIX + modId)
+            && entries.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
+            jar.getFileName() + " must remain generation-neutral across content updates");
     }
 
     private static List<FingerprintManifest.Entry> configEntries(Path temp, String fileName, String key, String content) throws Exception {
