@@ -65,6 +65,20 @@ final class PromotionClaim {
         }
     }
 
+    static boolean publishGenerated(Path temporary, Path available) throws IOException {
+        try(var ignored=CachePathLocks.lock(claimedPath(available))) {
+        if (RecoveryClaims.claimExists(claimedPath(available))) return false;
+        try { Files.move(temporary, available, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
+        catch (AtomicMoveNotSupportedException unsupported) { Files.move(temporary, available, StandardCopyOption.REPLACE_EXISTING); }
+
+        // Keep payload visibility and completion-sidecar publication in one claim
+        // critical section. A promotion cannot consume the payload between these
+        // operations and leave a marker behind at the old available path.
+        CacheManager.markGeneratedComplete(available);
+        return true;
+        }
+    }
+
     static PromotionClaim adoptLive(Path available, boolean capturePending) throws IOException {
         try(var ignored=CachePathLocks.lock(claimedPath(available))) {
         if (RecoveryClaims.claimExists(claimedPath(available))) return null;
