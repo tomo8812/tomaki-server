@@ -20,7 +20,9 @@ public final class CachePipelineSelfTest {
         publication();
         envelopes();
         generationMigration();
+        migrationCapacity();
         disk();
+        workerIsolation();
         abi();
         System.out.println("CachePipelineSelfTest passed (bounded admission, promotion ACK/restart, entities envelope, disk reserve, native ABI)");
     }
@@ -46,8 +48,11 @@ public final class CachePipelineSelfTest {
         try {
             Path zero=directory.resolve("zero.nbt.gz");
             Files.writeString(zero,"zero");
+            CacheManager.markGeneratedComplete(zero);
+            Path zeroMarker=CacheManager.generatedCompleteMarker(zero);
             PromotionClaim empty=PromotionClaim.take(zero,false);
-            require(empty!=null && !Files.exists(zero) && Files.exists(empty.path()),"claim atomically consumes available snapshot");
+            require(empty!=null && !Files.exists(zero) && Files.exists(empty.path()) && !Files.exists(zeroMarker),
+                "claim atomically consumes available snapshot and removes its old completion sidecar");
             require(PromotionClaim.take(zero,false)==null,"restart cannot claim unavailable snapshot");
             require(empty.loaded() && !empty.loaded(),"one deserialization owner");
             require(!empty.canRetire(),"save enqueue is not an ACK");
@@ -260,8 +265,14 @@ public final class CachePipelineSelfTest {
             Path invalid=source.resolve("r.0.0/c.4.0.nbt.gz");
             Files.createDirectories(invalid.getParent());
             Files.writeString(invalid,"not-nbt");
+            Path configuration=root.resolve("migration.properties");
+            Files.writeString(configuration,"cache.max-active-bytes=1073741824\ncache.minimum-free-bytes=1\n");
+            CacheDiskBudget migrationBudget=CacheDiskBudget.at(root.resolve("budget"));
+            migrationBudget.refresh(configuration);
 
-            CacheGenerationMigration.Stats stats=CacheGenerationMigration.copyReusableEntriesPreservingSource(source,target,"minecraft:overworld");
+            CacheGenerationMigration.Stats stats=CacheGenerationMigration.copyReusableEntriesPreservingSource(
+                source,target,"minecraft:overworld",migrationBudget
+            );
             require(stats.sourceEntries()==4 && stats.adoptedEntries()==2 && stats.duplicateEntries()==0,
                 "migration accounts all source/adopted/duplicate entries");
             require(stats.promotionOnlyEntries()==1 && stats.retainedUnprovenEntries()==1 && stats.retainedInvalidEntries()==1,
@@ -287,7 +298,9 @@ public final class CachePipelineSelfTest {
             CacheManager.markGeneratedComplete(schema2);
             Files.deleteIfExists(CacheManager.generatedCompleteMarker(schema3));
             CacheGenerationMigration.Stats replay =
-                CacheGenerationMigration.copyReusableEntriesPreservingSource(source,target,"minecraft:overworld");
+                CacheGenerationMigration.copyReusableEntriesPreservingSource(
+                    source,target,"minecraft:overworld",migrationBudget
+                );
             require(replay.adoptedEntries()==0 && replay.recoveredExistingEntries()==2
                     && replay.acceptedSourceEntries()==2 && replay.duplicateEntries()==0,
                 "interrupted migration recovers exact existing copies instead of treating them as unrelated collisions");
@@ -308,6 +321,57 @@ public final class CachePipelineSelfTest {
                     && !Files.exists(CacheManager.generatedCompleteMarker(schema2)),
                 "promotion-only schema2 payload cannot manufacture a generated-complete marker");
         } finally { deleteTree(root); }
+    }
+
+    private static void migrationCapacity() throws Exception {
+        Path dimension=Files.createTempDirectory("cache-migration-capacity");
+        Path configuration=dimension.resolveSibling(dimension.getFileName()+".properties");
+        try {
+            String sourceFingerprint="111111111111111111111111";
+            String targetFingerprint="222222222222222222222222";
+            Path source=Files.createDirectories(dimension.resolve(sourceFingerprint));
+            Path target=dimension.resolve(targetFingerprint);
+            FingerprintManifest.writeAtomic(
+                source.resolve(FingerprintManifest.FILE_NAME),
+                new FingerprintManifest.Manifest(
+                    sourceFingerprint,1L,java.util.Set.of(sourceFingerprint),List.of()
+                )
+            );
+            writeEnvelope(source,3,10,true,true);
+            Path sourceEntry=source.resolve("r.0.0/c.10.0.nbt.gz");
+            Path targetEntry=target.resolve("r.0.0/c.10.0.nbt.gz");
+
+            CacheDiskBudget budget=CacheDiskBudget.at(dimension);
+            Files.writeString(
+                configuration,
+                "cache.max-active-bytes=1073741824\ncache.minimum-free-bytes="+Long.MAX_VALUE+"\n"
+            );
+            budget.refreshForMigration(configuration,dimension,targetFingerprint);
+            CacheGenerationMigration.Stats blocked=
+                CacheGenerationMigration.copyReusableEntriesPreservingSource(
+                    source,target,"minecraft:overworld",budget
+                );
+            require(blocked.adoptedEntries()==0 && blocked.deferredCapacityEntries()==1
+                    && Files.isRegularFile(sourceEntry) && !Files.exists(targetEntry),
+                "migration respects the normal-world disk reserve and retains capacity-deferred source data");
+
+            Files.writeString(
+                configuration,
+                "cache.max-active-bytes=1073741824\ncache.minimum-free-bytes=1\n"
+            );
+            budget.invalidateInventory();
+            budget.refreshForMigration(configuration,dimension,targetFingerprint);
+            CacheGenerationMigration.Stats retried=
+                CacheGenerationMigration.copyReusableEntriesPreservingSource(
+                    source,target,"minecraft:overworld",budget
+                );
+            require(retried.adoptedEntries()==1 && retried.deferredCapacityEntries()==0
+                    && Files.isRegularFile(sourceEntry) && Files.isRegularFile(targetEntry),
+                "capacity-deferred migration retries from the preserved source after admission recovers");
+        } finally {
+            Files.deleteIfExists(configuration);
+            deleteTree(dimension);
+        }
     }
 
     private static void writeEnvelope(Path generation,int schema,int x,boolean entitiesComplete,boolean lodCommitted) throws Exception {
@@ -433,6 +497,7 @@ public final class CachePipelineSelfTest {
                     +"sourcePreserved=true\n"
                     +"acceptedSourceEntries=0\n"
                     +"retainedInvalidEntries=0\n"
+                    +"deferredCapacityEntries=0\n"
                     +"sourceInventoryEntries=1\n"
                     +"sourceInventoryBytes=3\n"
                     +"sourceInventoryNewestMillis="+newest+"\n"
@@ -443,6 +508,33 @@ public final class CachePipelineSelfTest {
             require(!GenerationStore.alreadyRecovered(source,targetFingerprint,sourceFingerprint,activeManifest),
                 "source inventory changes invalidate recovery-info and force a re-scan");
         } finally { deleteTree(retryRoot); }
+    }
+
+    private static void workerIsolation() throws Exception {
+        var writerStarted=new java.util.concurrent.CountDownLatch(1);
+        var releaseWriter=new java.util.concurrent.CountDownLatch(1);
+        var writerDone=new java.util.concurrent.CountDownLatch(1);
+        require(CacheManager.submitMaintenance(() -> {
+            writerStarted.countDown();
+            try {
+                releaseWriter.await(5,java.util.concurrent.TimeUnit.SECONDS);
+            } catch(InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            } finally {
+                writerDone.countDown();
+            }
+        }),"test can occupy the cache writer");
+        require(writerStarted.await(5,java.util.concurrent.TimeUnit.SECONDS),"cache writer fixture started");
+        try {
+            var migrationRan=new java.util.concurrent.CountDownLatch(1);
+            require(CacheManager.submitMigration(migrationRan::countDown),
+                "migration task is accepted while cache writer is occupied");
+            require(migrationRan.await(5,java.util.concurrent.TimeUnit.SECONDS),
+                "generation reconciliation uses a separate worker and cannot starve capture publication");
+        } finally {
+            releaseWriter.countDown();
+            require(writerDone.await(5,java.util.concurrent.TimeUnit.SECONDS),"cache writer fixture released");
+        }
     }
 
     private static void abi() throws Exception {
