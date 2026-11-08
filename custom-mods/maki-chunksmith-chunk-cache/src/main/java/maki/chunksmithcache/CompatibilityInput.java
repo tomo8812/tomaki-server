@@ -61,6 +61,16 @@ final class CompatibilityInput {
         }
 
         if (key.startsWith("mods/") && key.endsWith(".jar")) {
+            FingerprintManifest.Impact classified = policy.classify(key, file);
+            if (classified == FingerprintManifest.Impact.IGNORED) {
+                return List.of(new FingerprintManifest.Entry(
+                    AuditedModCompatibility.RAW_AUDIT_PREFIX + FingerprintPolicy.readTopLevelModIds(file).stream().findFirst().orElse(key),
+                    rawSize,
+                    rawSha256,
+                    FingerprintManifest.Impact.IGNORED,
+                    policy.reason(key, file, classified)
+                ));
+            }
             List<FingerprintManifest.Entry> audited = AuditedModCompatibility.entries(file, rawSize, rawSha256);
             if (audited != null) return audited;
         }
@@ -70,7 +80,7 @@ final class CompatibilityInput {
     }
 
     static String policySignature() {
-        return "semantic-v2"
+        return "semantic-v3"
             + "|zfastnoise=" + String.join(",", ZFASTNOISE_KEYS)
             + "|" + AuditedModCompatibility.policySignature();
     }
