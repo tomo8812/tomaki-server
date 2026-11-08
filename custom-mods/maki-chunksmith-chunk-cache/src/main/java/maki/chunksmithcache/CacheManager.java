@@ -309,8 +309,7 @@ public final class CacheManager {
          long previous = Files.isRegularFile(file) ? Files.size(file) : 0L;
          NbtIo.writeCompressed(envelope, temporary);
          if (work.result.isDone() || STOPPING.contains(server)) return;
-         if (!PromotionClaim.publish(temporary,file)) { work.result.complete(false); return; }
-         markGeneratedComplete(file);
+         if (!PromotionClaim.publishGenerated(temporary,file)) { work.result.complete(false); return; }
          work.storage.published(Files.size(file)-previous);
          PipelineMetrics.time("cache-write", System.nanoTime()-started);
          work.result.complete(true);
