@@ -15,11 +15,18 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** The payload itself is the coordinate tombstone, outside disposable cache generations. */
 final class RecoveryClaims {
+    private static final Logger LOG=LoggerFactory.getLogger("MakiChunkCache");
     private static final Set<Path> READY=ConcurrentHashMap.newKeySet();
     private static final ConcurrentHashMap<Path,CompletableFuture<Void>> PREPARING=new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Path,Long> NEXT_FAILURE_LOG= new ConcurrentHashMap<>();
+    private static final long FAILURE_LOG_INTERVAL_NANOS=TimeUnit.MINUTES.toNanos(1);
     private RecoveryClaims() {}
 
     static Path root(Path dimension) { return dimension.resolve(".promotions"); }
@@ -39,6 +46,102 @@ final class RecoveryClaims {
         }
     }
 
+    /**
+     * Locate ownership for one coordinate without requiring dimension-wide recovery to succeed.
+     *
+     * When startup recovery is READY this is the canonical claim lookup only. Before READY, it
+     * also checks every legacy location that this MOD has used: active/old generations,
+     * quarantined generations, and preserved conflict payloads. A final canonical recheck closes
+     * the race where the background recovery moves a legacy payload while this targeted probe runs.
+     *
+     * Any I/O error on a path that could own this coordinate propagates. Errors elsewhere in the
+     * dimension do not prevent a proven miss for this coordinate.
+     */
+    static Path claimForCoordinate(Path dimension,int x,int z) throws IOException {
+        Path key=dimension.toAbsolutePath().normalize();
+        String region="r."+Math.floorDiv(x,32)+"."+Math.floorDiv(z,32);
+        String file="c."+x+"."+z+".nbt.gz.in-use";
+        Path canonical=root(key).resolve(region).resolve(file);
+
+        if(claimExists(canonical)) return canonical;
+        if(READY.contains(key)) return null;
+
+        Path legacy=findLegacyClaim(key,region,file);
+        if(legacy!=null) return legacy;
+
+        Path conflict=findConflictClaim(key,file);
+        if(conflict!=null) return conflict;
+
+        // Background initialize() may have moved the exact legacy source after the first check.
+        return claimExists(canonical) ? canonical : null;
+    }
+
+    private static Path findLegacyClaim(Path dimension,String region,String file) throws IOException {
+        BasicFileAttributes dimensionAttributes=attributesIfPresent(dimension);
+        if(dimensionAttributes==null) return null;
+        if(!dimensionAttributes.isDirectory()) throw new IOException("Chunk-cache dimension path is not a directory: "+dimension);
+
+        try(Stream<Path> children=Files.list(dimension)) {
+            for(Path child:children.toList()) {
+                BasicFileAttributes attrs=attributesIfPresent(child);
+                if(attrs==null || !attrs.isDirectory()) continue;
+                String name=child.getFileName().toString();
+                if(".promotions".equals(name)) continue;
+                if(".quarantine".equals(name)) {
+                    Path found=findQuarantinedClaim(child,region,file);
+                    if(found!=null) return found;
+                    continue;
+                }
+                // Legacy claims were siblings of cache entries inside generation/r.x.z.
+                // Non-hidden directories are treated as possible old generation roots so an
+                // unknown historical generation name cannot be mistaken for proven absence.
+                if(name.startsWith(".")) continue;
+                Path candidate=child.resolve(region).resolve(file);
+                if(claimExists(candidate)) return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static Path findQuarantinedClaim(Path quarantine,String region,String file) throws IOException {
+        BasicFileAttributes attrs=attributesIfPresent(quarantine);
+        if(attrs==null) return null;
+        if(!attrs.isDirectory()) throw new IOException("Chunk-cache quarantine path is not a directory: "+quarantine);
+        try(Stream<Path> generations=Files.list(quarantine)) {
+            for(Path generation:generations.toList()) {
+                BasicFileAttributes generationAttrs=attributesIfPresent(generation);
+                if(generationAttrs==null || !generationAttrs.isDirectory()) continue;
+                Path candidate=generation.resolve(region).resolve(file);
+                if(claimExists(candidate)) return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static Path findConflictClaim(Path dimension,String file) throws IOException {
+        Path conflicts=root(dimension).resolve(".conflicts");
+        BasicFileAttributes attrs=attributesIfPresent(conflicts);
+        if(attrs==null) return null;
+        if(!attrs.isDirectory()) throw new IOException("Promotion conflict path is not a directory: "+conflicts);
+        try(Stream<Path> buckets=Files.list(conflicts)) {
+            for(Path bucket:buckets.toList()) {
+                BasicFileAttributes bucketAttrs=attributesIfPresent(bucket);
+                if(bucketAttrs==null || !bucketAttrs.isDirectory()) continue;
+                Path candidate=bucket.resolve(file);
+                if(claimExists(candidate)) return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static BasicFileAttributes attributesIfPresent(Path path) throws IOException {
+        try {
+            return Files.readAttributes(path,BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS);
+        } catch(NoSuchFileException missing) {
+            return null;
+        }
+    }
+
     static CompletableFuture<Void> prepare(Path dimension, Executor executor) {
         Path key=dimension.toAbsolutePath().normalize();
         CompletableFuture<Void> result=new CompletableFuture<>();
@@ -47,12 +150,36 @@ final class RecoveryClaims {
         result.whenComplete((ignored,error) -> { if(error!=null) PREPARING.remove(key,result); });
         try {
             executor.execute(() -> {
-                try { initialize(key); result.complete(null); }
-                catch(IOException error) { result.completeExceptionally(new UncheckedIOException("Cannot recover chunk-cache promotion ownership at "+key,error)); }
-                catch(RuntimeException error) { result.completeExceptionally(error); }
+                try {
+                    initialize(key);
+                    NEXT_FAILURE_LOG.remove(key);
+                    result.complete(null);
+                }
+                catch(IOException error) {
+                    warnRecoveryFailure(key,error);
+                    result.completeExceptionally(new UncheckedIOException("Cannot recover chunk-cache promotion ownership at "+key,error));
+                }
+                catch(RuntimeException error) {
+                    warnRecoveryFailure(key,error);
+                    result.completeExceptionally(error);
+                }
             });
-        } catch(RuntimeException error) { result.completeExceptionally(error); }
+        } catch(RuntimeException error) {
+            warnRecoveryFailure(key,error);
+            result.completeExceptionally(error);
+        }
         return result;
+    }
+
+    private static void warnRecoveryFailure(Path dimension,Throwable error) {
+        long now=System.nanoTime();
+        Long next=NEXT_FAILURE_LOG.get(dimension);
+        if(next!=null && now<next) return;
+        NEXT_FAILURE_LOG.put(dimension,now+FAILURE_LOG_INTERVAL_NANOS);
+        LOG.warn(
+            "Chunk-cache promotion recovery failed for {}; incomplete-normal loads will use coordinate-local ownership proof and fail closed when that proof is unavailable. Repair cache-directory access; recovery remains retryable.",
+            dimension,error
+        );
     }
 
     /** Off-thread, once per dimension/session, before any generation merge or deletion. */
@@ -89,5 +216,6 @@ final class RecoveryClaims {
         Path key=dimension.toAbsolutePath().normalize();
         PREPARING.remove(key);
         READY.remove(key);
+        NEXT_FAILURE_LOG.remove(key);
     }
 }
