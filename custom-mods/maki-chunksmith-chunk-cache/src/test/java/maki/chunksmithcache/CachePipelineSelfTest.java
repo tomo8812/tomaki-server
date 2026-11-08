@@ -355,12 +355,29 @@ public final class CachePipelineSelfTest {
                     && Files.isRegularFile(sourceEntry) && !Files.exists(targetEntry),
                 "migration respects the normal-world disk reserve and retains capacity-deferred source data");
 
+            FingerprintManifest.writeAtomic(
+                dimension.resolve(FingerprintManifest.CURRENT_FILE_NAME),
+                new FingerprintManifest.Manifest(
+                    sourceFingerprint,1L,java.util.Set.of(sourceFingerprint),List.of()
+                )
+            );
+            long estimate=Files.size(sourceEntry)+65_536L;
+            long currentManifestBytes=Files.size(dimension.resolve(FingerprintManifest.CURRENT_FILE_NAME));
+            long migrationMax=currentManifestBytes+estimate;
             Files.writeString(
                 configuration,
-                "cache.max-active-bytes=1073741824\ncache.minimum-free-bytes=1\n"
+                "cache.max-active-bytes="+migrationMax+"\ncache.minimum-free-bytes=1\n"
             );
+
+            // Cache a normal inventory where the retained source is still the
+            // current generation. Migration refresh must force a target-aware
+            // re-inventory instead of reusing this fresh but incompatible view.
             budget.invalidateInventory();
+            budget.refresh(configuration);
+            require(budget.tryAcquire(estimate)==null,
+                "normal inventory treats the old current generation as active before migration");
             budget.refreshForMigration(configuration,dimension,targetFingerprint);
+
             CacheGenerationMigration.Stats retried=
                 CacheGenerationMigration.copyReusableEntriesPreservingSource(
                     source,target,"minecraft:overworld",budget
