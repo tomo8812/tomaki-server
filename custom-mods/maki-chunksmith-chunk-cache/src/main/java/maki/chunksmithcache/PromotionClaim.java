@@ -39,6 +39,19 @@ final class PromotionClaim {
         // Same filesystem. If atomic rename is unavailable, refuse promotion.
         // A copy/delete fallback could expose the same snapshot twice after a crash.
         Files.move(available, target, StandardCopyOption.ATOMIC_MOVE);
+        try {
+            CacheManager.clearGeneratedComplete(available);
+        } catch (IOException markerFailure) {
+            // A successful claim must not leave an orphaned sidecar at the old
+            // generation path. Roll the payload back when possible; otherwise the
+            // durable claim remains fail-closed for manual recovery.
+            try {
+                Files.move(target, available, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException rollbackFailure) {
+                markerFailure.addSuppressed(rollbackFailure);
+            }
+            throw markerFailure;
+        }
         return new PromotionClaim(target, hasEntities);
         }
     }
@@ -58,6 +71,7 @@ final class PromotionClaim {
         PromotionClaim claim = take(available,true); // Conservatively retain unknown entity payload until an entity ACK.
         if(claim!=null) claim.entityCountKnown=false;
         if (claim==null && capturePending) {
+            CacheManager.clearGeneratedComplete(available);
             Path marker=claimedPath(available);
             Files.createDirectories(marker.getParent());
             Files.createFile(marker); // Also prevents a delayed capture from making old state available again.
