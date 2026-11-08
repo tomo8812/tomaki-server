@@ -460,7 +460,8 @@ public final class CachePipelineSelfTest {
             );
             long estimate=Files.size(sourceEntry)+65_536L;
             long currentManifestBytes=Files.size(dimension.resolve(FingerprintManifest.CURRENT_FILE_NAME));
-            long migrationMax=currentManifestBytes+estimate;
+            long targetManifestBytes=Files.size(target.resolve(FingerprintManifest.FILE_NAME));
+            long migrationMax=currentManifestBytes+targetManifestBytes+estimate;
             Files.writeString(
                 configuration,
                 "cache.max-active-bytes="+migrationMax+"\ncache.minimum-free-bytes=1\n"
