@@ -72,8 +72,12 @@ final class CompatibilityInput {
             }
             FingerprintManifest.Impact classified = policy.classify(key, file);
             if (classified == FingerprintManifest.Impact.IGNORED) {
+                // Keep the logical path in the manifest even though its bytes do not
+                // contribute to the fingerprint. This lets a policy transition prove
+                // that a formerly-relevant input is now intentionally neutral without
+                // losing the source identity needed for migration/audit.
                 return List.of(new FingerprintManifest.Entry(
-                    AuditedModCompatibility.RAW_AUDIT_PREFIX + FingerprintPolicy.readTopLevelModIds(file).stream().findFirst().orElse(key),
+                    key,
                     rawSize,
                     rawSha256,
                     FingerprintManifest.Impact.IGNORED,
