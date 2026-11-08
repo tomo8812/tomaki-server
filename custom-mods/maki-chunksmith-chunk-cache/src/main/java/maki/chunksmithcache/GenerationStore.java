@@ -207,7 +207,7 @@ final class GenerationStore {
         LOG.info(
             "Inspected exact-legacy chunk-cache generation {} for {}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} bytes={} sourcePreserved=true trigger={}",
             snapshot.legacyFingerprint(), root.getFileName(), migration.sourceEntries(), migration.adoptedEntries(),
-            migration.duplicateEntries(), migration.promotionOnlyEntries(), migration.retainedUnprovenEntries(),
+            migration.recoveredExistingEntries(), migration.duplicateEntries(), migration.promotionOnlyEntries(), migration.retainedUnprovenEntries(),
             migration.retainedInvalidEntries(), before.bytes(), trigger
         );
     }
