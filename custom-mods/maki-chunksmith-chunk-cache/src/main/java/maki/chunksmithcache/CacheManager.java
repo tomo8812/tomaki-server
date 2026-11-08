@@ -56,6 +56,7 @@ public final class CacheManager {
    private static final AtomicLong LAST_QUEUE_WARNING = new AtomicLong();
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
    private static final Map<String,Long> ROTATION_RETRY = new ConcurrentHashMap<>();
+   private static final Map<String,CompletableFuture<Boolean>> ROTATION_IN_FLIGHT = new ConcurrentHashMap<>();
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
    private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
@@ -130,9 +131,18 @@ public final class CacheManager {
          // its marker.
          try {
             CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
-            return ensureGeneratedCompleteMarker(
-               file, root, validEnvelopeIdentity(root, level, pos, fingerprint)
-            );
+            boolean validIdentity = validEnvelopeIdentity(root, level, pos, fingerprint);
+            CacheEnvelope.Reuse reuse = CacheEnvelope.reuse(root);
+            if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE) {
+               return ensureGeneratedCompleteMarker(file, root, validIdentity);
+            }
+            if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY && validIdentity) {
+               // A verified FULL payload already exists. Its missing LOD receipt is
+               // retry debt for Backfill, not permission for Chunksmith to regenerate FULL.
+               PipelineMetrics.count("cached-full-pending-lod");
+               return true;
+            }
+            return false;
          } catch(Throwable invalid) {
             PipelineMetrics.count("generated-complete-marker-repair-failed");
             return false;
@@ -385,14 +395,15 @@ public final class CacheManager {
    }
 
    private static CompletableFuture<Optional<CompoundTag>> loadReadyCache(ServerLevel var0, ChunkPos var1) {
-      if (!BackfillGuard.suppress(var0, var1) && promotionAllowed(var0, var1)) {
+      boolean backfillTarget = BackfillGuard.active(var0, var1);
+      if ((!BackfillGuard.suppress(var0, var1) || backfillTarget) && promotionAllowed(var0, var1)) {
          Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
          if (snapshot == null) {
             return CompletableFuture.completedFuture(Optional.empty());
          }
          String var2 = snapshot.fingerprint();
 
-         rotateGenerations(var0, snapshot, "load");
+         CompletableFuture<Boolean> rotation = rotateGenerations(var0, snapshot, "load");
          Path var3 = path(var0, var1, var2);
          Path claim=PromotionClaim.claimedPath(var3);
          try {
@@ -406,6 +417,18 @@ public final class CacheManager {
             return CompletableFuture.failedFuture(claimError);
          }
          if (!Files.isRegularFile(var3)) {
+            if (!rotation.isDone()) {
+               // Wait only for this coordinate's load path; the server thread and the
+               // rest of the dimension continue normally. Timeout/error is propagated so
+               // vanilla cannot turn an undecided retained candidate into regeneration.
+               return rotation.copy().orTimeout(30, TimeUnit.SECONDS)
+                  .thenCompose(ignored -> loadReadyCache(var0, var1));
+            }
+            if (!reconciliationAllowsMiss(rotation)) {
+               return CompletableFuture.failedFuture(new IOException(
+                  "Chunk-cache generation reconciliation is incomplete for " + var1 + " in " + var0.dimension().location()
+               ));
+            }
             return CompletableFuture.completedFuture(Optional.empty());
          }
 
@@ -560,12 +583,13 @@ public final class CacheManager {
       } catch(RejectedExecutionException full) { return false; }
    }
 
-   enum CacheState { ABSENT, COMPLETE, CLAIMED, UNKNOWN }
+   enum CacheState { ABSENT, COMPLETE, FULL_PENDING_LOD, CLAIMED, UNKNOWN }
 
    static CacheState cacheState(ServerLevel var0, ChunkPos var1, String var2) {
       Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
+      CompletableFuture<Boolean> rotation = null;
       if (snapshot != null && snapshot.fingerprint().equals(var2)) {
-         rotateGenerations(var0, snapshot, "scan");
+         rotation = rotateGenerations(var0, snapshot, "scan");
       }
       Path file = path(var0, var1, var2);
       Path claim = PromotionClaim.claimedPath(file);
@@ -584,6 +608,9 @@ public final class CacheManager {
             return CacheState.UNKNOWN;
          }
          if (!Files.isRegularFile(file)) {
+            // A retained compatible entry may still be in the generation-maintenance
+            // queue. Only a completed successful reconciliation can prove a cache miss.
+            if (rotation != null && !reconciliationAllowsMiss(rotation)) return CacheState.UNKNOWN;
             return CacheState.ABSENT;
          }
 
@@ -595,8 +622,9 @@ public final class CacheManager {
                return CacheState.COMPLETE;
             }
             if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY && validEnvelopeIdentity(root, var0, var1, var2)) {
-               // Safe for a real player promotion, but it cannot retire LOD/backfill debt.
-               return CacheState.ABSENT;
+               // The FULL payload is promotion-safe, while only the LOD receipt remains
+               // unproven. Backfill may consume this state for LOD work without regenerating FULL.
+               return CacheState.FULL_PENDING_LOD;
             }
             if (reuse == CacheEnvelope.Reuse.LEGACY_UNPROVEN) {
                PipelineMetrics.count("legacy-cache-retained-unproven");
@@ -790,21 +818,55 @@ public final class CacheManager {
       synchronized(NEXT_DISK_REFRESH) { NEXT_DISK_REFRESH.remove(server); }
    }
 
-   private static void rotateGenerations(ServerLevel var0, Fingerprint.Snapshot snapshot, String trigger) {
+   static boolean reconciliationAllowsMiss(CompletableFuture<Boolean> rotation) {
+      return rotation != null
+         && rotation.isDone()
+         && !rotation.isCompletedExceptionally()
+         && Boolean.TRUE.equals(rotation.getNow(false));
+   }
+
+   private static CompletableFuture<Boolean> rotateGenerations(ServerLevel var0, Fingerprint.Snapshot snapshot, String trigger) {
       String var2 = cacheRoot(var0).toAbsolutePath().normalize() + "|" + dimensionKey(var0) + "|" + snapshot.fingerprint();
-      if (System.nanoTime()<ROTATION_RETRY.getOrDefault(var2,0L)) return;
-      if (ROTATED.add(var2)) {
-         boolean queued = submitGenerationMaintenance(() -> {
-            try {
-               if (!GenerationStore.reconcile(var0, snapshot, trigger)) {
-                  ROTATION_RETRY.put(var2,System.nanoTime()+60_000_000_000L);
-                  ROTATED.remove(var2);
-               } else ROTATION_RETRY.remove(var2);
-            }
-            finally { CacheDiskBudget.at(cacheRoot(var0)).invalidateInventory(); }
-         });
-         if (!queued) ROTATED.remove(var2);
+      CompletableFuture<Boolean> inFlight = ROTATION_IN_FLIGHT.get(var2);
+      if (inFlight != null) return inFlight;
+      if (System.nanoTime() < ROTATION_RETRY.getOrDefault(var2, 0L)) {
+         return CompletableFuture.completedFuture(false);
       }
+      if (ROTATED.contains(var2)) return CompletableFuture.completedFuture(true);
+
+      CompletableFuture<Boolean> created = new CompletableFuture<>();
+      inFlight = ROTATION_IN_FLIGHT.putIfAbsent(var2, created);
+      if (inFlight != null) return inFlight;
+      if (!ROTATED.add(var2)) {
+         ROTATION_IN_FLIGHT.remove(var2, created);
+         created.complete(true);
+         return created;
+      }
+
+      boolean queued = submitGenerationMaintenance(() -> {
+         try {
+            boolean complete = GenerationStore.reconcile(var0, snapshot, trigger);
+            if (!complete) {
+               ROTATION_RETRY.put(var2, System.nanoTime() + 60_000_000_000L);
+               ROTATED.remove(var2);
+            } else {
+               ROTATION_RETRY.remove(var2);
+            }
+            created.complete(complete);
+         } catch (Throwable error) {
+            ROTATED.remove(var2);
+            created.completeExceptionally(error);
+         } finally {
+            ROTATION_IN_FLIGHT.remove(var2, created);
+            CacheDiskBudget.at(cacheRoot(var0)).invalidateInventory();
+         }
+      });
+      if (!queued) {
+         ROTATED.remove(var2);
+         ROTATION_IN_FLIGHT.remove(var2, created);
+         created.completeExceptionally(new RejectedExecutionException("generation maintenance queue full"));
+      }
+      return created;
    }
 
    private static void moveAtomically(Path var0, Path var1) throws IOException {

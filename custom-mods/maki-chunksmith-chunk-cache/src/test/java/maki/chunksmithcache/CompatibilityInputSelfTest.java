@@ -101,6 +101,36 @@ public final class CompatibilityInputSelfTest {
                 manifest(millenaireContract), Set.of()),
             "historical Millenaire filename alone cannot prove the shared generation contract");
 
+        Path futureMillenaire = temp.resolve("maki-millenaire-lod-compat-1.0.7.jar");
+        writeModJar(futureMillenaire, "maki_millenaire_lod", "1.0.7", "audited non-generation change");
+        byte[] futureBytes = Files.readAllBytes(futureMillenaire);
+        String futureSha = sha256(futureBytes);
+        Path policyRoot = temp.resolve("future-contract-policy");
+        Files.createDirectories(policyRoot.resolve("config"));
+        Files.writeString(
+            policyRoot.resolve(FingerprintPolicy.CONFIG_RELATIVE),
+            "fingerprint.generation-contract-attestations=maki_millenaire_lod:"
+                + futureSha + ":millenaire-disposable-generation-v1\n"
+        );
+        FingerprintPolicy futureAuditedPolicy = FingerprintPolicy.load(policyRoot);
+        List<FingerprintManifest.Entry> futureAudited = CompatibilityInput.entries(
+            "mods/" + futureMillenaire.getFileName(), futureMillenaire,
+            futureBytes.length, futureSha, futureAuditedPolicy
+        );
+        require(futureAudited.size() == 2
+                && futureAudited.getFirst().key().equals("compat:mod:maki_millenaire_lod")
+                && fingerprint(futureAudited).equals(fingerprint(millenaireContract)),
+            "a future exact-hash audited Millenaire release can join the existing generated-result contract");
+
+        writeModJar(futureMillenaire, "maki_millenaire_lod", "1.0.7", "different unreviewed bytes");
+        byte[] changedFutureBytes = Files.readAllBytes(futureMillenaire);
+        List<FingerprintManifest.Entry> changedFuture = CompatibilityInput.entries(
+            "mods/" + futureMillenaire.getFileName(), futureMillenaire,
+            changedFutureBytes.length, sha256(changedFutureBytes), futureAuditedPolicy
+        );
+        require(changedFuture.size() == 1 && changedFuture.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
+            "future Millenaire attestation is exact-hash only; changed bytes fail closed");
+
         Path newQol = temp.resolve("example-qol.jar");
         writeModJar(newQol, "example_qol", "1.0.0", "ui-only");
         byte[] qolBytes = Files.readAllBytes(newQol);

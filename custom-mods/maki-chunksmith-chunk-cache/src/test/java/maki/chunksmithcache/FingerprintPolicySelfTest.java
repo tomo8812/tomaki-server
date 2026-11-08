@@ -32,8 +32,12 @@ public final class FingerprintPolicySelfTest {
                 "worldgen datapack resources inside a JAR must make it generation-sensitive");
             require(policy.classify("config/random-qol.properties", temp.resolve("unused")) == FingerprintManifest.Impact.IGNORED,
                 "ordinary config must not rotate generation compatibility");
-            require(policy.classify("config/chunksmith/config.json", temp.resolve("unused")) == FingerprintManifest.Impact.RELEVANT,
-                "Chunksmith effective generation config remains relevant");
+            require(policy.classify("config/chunksmith/config.json", temp.resolve("unused")) == FingerprintManifest.Impact.IGNORED,
+                "current Chunksmith scheduling/LOD task config must not rotate generated-result compatibility");
+            require(policy.classify("config/millenaire-common.toml", temp.resolve("unused")) == FingerprintManifest.Impact.IGNORED,
+                "Millenaire common logging config must not rotate generated-result compatibility");
+            require(policy.classify("world/serverconfig/millenaire-server.toml", temp.resolve("unused")) == FingerprintManifest.Impact.RELEVANT,
+                "Millenaire server generation config remains generation-sensitive");
             require(policy.classify("world/datapacks/test.zip", temp.resolve("unused")) == FingerprintManifest.Impact.RELEVANT,
                 "world datapacks remain generation-sensitive");
             require(FingerprintPolicy.isAlwaysExcluded("config/chunksmith/tasks/minecraft/overworld.properties"),
@@ -42,14 +46,16 @@ public final class FingerprintPolicySelfTest {
             FingerprintPolicy operatorPolicy = FingerprintPolicy.forTesting(
                 Set.of("custom_worldgen"),
                 List.of("config/custom-worldgen.properties"),
-                List.of("config/chunksmith/config.json")
+                List.of("world/serverconfig/millenaire-server.toml")
             );
             require(operatorPolicy.classify("mods/custom-worldgen.jar", customWorldgenJar) == FingerprintManifest.Impact.RELEVANT,
                 "operator-declared code-driven worldgen MOD must be relevant");
             require(operatorPolicy.classify("config/custom-worldgen.properties", temp.resolve("unused")) == FingerprintManifest.Impact.RELEVANT,
                 "operator-declared generation config must be relevant");
-            require(operatorPolicy.classify("config/chunksmith/config.json", temp.resolve("unused")) == FingerprintManifest.Impact.RELEVANT,
-                "built-in worldgen inputs cannot be neutralized by ignore-paths");
+            require(operatorPolicy.classify("world/serverconfig/millenaire-server.toml", temp.resolve("unused")) == FingerprintManifest.Impact.RELEVANT,
+                "built-in Millenaire generation config cannot be neutralized by ignore-paths");
+            require(operatorPolicy.classify("config/chunksmith/config.json", temp.resolve("unused")) == FingerprintManifest.Impact.IGNORED,
+                "current Chunksmith operational config remains generation-neutral");
 
             List<FingerprintManifest.Entry> baseline = new ArrayList<>();
             baseline.add(entry("policy:compatibility", "policy", FingerprintManifest.Impact.RELEVANT));

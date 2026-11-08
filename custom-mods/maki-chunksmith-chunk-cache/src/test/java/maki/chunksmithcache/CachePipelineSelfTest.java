@@ -19,6 +19,7 @@ public final class CachePipelineSelfTest {
         recovery();
         publication();
         envelopes();
+        cacheStateSemantics();
         generationMigration();
         migrationCapacity();
         disk();
@@ -719,6 +720,34 @@ public final class CachePipelineSelfTest {
             "automatic generation maintenance fixture released");
         require(manualRestoreLaneRan.await(5,java.util.concurrent.TimeUnit.SECONDS),
             "manual restore runs after automatic reconciliation on the same single worker");
+    }
+
+    private static void cacheStateSemantics() {
+        require(BackfillController.requiresLodBackfill(CacheManager.CacheState.ABSENT),
+            "missing FULL remains eligible for backfill");
+        require(BackfillController.requiresLodBackfill(CacheManager.CacheState.FULL_PENDING_LOD),
+            "saved FULL with missing LOD receipt retries LOD without pretending generation is absent");
+        require(!BackfillController.requiresLodBackfill(CacheManager.CacheState.COMPLETE),
+            "LOD-complete cache does not backfill");
+        require(!BackfillController.retrySatisfied(
+                CacheManager.CacheState.FULL_PENDING_LOD, NormalChunkStorage.State.ABSENT),
+            "FULL_PENDING_LOD retains LOD retry debt");
+        require(!BackfillController.retryBlockedByCache(CacheManager.CacheState.FULL_PENDING_LOD),
+            "FULL_PENDING_LOD can enter Backfill to consume its saved FULL");
+        require(BackfillController.retryBlockedByCache(CacheManager.CacheState.UNKNOWN),
+            "undecided generation migration blocks backfill generation");
+
+        CompletableFuture<Boolean> pending = new CompletableFuture<>();
+        require(!CacheManager.reconciliationAllowsMiss(pending),
+            "cache miss is not authoritative while generation reconciliation is in flight");
+        require(!CacheManager.reconciliationAllowsMiss(CompletableFuture.completedFuture(false)),
+            "incomplete retained-generation scan cannot authorize regeneration");
+        require(CacheManager.reconciliationAllowsMiss(CompletableFuture.completedFuture(true)),
+            "successful reconciliation may establish a real cache miss");
+        CompletableFuture<Boolean> failed = new CompletableFuture<>();
+        failed.completeExceptionally(new java.io.IOException("fixture"));
+        require(!CacheManager.reconciliationAllowsMiss(failed),
+            "failed generation reconciliation cannot authorize regeneration");
     }
 
     private static void abi() throws Exception {

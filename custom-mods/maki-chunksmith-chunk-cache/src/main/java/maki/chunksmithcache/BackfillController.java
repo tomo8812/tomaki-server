@@ -267,7 +267,21 @@ public final class BackfillController {
    private static String pendingRejection(Candidate candidate) {
       ServerLevel level = candidate.level();
       ChunkPos pos = candidate.target().pos();
-      if (CacheManager.chunksmithGeneratedHint(level, pos)) return "generated-or-pending";
+      String fingerprint = Fingerprint.forLevel(level);
+      CacheManager.CacheState cache = fingerprint == null
+         ? CacheManager.CacheState.UNKNOWN
+         : CacheManager.cacheState(level, pos, fingerprint);
+      if (cache == CacheManager.CacheState.COMPLETE
+         || cache == CacheManager.CacheState.CLAIMED
+         || cache == CacheManager.CacheState.UNKNOWN) {
+         return "generated-or-pending";
+      }
+      // FULL_PENDING_LOD is intentionally admitted here: Backfill loads the saved
+      // FULL from cache and retries only its LOD obligation.
+      if (cache != CacheManager.CacheState.FULL_PENDING_LOD
+         && CacheManager.chunksmithGeneratedHint(level, pos)) {
+         return "generated-or-pending";
+      }
       if (level.getChunkSource().hasChunk(pos.x, pos.z)) return "target-loaded";
       return BackfillGuard.scopeAvailable(level, candidate.suppressed()) ? null : "dependency-scope-loaded";
    }
@@ -1054,7 +1068,7 @@ public final class BackfillController {
          BackfillController.Target var9;
          while ((var9 = nextCandidate(var4, var5, var3.fingerprint(), var1)) != null) {
             CacheManager.CacheState cache=CacheManager.cacheState(var4,var9.pos(),var3.fingerprint());
-            if (cache != CacheManager.CacheState.ABSENT) {
+            if (!requiresLodBackfill(cache)) {
                if (retryBlockedByCache(cache)) {
                   var1.retries.defer(retryDimension,var9.pos().toLong(),System.currentTimeMillis(),
                      cache==CacheManager.CacheState.UNKNOWN?"cache-claim-inspection-failed":"promotion-claim-active");
@@ -1070,6 +1084,11 @@ public final class BackfillController {
       }
 
       return null;
+   }
+
+   static boolean requiresLodBackfill(CacheManager.CacheState cache) {
+      return cache == CacheManager.CacheState.ABSENT
+         || cache == CacheManager.CacheState.FULL_PENDING_LOD;
    }
 
    static boolean retrySatisfied(CacheManager.CacheState cache,NormalChunkStorage.State normal) {

@@ -6,9 +6,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.jar.JarEntry;
@@ -18,6 +20,7 @@ final class FingerprintPolicy {
     static final String CONFIG_RELATIVE = "config/maki-chunksmith-chunk-cache.properties";
     private static final String OWN_MOD_ID = "maki_chunksmith_chunk_cache";
     private static final String DEFAULT_IGNORED_PATHS = "config/maki-mods-observer.properties";
+    private static final String GENERATION_CONTRACT_ATTESTATIONS = "fingerprint.generation-contract-attestations";
     private static final long DEFAULT_WARN_BYTES = 50L * 1024L * 1024L * 1024L;
 
     // Code-driven generation inputs that cannot be inferred solely from datapack resources.
@@ -30,9 +33,7 @@ final class FingerprintPolicy {
         "maki-millenaire-lod-compat-", "terrain_slabs-"
     );
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_PATHS = List.of(
-        "config/chunksmith/**",
         "config/zfastnoise.mixin.properties",
-        "config/millenaire-*.toml",
         "serverconfig/millenaire-*.toml",
         "world/serverconfig/millenaire-*.toml",
         "config/epicterrain*",
@@ -45,6 +46,7 @@ final class FingerprintPolicy {
 
     private final Set<String> generationSensitiveModIds;
     private final List<String> generationSensitivePaths;
+    private final Map<String, String> generationContractAttestations;
     private final List<String> ignoredPaths;
     private final int warnGenerations;
     private final long warnBytes;
@@ -52,12 +54,14 @@ final class FingerprintPolicy {
     private FingerprintPolicy(
         Set<String> generationSensitiveModIds,
         List<String> generationSensitivePaths,
+        Map<String, String> generationContractAttestations,
         List<String> ignoredPaths,
         int warnGenerations,
         long warnBytes
     ) {
         this.generationSensitiveModIds = Set.copyOf(generationSensitiveModIds);
         this.generationSensitivePaths = List.copyOf(generationSensitivePaths);
+        this.generationContractAttestations = Map.copyOf(generationContractAttestations);
         this.ignoredPaths = List.copyOf(ignoredPaths);
         this.warnGenerations = warnGenerations;
         this.warnBytes = warnBytes;
@@ -78,6 +82,7 @@ final class FingerprintPolicy {
         return new FingerprintPolicy(
             sensitiveMods,
             sensitivePaths,
+            parseGenerationContractAttestations(properties.getProperty(GENERATION_CONTRACT_ATTESTATIONS, "")),
             paths,
             boundedInt(properties, "quarantine.warn-generations", 8, 1, 1024),
             boundedLong(properties, "quarantine.warn-bytes", DEFAULT_WARN_BYTES, 1024L * 1024L, Long.MAX_VALUE)
@@ -85,13 +90,20 @@ final class FingerprintPolicy {
     }
 
     static FingerprintPolicy forTesting(List<String> ignoredPaths) {
-        return new FingerprintPolicy(Set.of(), List.of(), ignoredPaths, 8, DEFAULT_WARN_BYTES);
+        return new FingerprintPolicy(Set.of(), List.of(), Map.of(), ignoredPaths, 8, DEFAULT_WARN_BYTES);
     }
 
     static FingerprintPolicy forTesting(Set<String> sensitiveModIds, List<String> sensitivePaths, List<String> ignoredPaths) {
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
         for (String id : sensitiveModIds) normalized.add(id.toLowerCase(Locale.ROOT));
-        return new FingerprintPolicy(normalized, sensitivePaths, ignoredPaths, 8, DEFAULT_WARN_BYTES);
+        return new FingerprintPolicy(normalized, sensitivePaths, Map.of(), ignoredPaths, 8, DEFAULT_WARN_BYTES);
+    }
+
+    String generationContract(String modId, String rawSha256) {
+        if (modId == null || rawSha256 == null) return null;
+        return generationContractAttestations.get(
+            modId.toLowerCase(Locale.ROOT) + "|" + rawSha256.toLowerCase(Locale.ROOT)
+        );
     }
 
     FingerprintManifest.Impact classify(String logicalPath, Path physicalPath) {
@@ -151,12 +163,13 @@ final class FingerprintPolicy {
         List<String> ignored = ignoredPaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
         List<String> sensitive = generationSensitivePaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
         List<String> sensitiveMods = generationSensitiveModIds.stream().sorted().toList();
-        return "policy-v6|self-mod-id=" + OWN_MOD_ID
+        return "policy-v7|self-mod-id=" + OWN_MOD_ID
             + "|ignored-paths=" + String.join(",", ignored)
             + "|generation-sensitive-mod-ids=" + String.join(",", sensitiveMods)
             + "|generation-sensitive-paths=" + String.join(",", sensitive)
             + "|default-mod-policy=evidence-neutral-v1"
             + "|worldgen-resource-detection=v1"
+            + "|generation-contract-attestations=exact-sha256-v1"
             + "|" + CompatibilityInput.policySignature();
     }
 
@@ -216,6 +229,27 @@ final class FingerprintPolicy {
             // Unreadable/corrupt JARs are not allowed to become generation-neutral.
             return true;
         }
+    }
+
+    private static Map<String, String> parseGenerationContractAttestations(String raw) {
+        LinkedHashMap<String, String> result = new LinkedHashMap<>();
+        if (raw == null || raw.isBlank()) return result;
+        for (String token : raw.split(",")) {
+            String[] parts = token.trim().split(":", 3);
+            if (parts.length != 3) continue;
+            String modId = parts[0].trim().toLowerCase(Locale.ROOT);
+            String sha = parts[1].trim().toLowerCase(Locale.ROOT);
+            String contract = parts[2].trim();
+            if (!modId.matches("[a-z0-9_.-]+")
+                || !sha.matches("[0-9a-f]{64}")
+                || !contract.matches("[A-Za-z0-9_.-]+")) {
+                continue;
+            }
+            String key = modId + "|" + sha;
+            String previous = result.putIfAbsent(key, contract);
+            if (previous != null && !previous.equals(contract)) result.remove(key);
+        }
+        return result;
     }
 
     private boolean matchesIgnoredPath(String logicalPath) {

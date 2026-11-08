@@ -153,7 +153,12 @@ final class AuditedModCompatibility {
 
     private AuditedModCompatibility() {}
 
-    static List<FingerprintManifest.Entry> entries(Path jarPath, long rawSize, String rawSha256) {
+    static List<FingerprintManifest.Entry> entries(
+        Path jarPath,
+        long rawSize,
+        String rawSha256,
+        FingerprintPolicy policy
+    ) {
         Set<String> ids = FingerprintPolicy.readTopLevelModIds(jarPath);
         if (ids.size() != 1) return null;
         String modId = ids.iterator().next();
@@ -164,6 +169,17 @@ final class AuditedModCompatibility {
             return List.of(auditEntry(modId, jarPath, rawSize, rawSha256,
                 "role-audited generation-neutral MOD; updates do not rotate generated chunk compatibility"));
         }
+
+        String operatorContract = policy == null ? null : policy.generationContract(modId, rawSha256);
+        if (operatorContract != null) {
+            return List.of(
+                contractEntry(modId, operatorContract,
+                    "operator exact-hash audit maps this release to an existing generated-result contract"),
+                auditEntry(modId, jarPath, rawSize, rawSha256,
+                    "operator exact-hash audited generation contract=" + operatorContract)
+            );
+        }
+
         String auditedMillenaireSha = MILLENAIRE_EQUIVALENT_RELEASE_SHA256.get(fileName);
         if (MILLENAIRE_COMPAT_ID.equals(modId)
             && auditedMillenaireSha != null

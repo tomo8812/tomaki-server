@@ -84,7 +84,7 @@ final class CompatibilityInput {
                     policy.reason(key, file, classified)
                 ));
             }
-            List<FingerprintManifest.Entry> audited = AuditedModCompatibility.entries(file, rawSize, rawSha256);
+            List<FingerprintManifest.Entry> audited = AuditedModCompatibility.entries(file, rawSize, rawSha256, policy);
             if (audited != null) return audited;
         }
 
