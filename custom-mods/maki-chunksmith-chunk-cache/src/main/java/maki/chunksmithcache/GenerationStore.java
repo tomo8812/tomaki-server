@@ -166,15 +166,16 @@ final class GenerationStore {
             String proof = exact ? "exact generation fingerprint" : "audited generation compatibility";
             writeRecoveryInfo(source, manifest.fingerprint(), snapshot.fingerprint(), proof, proofDetails, migration, activeEntries, "manual-restore");
             LOG.info(
-                "Re-adopted retained chunk-cache generation {} for {}; proof={}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} activeEntriesAfter={} sourcePreserved=true",
+                "Re-adopted retained chunk-cache generation {} for {}; proof={}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedUnreadable={} retainedInvalid={} activeEntriesAfter={} sourcePreserved=true",
                 id, CacheManager.dimensionKey(level), proof, migration.sourceEntries(), migration.adoptedEntries(), migration.recoveredExistingEntries(),
                 migration.duplicateEntries(), migration.promotionOnlyEntries(), migration.retainedUnprovenEntries(),
-                migration.retainedInvalidEntries(), activeEntries
+                migration.retainedUnreadableEntries(), migration.retainedInvalidEntries(), activeEntries
             );
             return "re-adopted " + id + " to active fingerprint " + snapshot.fingerprint() + " after " + proof
                 + " (source=" + migration.sourceEntries() + ", adopted=" + migration.adoptedEntries()
                 + ", duplicates=" + migration.duplicateEntries() + ", promotionOnly=" + migration.promotionOnlyEntries()
                 + ", retainedUnproven=" + migration.retainedUnprovenEntries()
+                + ", retainedUnreadable=" + migration.retainedUnreadableEntries()
                 + ", retainedInvalid=" + migration.retainedInvalidEntries() + ", active=" + activeEntries
                 + ", sourcePreserved=true)";
         } catch (Throwable error) {
@@ -211,12 +212,12 @@ final class GenerationStore {
         writeRecoveryInfo(legacy, snapshot.legacyFingerprint(), snapshot.fingerprint(), "exact legacy generation inputs",
             List.of(), migration, activeEntries, trigger);
         LOG.info(
-            "Inspected exact-legacy chunk-cache generation {} for {}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} bytes={} sourcePreserved=true trigger={}",
+            "Inspected exact-legacy chunk-cache generation {} for {}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedUnreadable={} retainedInvalid={} bytes={} sourcePreserved=true trigger={}",
             snapshot.legacyFingerprint(), root.getFileName(), migration.sourceEntries(), migration.adoptedEntries(),
             migration.recoveredExistingEntries(), migration.duplicateEntries(), migration.promotionOnlyEntries(), migration.retainedUnprovenEntries(),
-            migration.retainedInvalidEntries(), before.bytes(), trigger
+            migration.retainedUnreadableEntries(), migration.retainedInvalidEntries(), before.bytes(), trigger
         );
-        return migration.completeForCurrentCapacity();
+        return migration.completeForCurrentPass();
     }
 
     private static boolean migratePolicyEquivalent(
@@ -252,7 +253,7 @@ final class GenerationStore {
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
                 candidate, active, expectedDimension, budget
             );
-            complete &= migration.completeForCurrentCapacity();
+            complete &= migration.completeForCurrentPass();
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
@@ -266,10 +267,10 @@ final class GenerationStore {
             writeRecoveryInfo(candidate, oldFingerprint, snapshot.fingerprint(), "audited generation compatibility",
                 proofDetails, migration, activeEntries, trigger);
             LOG.info(
-                "Re-adopted generation-equivalent chunk-cache {} as {} for {}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} activeEntriesAfter={} bytes={} proofDetails={} sourcePreserved=true trigger={}",
+                "Re-adopted generation-equivalent chunk-cache {} as {} for {}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedUnreadable={} retainedInvalid={} activeEntriesAfter={} bytes={} proofDetails={} sourcePreserved=true trigger={}",
                 oldFingerprint, snapshot.fingerprint(), root.getFileName(), migration.sourceEntries(),
                 migration.adoptedEntries(), migration.recoveredExistingEntries(), migration.duplicateEntries(), migration.promotionOnlyEntries(),
-                migration.retainedUnprovenEntries(), migration.retainedInvalidEntries(), activeEntries,
+                migration.retainedUnprovenEntries(), migration.retainedUnreadableEntries(), migration.retainedInvalidEntries(), activeEntries,
                 before.bytes(), proofDetails, trigger
             );
         }
@@ -334,7 +335,7 @@ final class GenerationStore {
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
                 candidate, active, expectedDimension, budget
             );
-            complete &= migration.completeForCurrentCapacity();
+            complete &= migration.completeForCurrentPass();
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
@@ -349,10 +350,10 @@ final class GenerationStore {
             String proof = exact ? "exact generation fingerprint" : "audited generation compatibility";
             writeRecoveryInfo(candidate, old.fingerprint(), snapshot.fingerprint(), proof, proofDetails, migration, activeEntries, trigger);
             LOG.info(
-                "Re-adopted retained chunk-cache generation {} as {} for {}; proof={}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedInvalid={} activeEntriesAfter={} bytes={} proofDetails={} sourcePreserved=true trigger={}",
+                "Re-adopted retained chunk-cache generation {} as {} for {}; proof={}; sourceEntries={} adoptedEntries={} recoveredExistingEntries={} duplicateEntries={} promotionOnly={} retainedUnproven={} retainedUnreadable={} retainedInvalid={} activeEntriesAfter={} bytes={} proofDetails={} sourcePreserved=true trigger={}",
                 old.fingerprint(), snapshot.fingerprint(), root.getFileName(), proof, migration.sourceEntries(),
                 migration.adoptedEntries(), migration.recoveredExistingEntries(), migration.duplicateEntries(), migration.promotionOnlyEntries(),
-                migration.retainedUnprovenEntries(), migration.retainedInvalidEntries(), activeEntries,
+                migration.retainedUnprovenEntries(), migration.retainedUnreadableEntries(), migration.retainedInvalidEntries(), activeEntries,
                 before.bytes(), proofDetails, trigger
             );
         }
@@ -455,6 +456,7 @@ final class GenerationStore {
                 + "duplicateEntries=" + migration.duplicateEntries() + "\n"
                 + "promotionOnlyEntries=" + migration.promotionOnlyEntries() + "\n"
                 + "retainedUnprovenEntries=" + migration.retainedUnprovenEntries() + "\n"
+                + "retainedUnreadableEntries=" + migration.retainedUnreadableEntries() + "\n"
                 + "retainedInvalidEntries=" + migration.retainedInvalidEntries() + "\n"
                 + "deferredCapacityEntries=" + migration.deferredCapacityEntries() + "\n"
                 + "activeEntriesAfter=" + activeEntries + "\n"
@@ -526,9 +528,10 @@ final class GenerationStore {
             boolean acceptedNothing = recoveryLong(text, "acceptedSourceEntries") == 0L;
             boolean copiedSourceAccepted = activeManifest.storedFingerprints().contains(sourceFingerprint);
 
-            // Any entry that could not be validated remains retryable. This prevents a
-            // temporary permission/I/O failure from permanently suppressing re-adoption.
-            if (recoveryLong(text, "retainedInvalidEntries") != 0L) return false;
+            // Transient read failures and capacity deferrals remain retryable. Entries
+            // that were read successfully but failed structural/schema validation are
+            // retained as terminal invalid data and do not force an endless retry loop.
+            if (recoveryLong(text, "retainedUnreadableEntries") != 0L) return false;
             if (recoveryLong(text, "deferredCapacityEntries") != 0L) return false;
 
             SourceInventory recorded = new SourceInventory(
