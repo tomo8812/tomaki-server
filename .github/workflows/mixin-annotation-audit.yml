@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: mixin-static-${{ github.event_name }}-${{ github.ref }}
@@ -77,13 +77,12 @@ jobs:
 
   source-build:
     needs: jar-audit
-    if: always() && needs.jar-audit.outputs.projects != '[]'
+    if: needs.jar-audit.outputs.projects != '[]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
           sparse-checkout: |
             .github
             custom-mods
@@ -123,20 +122,6 @@ jobs:
               for jar in jars:
                   shutil.copy2(jar, output / jar.name)
           PY
-
-      - name: Sync rebuilt deployment JARs to the PR branch
-        if: github.event_name == 'pull_request'
-        run: |
-          cp /tmp/maki-rebuilt/*.jar mods/
-          if git diff --quiet -- mods; then
-            echo "Deployment JARs already match rebuilt sources."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mods
-          git commit -m "build(cache): sync reviewed deployment jar"
-          git push
 
       - name: Audit rebuilt JARs
         run: |
