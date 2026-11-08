@@ -7,12 +7,41 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 
 final class AuditedModCompatibility {
     static final String RAW_AUDIT_PREFIX = "audit:mod:";
+
+    // These MODs are source-owned/role-audited as operational, UI, diagnostics or
+    // ship-runtime behavior. Their presence and raw JAR bytes are not worldgen inputs.
+    // A MOD that can change generated terrain/structures must never be added here.
+    private static final Map<String, String> GENERATION_NEUTRAL_PREFIXES = Map.ofEntries(
+        Map.entry("maki_airship_compat", "maki-airship-compat-"),
+        Map.entry("maki_airship_foundation_compat", "maki-airship-foundation-compat-"),
+        Map.entry("maki_assembly_tracking", "maki-assembly-tracking-"),
+        Map.entry("maki_diorama_share", "maki-diorama-share-"),
+        Map.entry("maki_idle_pregen", "maki-idle-pregen-"),
+        Map.entry("maki_lod_cpu", "maki-lod-cpu-"),
+        Map.entry("maki_lod_cpu_online_fix", "maki-lod-cpu-online-fix-"),
+        Map.entry("maki_mods_observer", "maki-mods-observer-"),
+        Map.entry("maki_ship_anchor_fix", "maki-ship-anchor-fix-"),
+        Map.entry("maki_ship_edge", "maki-ship-edge-"),
+        Map.entry("maki_ship_steps", "maki-ship-footsteps-"),
+        Map.entry("maki_ship_save", "maki-ship-save-"),
+        Map.entry("jade", "jade-"),
+        Map.entry("emi", "emi-"),
+        Map.entry("clientsort", "clientsort-"),
+        Map.entry("sound_physics_remastered", "sound-physics-remastered-")
+    );
+    private static final String MILLENAIRE_COMPAT_ID = "maki_millenaire_lod";
+    private static final String MILLENAIRE_CONTRACT = "millenaire-disposable-generation-v1";
+    private static final Set<String> MILLENAIRE_EQUIVALENT_RELEASES = Set.of(
+        "maki-millenaire-lod-compat-1.0.5.jar",
+        "maki-millenaire-lod-compat-1.0.6.jar"
+    );
 
     private static final List<Attestation> ATTESTATIONS = List.of(
         new Attestation(
@@ -107,6 +136,21 @@ final class AuditedModCompatibility {
         Set<String> ids = FingerprintPolicy.readTopLevelModIds(jarPath);
         if (ids.size() != 1) return null;
         String modId = ids.iterator().next();
+        String fileName = jarPath.getFileName().toString();
+
+        if (isBuiltInGenerationNeutral(modId, fileName)) {
+            return List.of(auditEntry(modId, jarPath, rawSize, rawSha256,
+                "role-audited generation-neutral MOD; updates do not rotate generated chunk compatibility"));
+        }
+        if (MILLENAIRE_COMPAT_ID.equals(modId) && MILLENAIRE_EQUIVALENT_RELEASES.contains(fileName)) {
+            return List.of(
+                contractEntry(modId, MILLENAIRE_CONTRACT,
+                    "source-audited Millenaire disposable-generation contract; 1.0.5/1.0.6 differ only outside generated result semantics"),
+                auditEntry(modId, jarPath, rawSize, rawSha256,
+                    "source-audited Millenaire compatibility release mapped to " + MILLENAIRE_CONTRACT)
+            );
+        }
+
         List<Attestation> candidates = ATTESTATIONS.stream().filter(value -> value.modId().equals(modId)).toList();
         if (candidates.isEmpty() || declaresZfastnoiseOverride(jarPath)) return null;
 
@@ -123,18 +167,30 @@ final class AuditedModCompatibility {
         if (match == null) return null;
 
         FingerprintManifest.Entry contract = contractEntry(match.modId(), match.contract(), match.reason());
-        FingerprintManifest.Entry audit = new FingerprintManifest.Entry(
-            RAW_AUDIT_PREFIX + match.modId(),
-            rawSize,
-            rawSha256,
-            FingerprintManifest.Impact.IGNORED,
-            "audited generation-neutral JAR bytes; " + match.reason() + "; source=" + jarPath.getFileName()
-        );
-        return List.of(contract, audit);
+        return List.of(contract, auditEntry(
+            match.modId(), jarPath, rawSize, rawSha256,
+            "audited generation-neutral JAR bytes; " + match.reason()
+        ));
     }
 
     static FingerprintManifest.Entry normalizeHistoricalEntry(FingerprintManifest.Entry entry) {
-        if (!entry.key().startsWith("mods/")) return entry;
+        String key = entry.key();
+        if (key.startsWith("compat:mod:")) {
+            String id = key.substring("compat:mod:".length());
+            if (GENERATION_NEUTRAL_PREFIXES.containsKey(id)) return null;
+        }
+        if (key.startsWith("mods/")) {
+            String fileName = Path.of(key).getFileName().toString();
+            String lower = fileName.toLowerCase(Locale.ROOT);
+            for (Map.Entry<String, String> value : GENERATION_NEUTRAL_PREFIXES.entrySet()) {
+                if (lower.startsWith(value.getValue().toLowerCase(Locale.ROOT))) return null;
+            }
+            if (MILLENAIRE_EQUIVALENT_RELEASES.contains(fileName)) {
+                return contractEntry(MILLENAIRE_COMPAT_ID, MILLENAIRE_CONTRACT,
+                    "historical source-owned Millenaire compatibility release; generated-result contract unchanged");
+            }
+        }
+        if (!key.startsWith("mods/")) return entry;
         Attestation match = ATTESTATIONS.stream()
             .filter(value -> value.rawSha256().equals(entry.sha256()))
             .findFirst()
@@ -154,7 +210,13 @@ final class AuditedModCompatibility {
             .map(value -> value.modId() + "@" + value.rawSha256() + ":" + value.canonicalSha256() + "->" + value.contract())
             .sorted()
             .toList();
-        return "audited-mod-contracts-v1|" + String.join("|", values);
+        List<String> neutral = GENERATION_NEUTRAL_PREFIXES.entrySet().stream()
+            .map(value -> value.getKey() + "@" + value.getValue())
+            .sorted()
+            .toList();
+        return "audited-mod-contracts-v2|neutral=" + String.join(",", neutral)
+            + "|millenaire=" + MILLENAIRE_CONTRACT + "@" + String.join(",", MILLENAIRE_EQUIVALENT_RELEASES.stream().sorted().toList())
+            + "|legacy-attestations=" + String.join("|", values);
     }
 
     static String canonicalJarSha256(Path jarPath) throws Exception {
@@ -180,6 +242,27 @@ final class AuditedModCompatibility {
             }
             return CompatibilityFingerprint.hex(digest.digest());
         }
+    }
+
+    private static boolean isBuiltInGenerationNeutral(String modId, String fileName) {
+        String prefix = GENERATION_NEUTRAL_PREFIXES.get(modId);
+        return prefix != null && fileName.toLowerCase(Locale.ROOT).startsWith(prefix.toLowerCase(Locale.ROOT));
+    }
+
+    private static FingerprintManifest.Entry auditEntry(
+        String modId,
+        Path jarPath,
+        long rawSize,
+        String rawSha256,
+        String reason
+    ) {
+        return new FingerprintManifest.Entry(
+            RAW_AUDIT_PREFIX + modId,
+            rawSize,
+            rawSha256,
+            FingerprintManifest.Impact.IGNORED,
+            reason + "; source=" + jarPath.getFileName()
+        );
     }
 
     private static FingerprintManifest.Entry contractEntry(String modId, String contract, String reason) {
