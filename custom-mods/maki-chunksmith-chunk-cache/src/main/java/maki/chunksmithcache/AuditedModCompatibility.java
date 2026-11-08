@@ -38,9 +38,11 @@ final class AuditedModCompatibility {
     );
     private static final String MILLENAIRE_COMPAT_ID = "maki_millenaire_lod";
     private static final String MILLENAIRE_CONTRACT = "millenaire-disposable-generation-v1";
-    private static final Set<String> MILLENAIRE_EQUIVALENT_RELEASES = Set.of(
+    private static final Map<String, String> MILLENAIRE_EQUIVALENT_RELEASE_SHA256 = Map.of(
         "maki-millenaire-lod-compat-1.0.5.jar",
-        "maki-millenaire-lod-compat-1.0.6.jar"
+        "3e53dec8f788940b7d4c41b57790736fed450cab0af3fbf0375a16ad201450f1",
+        "maki-millenaire-lod-compat-1.0.6.jar",
+        "27d466ac52e1bbb510ee639294ab6713fdebac16597f146affa3d9d6660dfc52"
     );
 
     private static final Set<String> HISTORICAL_GENERATION_NEUTRAL_RELEASES = Set.of(
@@ -162,12 +164,15 @@ final class AuditedModCompatibility {
             return List.of(auditEntry(modId, jarPath, rawSize, rawSha256,
                 "role-audited generation-neutral MOD; updates do not rotate generated chunk compatibility"));
         }
-        if (MILLENAIRE_COMPAT_ID.equals(modId) && MILLENAIRE_EQUIVALENT_RELEASES.contains(fileName)) {
+        String auditedMillenaireSha = MILLENAIRE_EQUIVALENT_RELEASE_SHA256.get(fileName);
+        if (MILLENAIRE_COMPAT_ID.equals(modId)
+            && auditedMillenaireSha != null
+            && auditedMillenaireSha.equals(rawSha256)) {
             return List.of(
                 contractEntry(modId, MILLENAIRE_CONTRACT,
-                    "source-audited Millenaire disposable-generation contract; 1.0.5/1.0.6 differ only outside generated result semantics"),
+                    "content-hash-audited Millenaire disposable-generation contract; 1.0.5/1.0.6 differ only outside generated result semantics"),
                 auditEntry(modId, jarPath, rawSize, rawSha256,
-                    "source-audited Millenaire compatibility release mapped to " + MILLENAIRE_CONTRACT)
+                    "content-hash-audited Millenaire compatibility release mapped to " + MILLENAIRE_CONTRACT)
             );
         }
 
@@ -212,9 +217,10 @@ final class AuditedModCompatibility {
         if (key.startsWith("mods/")) {
             String fileName = Path.of(key).getFileName().toString();
             if (HISTORICAL_GENERATION_NEUTRAL_RELEASES.contains(fileName)) return null;
-            if (MILLENAIRE_EQUIVALENT_RELEASES.contains(fileName)) {
+            String auditedMillenaireSha = MILLENAIRE_EQUIVALENT_RELEASE_SHA256.get(fileName);
+            if (auditedMillenaireSha != null && auditedMillenaireSha.equals(entry.sha256())) {
                 return contractEntry(MILLENAIRE_COMPAT_ID, MILLENAIRE_CONTRACT,
-                    "historical source-owned Millenaire compatibility release; generated-result contract unchanged");
+                    "historical content-hash-audited Millenaire compatibility release; generated-result contract unchanged");
             }
         }
         if (!key.startsWith("mods/")) return entry;
@@ -225,6 +231,10 @@ final class AuditedModCompatibility {
         if (match == null) return entry;
         if (GENERATION_NEUTRAL_PREFIXES.containsKey(match.modId())) return null;
         return contractEntry(match.modId(), match.contract(), "historical audited artifact; " + match.reason());
+    }
+
+    static String trustedMillenaireRawSha(String fileName) {
+        return MILLENAIRE_EQUIVALENT_RELEASE_SHA256.get(fileName);
     }
 
     static String trustedRawSha(String modId, String contract, int occurrence) {
