@@ -19,7 +19,7 @@ import net.minecraft.nbt.NbtIo;
  * can be proven are copied into the current generation; every source is retained.
  */
 final class CacheGenerationMigration {
-    static final String MIGRATION_CONTRACT = "entry-migration-v1";
+    static final String MIGRATION_CONTRACT = "entry-migration-v2";
     private static final Pattern CACHE_FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
 
     private CacheGenerationMigration() {}
@@ -39,6 +39,7 @@ final class CacheGenerationMigration {
         files = files.stream().filter(path -> path.getFileName().toString().endsWith(".nbt.gz")).toList();
 
         long adopted = 0L;
+        long recoveredExisting = 0L;
         long duplicates = 0L;
         long promotionOnly = 0L;
         long unproven = 0L;
@@ -74,8 +75,20 @@ final class CacheGenerationMigration {
                 Files.copy(path, temporary, StandardCopyOption.COPY_ATTRIBUTES);
                 Path claim = PromotionClaim.claimedPath(destination);
                 try (var ignored = CachePathLocks.lock(claim)) {
-                    if (RecoveryClaims.claimExists(claim) || Files.exists(destination)) {
+                    if (RecoveryClaims.claimExists(claim)) {
                         duplicates++;
+                        continue;
+                    }
+                    if (Files.exists(destination)) {
+                        if (sameMigratedEntry(
+                            path, destination, reuse, sourceManifest, expectedDimension
+                        )) {
+                            restoreCompletionMarker(destination, reuse);
+                            recoveredExisting++;
+                            if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY) promotionOnly++;
+                        } else {
+                            duplicates++;
+                        }
                         continue;
                     }
                     // Remove a stale sidecar before a promotion-only payload can become visible.
@@ -87,12 +100,8 @@ final class CacheGenerationMigration {
                     } catch (AtomicMoveNotSupportedException unsupported) {
                         Files.move(temporary, destination);
                     }
-                    if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE) {
-                        CacheManager.markGeneratedComplete(destination);
-                    } else {
-                        CacheManager.clearGeneratedComplete(destination);
-                        promotionOnly++;
-                    }
+                    restoreCompletionMarker(destination, reuse);
+                    if (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY) promotionOnly++;
                     adopted++;
                 }
             } finally {
@@ -100,7 +109,33 @@ final class CacheGenerationMigration {
             }
         }
 
-        return new Stats(files.size(), adopted, duplicates, promotionOnly, unproven, invalid);
+        return new Stats(
+            files.size(), adopted, recoveredExisting, duplicates, promotionOnly, unproven, invalid
+        );
+    }
+
+    private static boolean sameMigratedEntry(
+        Path source,
+        Path destination,
+        CacheEnvelope.Reuse expectedReuse,
+        FingerprintManifest.Manifest sourceManifest,
+        String expectedDimension
+    ) {
+        try {
+            if (!Files.isRegularFile(destination) || Files.mismatch(source, destination) != -1L) return false;
+            CompoundTag envelope = NbtIo.readCompressed(destination, NbtAccounter.create(64L << 20));
+            return classify(destination, envelope, sourceManifest, expectedDimension) == expectedReuse;
+        } catch (Throwable unreadable) {
+            return false;
+        }
+    }
+
+    private static void restoreCompletionMarker(Path destination, CacheEnvelope.Reuse reuse) throws IOException {
+        if (reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE) {
+            CacheManager.markGeneratedComplete(destination);
+        } else {
+            CacheManager.clearGeneratedComplete(destination);
+        }
     }
 
     private static CacheEnvelope.Reuse classify(
@@ -138,9 +173,14 @@ final class CacheGenerationMigration {
     record Stats(
         long sourceEntries,
         long adoptedEntries,
+        long recoveredExistingEntries,
         long duplicateEntries,
         long promotionOnlyEntries,
         long retainedUnprovenEntries,
         long retainedInvalidEntries
-    ) {}
+    ) {
+        long acceptedSourceEntries() {
+            return adoptedEntries + recoveredExistingEntries;
+        }
+    }
 }
