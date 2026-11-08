@@ -280,6 +280,20 @@ public final class CachePipelineSelfTest {
                     && Files.isRegularFile(source.resolve("r.0.0/c.3.0.nbt.gz"))
                     && Files.isRegularFile(invalid),
                 "automatic migration preserves every original source file");
+
+            // Simulate a crash after payload publication but before the target manifest was
+            // updated. The next run must recognize byte-identical migrated payloads, repair
+            // their sidecar state, and still report source fingerprint evidence.
+            CacheManager.markGeneratedComplete(schema2);
+            Files.deleteIfExists(CacheManager.generatedCompleteMarker(schema3));
+            CacheGenerationMigration.Stats replay =
+                CacheGenerationMigration.copyReusableEntriesPreservingSource(source,target,"minecraft:overworld");
+            require(replay.adoptedEntries()==0 && replay.recoveredExistingEntries()==2
+                    && replay.acceptedSourceEntries()==2 && replay.duplicateEntries()==0,
+                "interrupted migration recovers exact existing copies instead of treating them as unrelated collisions");
+            require(!Files.exists(CacheManager.generatedCompleteMarker(schema2))
+                    && Files.isRegularFile(CacheManager.generatedCompleteMarker(schema3)),
+                "interrupted migration restores promotion-only/generated-complete sidecars from validated payloads");
         } finally { deleteTree(root); }
     }
 
@@ -311,12 +325,34 @@ public final class CachePipelineSelfTest {
         try {
             Path configuration=root.resolveSibling(root.getFileName()+".properties");
             try {
+                String activeFingerprint="aaaaaaaaaaaaaaaaaaaaaaaa";
+                FingerprintManifest.writeAtomic(
+                    root.resolve(FingerprintManifest.CURRENT_FILE_NAME),
+                    new FingerprintManifest.Manifest(
+                        activeFingerprint,1L,java.util.Set.of(activeFingerprint),List.of()
+                    )
+                );
+                Files.createDirectories(root.resolve(activeFingerprint));
+                for(int i=1;i<=2;i++) {
+                    String inactive=String.format("%024x",i);
+                    Path retained=Files.createDirectories(root.resolve(inactive).resolve("r.0.0"))
+                        .resolve("c."+i+".0.nbt.gz");
+                    Files.write(retained,new byte[11]);
+                }
+                GenerationStore.RetainedDataStats inactiveOnly =
+                    GenerationStore.inspectRetainedData(root,FingerprintPolicy.forTesting(List.of()));
+                require(inactiveOnly.generations()==2 && inactiveOnly.bytes()>=22,
+                    "inactive fingerprint generations are counted even when .quarantine does not exist");
+
                 for(int i=0;i<9;i++) {
                     Path retained=Files.createDirectories(root.resolve(".quarantine/retained-"+i+"/r.0.0"))
                         .resolve("c."+i+".0.nbt.gz");
                     Files.write(retained,new byte[8]);
                 }
-                GenerationStore.inspectRetainedData(root,FingerprintPolicy.forTesting(List.of()));
+                GenerationStore.RetainedDataStats retained =
+                    GenerationStore.inspectRetainedData(root,FingerprintPolicy.forTesting(List.of()));
+                require(retained.generations()==11,
+                    "retained warning inventory includes quarantine plus inactive fingerprint generations but excludes active");
                 for(int i=0;i<9;i++) require(Files.isRegularFile(root.resolve(".quarantine/retained-"+i+"/r.0.0/c."+i+".0.nbt.gz")),
                     "warning thresholds must never auto-delete retained cache data");
                 Files.write(root.resolve("entry.nbt.gz"),new byte[80]);
