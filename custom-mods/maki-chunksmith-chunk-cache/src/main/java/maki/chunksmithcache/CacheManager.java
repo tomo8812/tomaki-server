@@ -234,7 +234,13 @@ public final class CacheManager {
       long started = System.nanoTime();
       CompletableFuture<NormalChunkStorage.State> inspected;
       try {
-         RecoveryClaims.initialize(cacheRoot(level).resolve(dimensionKey(level)));
+         Path ownership=RecoveryClaims.claimForCoordinate(cacheRoot(level).resolve(dimensionKey(level)),pos.x,pos.z);
+         if(ownership!=null) {
+            PipelineMetrics.count("capture-promotion-claim-active");
+            work.inspection.close();
+            work.result.complete(false);
+            return;
+         }
          inspected = NormalChunkStorage.inspectAsync(level, pos);
       }
       catch (Throwable error) { work.inspection.close(); work.result.complete(false); return; }
@@ -335,26 +341,80 @@ public final class CacheManager {
    public static CompletableFuture<Optional<CompoundTag>> loadIfPresent(ServerLevel var0, ChunkPos var1) {
       Path dimension=cacheRoot(var0).resolve(dimensionKey(var0));
       // Ownership is independent of fingerprint readiness and admission vetoes.
-      // Concurrent loads share off-thread startup inventory, never a server-thread scan.
-      return RecoveryClaims.prepare(dimension,VALIDATE_IO).copy().orTimeout(30,TimeUnit.SECONDS).thenCompose(ignored -> {
-         Path claim=RecoveryClaims.root(dimension).resolve("r."+Math.floorDiv(var1.x,32)+"."+Math.floorDiv(var1.z,32))
-            .resolve("c."+var1.x+"."+var1.z+".nbt.gz.in-use");
-         try {
-            if(RecoveryClaims.claimExists(claim)) {
-               PromotionLedger.blockReplay(var0,var1,claim);
-               PipelineMetrics.count("promotion-replay-blocked");
-               return CompletableFuture.completedFuture(Optional.empty());
-            }
-         } catch(IOException claimError) {
-            PipelineMetrics.count("promotion-claim-inspection-failed");
-            return CompletableFuture.failedFuture(claimError);
+      // Dimension-wide recovery remains the fast path. If it fails or exceeds the load deadline,
+      // inspect only ownership paths that can belong to this coordinate before allowing fallback.
+      return ownershipForLoad(dimension,var1).thenCompose(claim -> {
+         if(claim!=null) {
+            PromotionLedger.blockReplay(var0,var1,claim);
+            PipelineMetrics.count("promotion-replay-blocked");
+            return CompletableFuture.completedFuture(Optional.empty());
          }
          return loadReadyCache(var0,var1);
       }).whenComplete((cached,error) -> {
-         // Vanilla catches read failures and can substitute an empty ProtoChunk. Keep the
-         // ownership failure until the outer scheduleChunkLoad boundary rejects that fallback.
+         // Vanilla catches read failures and can substitute an empty ProtoChunk. Keep target
+         // ownership uncertainty until the outer scheduleChunkLoad boundary rejects that fallback.
          if(error!=null && !STOPPING.contains(var0.getServer())) PromotionLedger.blockReplay(var0,var1,RecoveryClaims.root(dimension));
       });
+   }
+
+   private static CompletableFuture<Path> ownershipForLoad(Path dimension,ChunkPos pos) {
+      CompletableFuture<Throwable> prepared=RecoveryClaims.prepare(dimension,VALIDATE_IO)
+         .copy().orTimeout(30,TimeUnit.SECONDS).handle((ignored,error) -> error);
+      return prepared.thenCompose(recoveryFailure -> {
+         if(recoveryFailure==null) {
+            try {
+               return CompletableFuture.completedFuture(RecoveryClaims.claimForCoordinate(dimension,pos.x,pos.z));
+            } catch(IOException targetFailure) {
+               PipelineMetrics.count("promotion-claim-inspection-failed");
+               return CompletableFuture.failedFuture(targetFailure);
+            }
+         }
+
+         try {
+            return CompletableFuture.supplyAsync(() -> {
+               try {
+                  Path claim=RecoveryClaims.claimForCoordinate(dimension,pos.x,pos.z);
+                  if(claim==null) {
+                     PipelineMetrics.count("promotion-recovery-localized");
+                     LOG.debug(
+                        "Chunk-cache recovery is unavailable for {} but coordinate {} has no ownership in canonical, legacy, quarantine, or conflict paths; normal cache/world loading may continue for this coordinate; recoveryFailure={}",
+                        dimension.getFileName(),pos,failureSummary(recoveryFailure)
+                     );
+                  } else {
+                     PipelineMetrics.count("promotion-recovery-local-claim");
+                     LOG.warn(
+                        "Chunk-cache load remains blocked for {} {}: dimension recovery is unavailable and targeted ownership proof found {}; repair cache-directory access and retry recovery; recoveryFailure={}",
+                        dimension.getFileName(),pos,claim,failureSummary(recoveryFailure)
+                     );
+                  }
+                  return claim;
+               } catch(IOException targetFailure) {
+                  PipelineMetrics.count("promotion-recovery-local-proof-failed");
+                  LOG.warn(
+                     "Chunk-cache load remains blocked for {} {}: dimension recovery failed and target ownership absence cannot be proven; repair cache-directory access before retrying this coordinate; recoveryFailure={}",
+                     dimension.getFileName(),pos,failureSummary(recoveryFailure),targetFailure
+                  );
+                  throw new java.io.UncheckedIOException(
+                     "Cannot prove chunk-cache promotion ownership absence for "+dimension.getFileName()+" "+pos,
+                     targetFailure
+                  );
+               }
+            },READ_IO);
+         } catch(RejectedExecutionException rejected) {
+            return CompletableFuture.failedFuture(new IOException(
+               "Cannot queue coordinate-local chunk-cache ownership proof for "+dimension.getFileName()+" "+pos,
+               rejected
+            ));
+         }
+      });
+   }
+
+   private static String failureSummary(Throwable error) {
+      Throwable value=error;
+      while(value.getCause()!=null && (value instanceof java.util.concurrent.CompletionException
+         || value instanceof java.util.concurrent.ExecutionException)) value=value.getCause();
+      String message=value.getMessage();
+      return value.getClass().getSimpleName()+(message==null?"":": "+message);
    }
 
    private static CompletableFuture<Optional<CompoundTag>> loadReadyCache(ServerLevel var0, ChunkPos var1) {
