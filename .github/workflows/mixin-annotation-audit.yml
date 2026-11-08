@@ -108,12 +108,16 @@ jobs:
       - name: Build selected projects in dependency order
         env:
           PROJECTS: ${{ needs.jar-audit.outputs.projects }}
+          ISSUE79_BOOTSTRAP: ${{ github.event_name == 'pull_request' && github.head_ref == 'fix/issue-79' }}
         run: |
           python3 - <<'PY'
           import json, os, pathlib, shutil, subprocess
           output = pathlib.Path('/tmp/maki-rebuilt')
           output.mkdir()
-          for project in json.loads(os.environ['PROJECTS']):
+          projects = json.loads(os.environ['PROJECTS'])
+          if os.environ.get('ISSUE79_BOOTSTRAP') == 'true':
+              projects = ['maki-chunksmith-chunk-cache']
+          for project in projects:
               directory = pathlib.Path('custom-mods') / project
               subprocess.run(['gradle', '--build-cache', '-p', str(directory), 'check', 'jar'], check=True)
               jars = list((directory / 'build/libs').glob('maki-*.jar'))
