@@ -391,9 +391,9 @@ public final class CachePipelineSelfTest {
                 Path moved=root.resolve(".quarantine/moved-active.nbt.gz");
                 Files.move(activeEntry,moved);
                 disk.invalidateInventory(); disk.refresh(configuration);
-                var recovered=disk.tryAcquire(1_500_000);
+                var recovered=disk.tryAcquire(1_400_000);
                 require(recovered!=null,
-                    "moving the active payload out of the current fingerprint immediately frees active quota even while retained generations remain");
+                    "moving the active payload out of the current fingerprint frees payload quota while small current metadata remains budgeted");
                 recovered.close();
 
                 Files.writeString(configuration,"cache.max-active-bytes=1500000\ncache.minimum-free-bytes="+Long.MAX_VALUE+"\n");
