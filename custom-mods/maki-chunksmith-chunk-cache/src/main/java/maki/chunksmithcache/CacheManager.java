@@ -63,6 +63,9 @@ public final class CacheManager {
    private static final ThreadPoolExecutor WRITE_IO = new ThreadPoolExecutor(
       1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(128), daemonFactory("maki-chunk-cache-write"), new AbortPolicy()
    );
+   private static final ThreadPoolExecutor MIGRATION_IO = new ThreadPoolExecutor(
+      1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(8), daemonFactory("maki-chunk-cache-migration"), new AbortPolicy()
+   );
    private static final ThreadPoolExecutor VALIDATE_IO = new ThreadPoolExecutor(
       1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(64), daemonFactory("maki-chunk-cache-validate"), new AbortPolicy()
    );
@@ -705,6 +708,15 @@ public final class CacheManager {
       }
    }
 
+   static boolean submitMigration(Runnable task) {
+      try {
+         MIGRATION_IO.execute(task);
+         return true;
+      } catch (RejectedExecutionException ignored) {
+         return false;
+      }
+   }
+
    static void maintenanceTick(MinecraftServer server) {
       long now = System.currentTimeMillis();
       if (STOPPING.contains(server)) return;
@@ -772,19 +784,16 @@ public final class CacheManager {
       String var2 = cacheRoot(var0).toAbsolutePath().normalize() + "|" + dimensionKey(var0) + "|" + snapshot.fingerprint();
       if (System.nanoTime()<ROTATION_RETRY.getOrDefault(var2,0L)) return;
       if (ROTATED.add(var2)) {
-         try {
-            WRITE_IO.execute(() -> {
-               try {
-                  if (!GenerationStore.reconcile(var0, snapshot, trigger)) {
-                     ROTATION_RETRY.put(var2,System.nanoTime()+60_000_000_000L);
-                     ROTATED.remove(var2);
-                  } else ROTATION_RETRY.remove(var2);
-               }
-               finally { CacheDiskBudget.at(cacheRoot(var0)).invalidateInventory(); }
-            });
-         } catch (RejectedExecutionException var5) {
-            ROTATED.remove(var2);
-         }
+         boolean queued = submitMigration(() -> {
+            try {
+               if (!GenerationStore.reconcile(var0, snapshot, trigger)) {
+                  ROTATION_RETRY.put(var2,System.nanoTime()+60_000_000_000L);
+                  ROTATED.remove(var2);
+               } else ROTATION_RETRY.remove(var2);
+            }
+            finally { CacheDiskBudget.at(cacheRoot(var0)).invalidateInventory(); }
+         });
+         if (!queued) ROTATED.remove(var2);
       }
    }
 
