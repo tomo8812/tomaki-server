@@ -418,6 +418,7 @@ final class GenerationStore {
         long activeEntries,
         String trigger
     ) throws IOException {
+        SourceInventory inventory = sourceInventory(source);
         Files.writeString(
             source.resolve(RECOVERY_INFO),
             "sourceFingerprint=" + sourceFingerprint + "\n"
@@ -426,6 +427,9 @@ final class GenerationStore {
                 + "proof=" + proof + "\n"
                 + "proofDetails=" + proofDetails + "\n"
                 + "sourceEntries=" + migration.sourceEntries() + "\n"
+                + "sourceInventoryEntries=" + inventory.entries() + "\n"
+                + "sourceInventoryBytes=" + inventory.bytes() + "\n"
+                + "sourceInventoryNewestMillis=" + inventory.newestModifiedMillis() + "\n"
                 + "adoptedEntries=" + migration.adoptedEntries() + "\n"
                 + "recoveredExistingEntries=" + migration.recoveredExistingEntries() + "\n"
                 + "acceptedSourceEntries=" + migration.acceptedSourceEntries() + "\n"
@@ -488,13 +492,54 @@ final class GenerationStore {
             boolean matchingSource = text.contains("sourceFingerprint=" + sourceFingerprint + "\n");
             boolean matchingTarget = text.contains("targetFingerprint=" + targetFingerprint + "\n");
             boolean preserved = text.contains("sourcePreserved=true\n");
-            boolean acceptedNothing = text.contains("acceptedSourceEntries=0\n");
+            boolean acceptedNothing = recoveryLong(text, "acceptedSourceEntries") == 0L;
             boolean copiedSourceAccepted = activeManifest.storedFingerprints().contains(sourceFingerprint);
-            return currentContract && matchingSource && matchingTarget && preserved
+
+            // Any entry that could not be validated remains retryable. This prevents a
+            // temporary permission/I/O failure from permanently suppressing re-adoption.
+            if (recoveryLong(text, "retainedInvalidEntries") != 0L) return false;
+
+            SourceInventory recorded = new SourceInventory(
+                recoveryLong(text, "sourceInventoryEntries"),
+                recoveryLong(text, "sourceInventoryBytes"),
+                recoveryLong(text, "sourceInventoryNewestMillis")
+            );
+            SourceInventory current = sourceInventory(source);
+            boolean unchanged = recorded.equals(current);
+            return currentContract && matchingSource && matchingTarget && preserved && unchanged
                 && (acceptedNothing || copiedSourceAccepted);
         } catch (Throwable ignored) {
             return false;
         }
+    }
+
+    private static long recoveryLong(String text, String key) throws IOException {
+        String prefix = key + "=";
+        for (String line : text.split("\\R")) {
+            if (!line.startsWith(prefix)) continue;
+            try {
+                return Long.parseLong(line.substring(prefix.length()));
+            } catch (NumberFormatException malformed) {
+                throw new IOException("Invalid " + key + " in " + RECOVERY_INFO, malformed);
+            }
+        }
+        throw new IOException("Missing " + key + " in " + RECOVERY_INFO);
+    }
+
+    private static SourceInventory sourceInventory(Path source) throws IOException {
+        long entries = 0L;
+        long bytes = 0L;
+        long newest = 0L;
+        try (Stream<Path> stream = Files.walk(source)) {
+            for (Path path : stream.filter(Files::isRegularFile)
+                    .filter(value -> value.getFileName().toString().endsWith(".nbt.gz"))
+                    .toList()) {
+                entries++;
+                bytes = Math.addExact(bytes, Files.size(path));
+                newest = Math.max(newest, Files.getLastModifiedTime(path).toMillis());
+            }
+        }
+        return new SourceInventory(entries, bytes, newest);
     }
 
     private static Path unique(Path target) {
@@ -525,6 +570,7 @@ final class GenerationStore {
     record QuarantineInfo(String id, long entries, long bytes, long modifiedAtMillis) {}
     record RetainedDataStats(long generations, long bytes) {}
     private record Stats(long entries, long bytes) {}
+    private record SourceInventory(long entries, long bytes, long newestModifiedMillis) {}
     private record QuarantineEntry(Path path, Stats stats, long modifiedAtMillis) {}
     private record QuarantineCandidate(Path path, FingerprintManifest.Manifest manifest) {}
 }
