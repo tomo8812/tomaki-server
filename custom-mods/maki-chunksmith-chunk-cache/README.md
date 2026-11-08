@@ -1,6 +1,6 @@
 # maki-chunksmith-chunk-cache
 
-Version 1.2.1 combines semantic compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
+Version 1.4.1 combines generation-focused compatibility auditing, per-entry serialization migration, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
 
 
 Maintained source for the server-only Chunksmith cold-cache/backfill compatibility mod.
@@ -121,3 +121,12 @@ Version 1.3.0 checks live candidate/dependency eligibility before reserving Foll
 ## Generation/storage stages (1.4.0)
 
 Schema 2 includes generated entity roots/passengers and uses native chunk/entity write receipts for promotion retirement. Backfill releases generation exclusion after its safe snapshot, then awaits record-correlated LOD/cache publication separately. Snapshot memory, disk admission, resumable scans and per-coordinate retry debt are bounded. Interrupted `.in-use` entries are recovery artifacts, never automatic rollback candidates. See the [pipeline protocol and validation boundary](../../docs/issue-74-generation-pipeline.md).
+
+
+## Issue #79 generation compatibility and retained cache migration
+
+Version 1.4.1 separates generated-result compatibility from the cache envelope format. The generation fingerprint no longer changes merely because the cache envelope schema changes, and maintained operational/UI/ship MODs use stable role contracts rather than raw JAR bytes. Unknown MODs and known terrain/structure/worldgen inputs remain fail-closed; the Millénaire compatibility 1.0.5/1.0.6 releases are normalized only because their generated-result contract was audited as unchanged.
+
+Old data is evaluated per entry instead of invalidating an entire generation. Schema 1 is retained but not promoted automatically because its historical writer did not persist a provable complete entity set. Schema 2 contains an entity-complete FULL payload and may therefore be promoted to normal storage, but it does not satisfy LOD/backfill completion because it predates the record-correlated LOD acknowledgement. Schema 3 is complete only when both entity completeness and the LOD receipt are present. Re-adoption copies only proven-safe entries into the active generation while preserving the original source and reporting source/adopted/duplicate/promotion-only/unproven/invalid counts.
+
+Generation-wide automatic quarantine/deletion is disabled. Truly corrupt individual cache files can still be quarantined at the coordinate level. Historical and quarantined generations are retained unless an administrator explicitly uses the discard command. Warning thresholds do not delete data; active cache writes remain bounded by the active-cache byte cap and normal-world free-space reserve, so storage pressure stops new cold-cache writes rather than consuming the space required for authoritative world saves.
