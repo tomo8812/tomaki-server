@@ -1,5 +1,6 @@
 package maki.chunksmithcache;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -19,7 +20,7 @@ import net.minecraft.nbt.NbtIo;
  * can be proven are copied into the current generation; every source is retained.
  */
 final class CacheGenerationMigration {
-    static final String MIGRATION_CONTRACT = "entry-migration-v6";
+    static final String MIGRATION_CONTRACT = "entry-migration-v7";
     private static final long MIGRATION_RESERVATION_OVERHEAD = 65_536L;
     private static final Pattern CACHE_FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
 
@@ -64,11 +65,23 @@ final class CacheGenerationMigration {
 
         for (int index = 0; index < files.size(); index++) {
             Path path = files.get(index);
-            CompoundTag envelope;
+            byte[] compressed;
             try {
-                envelope = NbtIo.readCompressed(path, NbtAccounter.create(64L << 20));
-            } catch (Throwable readFailure) {
+                // Separate filesystem availability from payload validity. A failure to
+                // fetch the bytes may recover on a later pass; once bytes are available,
+                // malformed gzip/NBT is a coordinate-local terminal invalid entry and
+                // must not force a full-generation retry every minute.
+                compressed = Files.readAllBytes(path);
+            } catch (IOException readFailure) {
                 unreadable++;
+                continue;
+            }
+
+            CompoundTag envelope;
+            try (ByteArrayInputStream input = new ByteArrayInputStream(compressed)) {
+                envelope = NbtIo.readCompressed(input, NbtAccounter.create(64L << 20));
+            } catch (Throwable malformedPayload) {
+                invalid++;
                 continue;
             }
 
