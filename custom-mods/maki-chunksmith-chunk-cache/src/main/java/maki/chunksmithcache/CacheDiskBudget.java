@@ -29,14 +29,19 @@ final class CacheDiskBudget {
     static CacheDiskBudget at(Path root) { return ROOTS.computeIfAbsent(root.toAbsolutePath().normalize(), CacheDiskBudget::new); }
 
     void refresh(Path config) {
-        refresh(config, null, null);
+        refresh(config, null, null, false);
     }
 
     void refreshForMigration(Path config, Path dimension, String targetFingerprint) {
-        refresh(config, dimension.toAbsolutePath().normalize(), targetFingerprint);
+        refresh(config, dimension.toAbsolutePath().normalize(), targetFingerprint, true);
     }
 
-    private void refresh(Path config, Path migrationDimension, String migrationTargetFingerprint) {
+    private void refresh(
+        Path config,
+        Path migrationDimension,
+        String migrationTargetFingerprint,
+        boolean forceInventory
+    ) {
         try {
             Properties properties = new Properties();
             if (Files.isRegularFile(config)) try (var input = Files.newInputStream(config)) { properties.load(input); }
@@ -49,7 +54,7 @@ final class CacheDiskBudget {
             long additionsBefore;
             long epoch;
             synchronized (this) {
-                inventory = inventoriedAt == 0 || now - inventoriedAt > 900_000_000_000L;
+                inventory = forceInventory || inventoriedAt == 0 || now - inventoriedAt > 900_000_000_000L;
                 additionsBefore = additions;
                 epoch = inventoryEpoch;
             }
