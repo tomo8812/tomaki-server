@@ -427,14 +427,25 @@ public final class CacheManager {
          }
          if (!Files.isRegularFile(var3)) {
             if (!rotation.isDone()) {
-               // Do not race a retained candidate that is actively being copied, but if
-               // reconciliation fails or reaches the deadline, localize the decision to
-               // this coordinate instead of stopping unrelated generation dimension-wide.
+               // Do not race a retained candidate that is actively being copied. A load
+               // deadline alone does not prove that the migration task stopped mutating
+               // retained paths, so timeout stays fail-closed. Coordinate localization is
+               // only safe once the underlying reconciliation has actually terminated.
                return rotation.copy().orTimeout(30, TimeUnit.SECONDS)
-                  .handle((complete, error) -> error == null && Boolean.TRUE.equals(complete))
-                  .thenCompose(complete -> Boolean.TRUE.equals(complete)
-                     ? loadReadyCache(var0, var1)
-                     : resolveIncompleteReconciliation(var0, var1, snapshot));
+                  .handle((complete, error) -> {
+                     if (error == null && Boolean.TRUE.equals(complete)) {
+                        return loadReadyCache(var0, var1);
+                     }
+                     if (!rotation.isDone()) {
+                        return CompletableFuture.<Optional<CompoundTag>>failedFuture(new IOException(
+                           "Chunk-cache generation reconciliation is still in progress for " + var1
+                              + " in " + var0.dimension().location(),
+                           error
+                        ));
+                     }
+                     return resolveIncompleteReconciliation(var0, var1, snapshot);
+                  })
+                  .thenCompose(future -> future);
             }
             if (!reconciliationAllowsMiss(rotation)) {
                return resolveIncompleteReconciliation(var0, var1, snapshot);
