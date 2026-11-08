@@ -114,6 +114,17 @@ public final class CachePipelineSelfTest {
                     && !Files.exists(CacheManager.generatedCompleteMarker(generatedAvailable)),
                 "promotion after generated publication consumes payload and removes the source marker");
 
+            Path markerFailureTemporary=directory.resolve("marker-failure.tmp");
+            Path markerFailureAvailable=directory.resolve("marker-failure.nbt.gz");
+            Path markerFailureMarker=CacheManager.generatedCompleteMarker(markerFailureAvailable);
+            Files.writeString(markerFailureTemporary,"generated snapshot with repairable marker failure");
+            Files.createDirectory(markerFailureMarker);
+            require(PromotionClaim.publishGenerated(markerFailureTemporary,markerFailureAvailable)
+                    && Files.isRegularFile(markerFailureAvailable)
+                    && Files.isDirectory(markerFailureMarker),
+                "repairable completion-marker failure still reports the published payload for disk accounting");
+            Files.delete(markerFailureMarker);
+
             Path repairRace=directory.resolve("repair-race.nbt.gz");
             Files.writeString(repairRace,"repair race");
             Path repairRaceClaim=PromotionClaim.claimedPath(repairRace);
@@ -618,7 +629,7 @@ public final class CachePipelineSelfTest {
             require(!GenerationStore.alreadyRecovered(source,targetFingerprint,sourceFingerprint,activeManifest),
                 "retained unreadable entries keep a generation eligible for retry after temporary I/O failure");
 
-            long newest=Files.getLastModifiedTime(payload).toMillis();
+            GenerationStore.SourceInventory inventory=GenerationStore.sourceInventory(source);
             Files.writeString(
                 source.resolve("recovery-info.txt"),
                 "sourceFingerprint="+sourceFingerprint+"\n"
@@ -629,15 +640,23 @@ public final class CachePipelineSelfTest {
                     +"retainedUnreadableEntries=0\n"
                     +"retainedInvalidEntries=0\n"
                     +"deferredCapacityEntries=0\n"
-                    +"sourceInventoryEntries=1\n"
-                    +"sourceInventoryBytes=3\n"
-                    +"sourceInventoryNewestMillis="+newest+"\n"
+                    +"sourceInventoryEntries="+inventory.entries()+"\n"
+                    +"sourceInventoryBytes="+inventory.bytes()+"\n"
+                    +"sourceInventoryNewestMillis="+inventory.newestModifiedMillis()+"\n"
+                    +"sourceInventorySha256="+inventory.sha256()+"\n"
             );
             require(GenerationStore.alreadyRecovered(source,targetFingerprint,sourceFingerprint,activeManifest),
                 "clean unchanged source may be skipped after a completed migration scan");
+
+            java.nio.file.attribute.FileTime originalModified=Files.getLastModifiedTime(payload);
+            Files.write(payload,new byte[]{9,8,7});
+            Files.setLastModifiedTime(payload,originalModified);
+            require(!GenerationStore.alreadyRecovered(source,targetFingerprint,sourceFingerprint,activeManifest),
+                "content digest invalidates recovery-info after same-size mtime-preserving source replacement");
+
             Files.write(payload,new byte[]{1,2,3,4});
             require(!GenerationStore.alreadyRecovered(source,targetFingerprint,sourceFingerprint,activeManifest),
-                "source inventory changes invalidate recovery-info and force a re-scan");
+                "source inventory size changes invalidate recovery-info and force a re-scan");
         } finally { deleteTree(retryRoot); }
     }
 
