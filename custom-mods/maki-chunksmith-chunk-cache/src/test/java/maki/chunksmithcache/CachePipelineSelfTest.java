@@ -304,14 +304,19 @@ public final class CachePipelineSelfTest {
     private static void generationMigration() throws Exception {
         Path root=Files.createTempDirectory("cache-generation-migration");
         try {
+            String sourceFingerprint="111111111111111111111111";
+            String targetFingerprint="222222222222222222222222";
             Path source=Files.createDirectories(root.resolve("source"));
             Path target=Files.createDirectories(root.resolve("target"));
+            FingerprintManifest.Manifest sourceManifest = new FingerprintManifest.Manifest(
+                sourceFingerprint, 1L, java.util.Set.of(sourceFingerprint), List.of()
+            );
+            FingerprintManifest.Manifest targetManifest = new FingerprintManifest.Manifest(
+                targetFingerprint, 2L, java.util.Set.of(targetFingerprint), List.of()
+            );
             FingerprintManifest.writeAtomic(
                 source.resolve(FingerprintManifest.FILE_NAME),
-                new FingerprintManifest.Manifest(
-                    "111111111111111111111111", 1L,
-                    java.util.Set.of("111111111111111111111111"), List.of()
-                )
+                sourceManifest
             );
             writeEnvelope(source,1,1,false,false);
             writeEnvelope(source,2,2,true,false);
@@ -329,9 +334,21 @@ public final class CachePipelineSelfTest {
             CacheDiskBudget migrationBudget=CacheDiskBudget.at(root.resolve("budget"));
             migrationBudget.refresh(configuration);
 
+            java.util.concurrent.atomic.AtomicInteger authorizationCalls=new java.util.concurrent.atomic.AtomicInteger();
             CacheGenerationMigration.Stats stats=CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                source,target,"minecraft:overworld",migrationBudget
+                source,target,"minecraft:overworld",migrationBudget,
+                migrationSource -> {
+                    require(!Files.exists(target.resolve("r.0.0/c.2.0.nbt.gz"))
+                            && !Files.exists(target.resolve("r.0.0/c.3.0.nbt.gz")),
+                        "source fingerprint authorization happens before the first reusable payload is published");
+                    GenerationStore.authorizeMigrationSource(target,targetManifest,migrationSource);
+                    require(StoredFingerprintAcceptance.accepts(target,targetFingerprint,sourceFingerprint),
+                        "active manifest accepts the retained source fingerprint before publication");
+                    authorizationCalls.incrementAndGet();
+                }
             );
+            require(authorizationCalls.get()==1,
+                "migration authorizes a compatible source exactly once before publishing reusable entries");
             require(stats.sourceEntries()==5 && stats.adoptedEntries()==2 && stats.duplicateEntries()==0,
                 "migration accounts all source/adopted/duplicate entries");
             require(stats.promotionOnlyEntries()==1 && stats.retainedUnprovenEntries()==1
@@ -362,7 +379,8 @@ public final class CachePipelineSelfTest {
             Files.deleteIfExists(CacheManager.generatedCompleteMarker(schema3));
             CacheGenerationMigration.Stats replay =
                 CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                    source,target,"minecraft:overworld",migrationBudget
+                    source,target,"minecraft:overworld",migrationBudget,
+                    migrationAuthorization(target,targetManifest)
                 );
             require(replay.adoptedEntries()==0 && replay.recoveredExistingEntries()==2
                     && replay.acceptedSourceEntries()==2 && replay.duplicateEntries()==0,
@@ -387,7 +405,8 @@ public final class CachePipelineSelfTest {
             Files.delete(unreadable);
             CacheGenerationMigration.Stats terminalInvalidOnly =
                 CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                    source,target,"minecraft:overworld",migrationBudget
+                    source,target,"minecraft:overworld",migrationBudget,
+                    migrationAuthorization(target,targetManifest)
                 );
             require(terminalInvalidOnly.retainedUnreadableEntries()==0
                     && terminalInvalidOnly.retainedInvalidEntries()==1
@@ -404,11 +423,15 @@ public final class CachePipelineSelfTest {
             String targetFingerprint="222222222222222222222222";
             Path source=Files.createDirectories(dimension.resolve(sourceFingerprint));
             Path target=dimension.resolve(targetFingerprint);
+            FingerprintManifest.Manifest sourceManifest = new FingerprintManifest.Manifest(
+                sourceFingerprint,1L,java.util.Set.of(sourceFingerprint),List.of()
+            );
+            FingerprintManifest.Manifest targetManifest = new FingerprintManifest.Manifest(
+                targetFingerprint,2L,java.util.Set.of(targetFingerprint),List.of()
+            );
             FingerprintManifest.writeAtomic(
                 source.resolve(FingerprintManifest.FILE_NAME),
-                new FingerprintManifest.Manifest(
-                    sourceFingerprint,1L,java.util.Set.of(sourceFingerprint),List.of()
-                )
+                sourceManifest
             );
             writeEnvelope(source,3,10,true,true);
             Path sourceEntry=source.resolve("r.0.0/c.10.0.nbt.gz");
@@ -422,7 +445,8 @@ public final class CachePipelineSelfTest {
             budget.refreshForMigration(configuration,dimension,targetFingerprint);
             CacheGenerationMigration.Stats blocked=
                 CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                    source,target,"minecraft:overworld",budget
+                    source,target,"minecraft:overworld",budget,
+                    migrationAuthorization(target,targetManifest)
                 );
             require(blocked.adoptedEntries()==0 && blocked.deferredCapacityEntries()==1
                     && Files.isRegularFile(sourceEntry) && !Files.exists(targetEntry),
@@ -453,7 +477,8 @@ public final class CachePipelineSelfTest {
 
             CacheGenerationMigration.Stats retried=
                 CacheGenerationMigration.copyReusableEntriesPreservingSource(
-                    source,target,"minecraft:overworld",budget
+                    source,target,"minecraft:overworld",budget,
+                    migrationAuthorization(target,targetManifest)
                 );
             require(retried.adoptedEntries()==1 && retried.deferredCapacityEntries()==0
                     && Files.isRegularFile(sourceEntry) && Files.isRegularFile(targetEntry),
@@ -462,6 +487,13 @@ public final class CachePipelineSelfTest {
             Files.deleteIfExists(configuration);
             deleteTree(dimension);
         }
+    }
+
+    private static CacheGenerationMigration.SourceAuthorization migrationAuthorization(
+        Path target,
+        FingerprintManifest.Manifest targetManifest
+    ) {
+        return sourceManifest -> GenerationStore.authorizeMigrationSource(target,targetManifest,sourceManifest);
     }
 
     private static void writeEnvelope(Path generation,int schema,int x,boolean entitiesComplete,boolean lodCommitted) throws Exception {
@@ -624,6 +656,11 @@ public final class CachePipelineSelfTest {
                 "migration task is accepted while cache writer is occupied");
             require(migrationRan.await(5,java.util.concurrent.TimeUnit.SECONDS),
                 "generation reconciliation uses a separate worker and cannot starve capture publication");
+            var retainedInspectionRan=new java.util.concurrent.CountDownLatch(1);
+            require(CacheManager.submitRetainedInspection(retainedInspectionRan::countDown),
+                "retained-data inspection is accepted while the cache writer is occupied");
+            require(retainedInspectionRan.await(5,java.util.concurrent.TimeUnit.SECONDS),
+                "retained-generation inventory runs off the cache writer and cannot starve capture publication");
         } finally {
             releaseWriter.countDown();
             require(writerDone.await(5,java.util.concurrent.TimeUnit.SECONDS),"cache writer fixture released");
