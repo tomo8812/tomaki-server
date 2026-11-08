@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: mixin-static-${{ github.event_name }}-${{ github.ref }}
@@ -83,7 +83,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           sparse-checkout: |
             .github
             custom-mods
