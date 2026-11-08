@@ -114,6 +114,47 @@ public final class CachePipelineSelfTest {
                     && !Files.exists(CacheManager.generatedCompleteMarker(generatedAvailable)),
                 "promotion after generated publication consumes payload and removes the source marker");
 
+            Path repairRace=directory.resolve("repair-race.nbt.gz");
+            Files.writeString(repairRace,"repair race");
+            Path repairRaceClaim=PromotionClaim.claimedPath(repairRace);
+            var repairLockHeld=new java.util.concurrent.CountDownLatch(1);
+            var releaseRepair=new java.util.concurrent.CountDownLatch(1);
+            var claimFinished=new java.util.concurrent.CountDownLatch(1);
+            var raceClaim=new java.util.concurrent.atomic.AtomicReference<PromotionClaim>();
+            var raceFailure=new java.util.concurrent.atomic.AtomicReference<Throwable>();
+            Thread repairThread=new Thread(() -> {
+                try(var ignored=CachePathLocks.lock(repairRaceClaim)) {
+                    repairLockHeld.countDown();
+                    releaseRepair.await();
+                    CacheManager.markGeneratedComplete(repairRace);
+                } catch(Throwable error) {
+                    raceFailure.compareAndSet(null,error);
+                }
+            });
+            Thread claimThread=new Thread(() -> {
+                try {
+                    repairLockHeld.await();
+                    raceClaim.set(PromotionClaim.take(repairRace,false));
+                } catch(Throwable error) {
+                    raceFailure.compareAndSet(null,error);
+                } finally {
+                    claimFinished.countDown();
+                }
+            });
+            repairThread.start();
+            claimThread.start();
+            require(repairLockHeld.await(5,java.util.concurrent.TimeUnit.SECONDS),
+                "marker repair fixture acquired the promotion claim lock");
+            require(!claimFinished.await(100,java.util.concurrent.TimeUnit.MILLISECONDS),
+                "promotion cannot pass cacheState-style marker repair while the claim lock is held");
+            releaseRepair.countDown();
+            repairThread.join(5000);
+            claimThread.join(5000);
+            require(raceFailure.get()==null && raceClaim.get()!=null
+                    && !Files.exists(repairRace)
+                    && !Files.exists(CacheManager.generatedCompleteMarker(repairRace)),
+                "claim serialized after marker repair consumes the payload and removes the repaired marker");
+
             Path emptyLive=directory.resolve("empty-live.nbt.gz");
             Files.writeString(emptyLive,"schema3 empty fixture");
             PromotionClaim emptyAdopted=PromotionClaim.adoptLive(emptyLive,false);
