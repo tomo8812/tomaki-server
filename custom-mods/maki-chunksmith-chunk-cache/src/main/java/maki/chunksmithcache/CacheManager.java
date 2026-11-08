@@ -394,9 +394,18 @@ public final class CacheManager {
       });
    }
 
+   static boolean cacheReadAdmission(boolean suppressed, boolean backfillTarget, boolean generalPromotionAllowed) {
+      return (!suppressed || backfillTarget) && (backfillTarget || generalPromotionAllowed);
+   }
+
+   static boolean claimOnCacheRead(CacheEnvelope.Reuse reuse, boolean backfillTarget) {
+      return (reuse == CacheEnvelope.Reuse.PROMOTION_ONLY || reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE)
+         && !(backfillTarget && reuse == CacheEnvelope.Reuse.PROMOTION_ONLY);
+   }
+
    private static CompletableFuture<Optional<CompoundTag>> loadReadyCache(ServerLevel var0, ChunkPos var1) {
       boolean backfillTarget = BackfillGuard.active(var0, var1);
-      if ((!BackfillGuard.suppress(var0, var1) || backfillTarget) && promotionAllowed(var0, var1)) {
+      if (cacheReadAdmission(BackfillGuard.suppress(var0, var1), backfillTarget, promotionAllowed(var0, var1))) {
          Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
          if (snapshot == null) {
             return CompletableFuture.completedFuture(Optional.empty());
@@ -418,16 +427,17 @@ public final class CacheManager {
          }
          if (!Files.isRegularFile(var3)) {
             if (!rotation.isDone()) {
-               // Wait only for this coordinate's load path; the server thread and the
-               // rest of the dimension continue normally. Timeout/error is propagated so
-               // vanilla cannot turn an undecided retained candidate into regeneration.
+               // Do not race a retained candidate that is actively being copied, but if
+               // reconciliation fails or reaches the deadline, localize the decision to
+               // this coordinate instead of stopping unrelated generation dimension-wide.
                return rotation.copy().orTimeout(30, TimeUnit.SECONDS)
-                  .thenCompose(ignored -> loadReadyCache(var0, var1));
+                  .handle((complete, error) -> error == null && Boolean.TRUE.equals(complete))
+                  .thenCompose(complete -> Boolean.TRUE.equals(complete)
+                     ? loadReadyCache(var0, var1)
+                     : resolveIncompleteReconciliation(var0, var1, snapshot));
             }
             if (!reconciliationAllowsMiss(rotation)) {
-               return CompletableFuture.failedFuture(new IOException(
-                  "Chunk-cache generation reconciliation is incomplete for " + var1 + " in " + var0.dimension().location()
-               ));
+               return resolveIncompleteReconciliation(var0, var1, snapshot);
             }
             return CompletableFuture.completedFuture(Optional.empty());
          }
@@ -459,16 +469,23 @@ public final class CacheManager {
                      if ((reuse == CacheEnvelope.Reuse.PROMOTION_ONLY || reuse == CacheEnvelope.Reuse.GENERATED_COMPLETE)
                         && identityValid) {
                         CompoundTag var5x = var4.getCompound("chunk");
-                        try {
-                           if (!PromotionLedger.claim(var0, var1, var3, !var5x.getList("entities", 10).isEmpty())) {
-                              PipelineMetrics.count("promotion-claim-race-blocked");
-                              throw new java.io.UncheckedIOException(
-                                 "Promotion ownership changed before final acquisition at "+claim,
-                                 new IOException("cache was claimed or disappeared during promotion"));
+                        if (claimOnCacheRead(reuse, backfillTarget)) {
+                           try {
+                              if (!PromotionLedger.claim(var0, var1, var3, !var5x.getList("entities", 10).isEmpty())) {
+                                 PipelineMetrics.count("promotion-claim-race-blocked");
+                                 throw new java.io.UncheckedIOException(
+                                    "Promotion ownership changed before final acquisition at "+claim,
+                                    new IOException("cache was claimed or disappeared during promotion"));
+                              }
+                           } catch(IOException ownershipFailure) {
+                              PipelineMetrics.count("promotion-claim-acquire-failed");
+                              throw new java.io.UncheckedIOException("Cannot acquire promotion ownership at "+claim,ownershipFailure);
                            }
-                        } catch(IOException ownershipFailure) {
-                           PipelineMetrics.count("promotion-claim-acquire-failed");
-                           throw new java.io.UncheckedIOException("Cannot acquire promotion ownership at "+claim,ownershipFailure);
+                        } else {
+                           // Backfill owns the load and suppresses normal persistence. Keep a
+                           // promotion-only payload in place so the post-LOD capture can atomically
+                           // replace it with a generated-complete schema-3 record.
+                           PipelineMetrics.count("backfill-promotion-only-reused");
                         }
                         return Optional.of(var5x);
                      }
@@ -494,6 +511,49 @@ public final class CacheManager {
          }
       } else {
          return CompletableFuture.completedFuture(Optional.empty());
+      }
+   }
+
+   private static CompletableFuture<Optional<CompoundTag>> resolveIncompleteReconciliation(
+      ServerLevel level, ChunkPos pos, Fingerprint.Snapshot snapshot
+   ) {
+      Path active = path(level, pos, snapshot.fingerprint());
+      if (Files.isRegularFile(active)) return loadReadyCache(level, pos);
+
+      try {
+         return CompletableFuture.supplyAsync(() -> {
+            GenerationStore.RetainedCoordinateState retained = GenerationStore.retainedCoordinateState(
+               cacheRoot(level).resolve(dimensionKey(level)),
+               snapshot.manifest(Set.of(snapshot.fingerprint())),
+               snapshot.fingerprint(),
+               level.dimension().location().toString(),
+               pos.x,
+               pos.z
+            );
+            if (retained == GenerationStore.RetainedCoordinateState.ABSENT) {
+               PipelineMetrics.count("generation-reconciliation-localized-miss");
+               return Optional.<CompoundTag>empty();
+            }
+
+            String reason;
+            if (retained == GenerationStore.RetainedCoordinateState.REUSABLE) {
+               PipelineMetrics.count("generation-reconciliation-coordinate-pending");
+               reason = "a compatible retained cache candidate is still pending migration";
+            } else {
+               PipelineMetrics.count("generation-reconciliation-coordinate-unknown");
+               reason = "retained cache ownership cannot be proven absent";
+            }
+            throw new java.util.concurrent.CompletionException(new IOException(
+               "Chunk-cache generation reconciliation remains required for " + pos + " in "
+                  + level.dimension().location() + ": " + reason
+            ));
+         }, READ_IO);
+      } catch (RejectedExecutionException rejected) {
+         return CompletableFuture.failedFuture(new IOException(
+            "Cannot queue coordinate-local retained-cache inspection for " + pos + " in "
+               + level.dimension().location(),
+            rejected
+         ));
       }
    }
 
@@ -608,9 +668,22 @@ public final class CacheManager {
             return CacheState.UNKNOWN;
          }
          if (!Files.isRegularFile(file)) {
-            // A retained compatible entry may still be in the generation-maintenance
-            // queue. Only a completed successful reconciliation can prove a cache miss.
-            if (rotation != null && !reconciliationAllowsMiss(rotation)) return CacheState.UNKNOWN;
+            // Reconciliation is dimension-scoped, but a failed/deferred entry must only
+            // block the coordinate that can actually be re-adopted. Scan runs off-thread,
+            // so a targeted retained-entry inspection is safe here.
+            if (rotation != null && !reconciliationAllowsMiss(rotation)) {
+               GenerationStore.RetainedCoordinateState retained = GenerationStore.retainedCoordinateState(
+                  cacheRoot(var0).resolve(dimensionKey(var0)),
+                  snapshot.manifest(Set.of(snapshot.fingerprint())),
+                  snapshot.fingerprint(),
+                  var0.dimension().location().toString(),
+                  var1.x,
+                  var1.z
+               );
+               return retained == GenerationStore.RetainedCoordinateState.ABSENT
+                  ? CacheState.ABSENT
+                  : CacheState.UNKNOWN;
+            }
             return CacheState.ABSENT;
          }
 
