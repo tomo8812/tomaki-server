@@ -247,6 +247,13 @@ public final class CachePipelineSelfTest {
         try {
             Path source=Files.createDirectories(root.resolve("source"));
             Path target=Files.createDirectories(root.resolve("target"));
+            FingerprintManifest.writeAtomic(
+                source.resolve(FingerprintManifest.FILE_NAME),
+                new FingerprintManifest.Manifest(
+                    "111111111111111111111111", 1L,
+                    java.util.Set.of("111111111111111111111111"), List.of()
+                )
+            );
             writeEnvelope(source,1,1,false,false);
             writeEnvelope(source,2,2,true,false);
             writeEnvelope(source,3,3,true,true);
