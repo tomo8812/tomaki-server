@@ -87,6 +87,15 @@ public final class CompatibilityInputSelfTest {
         require(qol.size() == 1 && qol.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
             "an explicitly audited new QoL MOD must not become a generation input");
 
+        Path indirectOverride = temp.resolve("maki-lod-cpu-10.0.0.jar");
+        writeOverrideModJar(indirectOverride, "maki_lod_cpu", "10.0.0", "future-code");
+        List<FingerprintManifest.Entry> overrideEntries = jarEntries(
+            "mods/maki-lod-cpu-10.0.0.jar", indirectOverride
+        );
+        require(overrideEntries.size() == 1
+                && overrideEntries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
+            "a generation override must fail closed even for a normally generation-neutral MOD role");
+
         Path protectedWorldgen = temp.resolve("zfastnoise-future.jar");
         writeModJar(protectedWorldgen, "zfastnoise", "9.9.9", "terrain-change");
         byte[] protectedBytes = Files.readAllBytes(protectedWorldgen);
@@ -260,6 +269,18 @@ public final class CompatibilityInputSelfTest {
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(path))) {
             jar.putNextEntry(new JarEntry("META-INF/neoforge.mods.toml"));
             jar.write(("modLoader=\"javafml\"\n[[mods]]\nmodId=\"" + modId + "\"\nversion=\"" + version + "\"\n").getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+            jar.putNextEntry(new JarEntry("payload.txt"));
+            jar.write(payload.getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+        }
+    }
+
+    private static void writeOverrideModJar(Path path, String modId, String version, String payload) throws IOException {
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(path))) {
+            jar.putNextEntry(new JarEntry("META-INF/neoforge.mods.toml"));
+            jar.write(("modLoader=\"javafml\"\n[[mods]]\nmodId=\"" + modId + "\"\nversion=\"" + version
+                + "\"\n# zfastnoise:overrides\n").getBytes(StandardCharsets.UTF_8));
             jar.closeEntry();
             jar.putNextEntry(new JarEntry("payload.txt"));
             jar.write(payload.getBytes(StandardCharsets.UTF_8));
