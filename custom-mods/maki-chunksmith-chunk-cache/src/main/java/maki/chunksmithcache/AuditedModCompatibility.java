@@ -197,7 +197,17 @@ final class AuditedModCompatibility {
         String key = entry.key();
         if (key.startsWith("compat:mod:")) {
             String id = key.substring("compat:mod:".length());
-            if (GENERATION_NEUTRAL_PREFIXES.containsKey(id)) return null;
+            if (GENERATION_NEUTRAL_PREFIXES.containsKey(id)) {
+                boolean knownContract = ATTESTATIONS.stream()
+                    .filter(value -> value.modId().equals(id))
+                    .anyMatch(value -> {
+                        byte[] bytes = value.contract().getBytes(StandardCharsets.UTF_8);
+                        return entry.size() == bytes.length
+                            && entry.sha256().equals(CompatibilityFingerprint.sha256(value.contract()));
+                    });
+                if (knownContract) return null;
+                return entry;
+            }
         }
         if (key.startsWith("mods/")) {
             String fileName = Path.of(key).getFileName().toString();
