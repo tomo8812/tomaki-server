@@ -187,14 +187,16 @@ final class FingerprintManifest {
             CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
         );
         Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
+        Set<String> currentIgnoredKeys = ignoredKeys(newManifest.entries());
         Map<String, Entry> oldEntries = compatibilityByKey(
             oldManifest.entries(),
             excludedKeys,
+            currentIgnoredKeys,
             currentRawZfastnoise,
             currentEffectiveZfastnoise,
             historicalGeneration
         );
-        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
+        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null, null);
         if (oldEntries == null || newEntries == null || !oldEntries.keySet().equals(newEntries.keySet())) return false;
         for (String key : oldEntries.keySet()) {
             if (!equivalent(oldEntries.get(key), newEntries.get(key))) return false;
@@ -214,10 +216,11 @@ final class FingerprintManifest {
             CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
         );
         Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
+        Set<String> currentIgnoredKeys = ignoredKeys(newManifest.entries());
         Map<String, Entry> oldEntries = compatibilityByKey(
-            oldManifest.entries(), excludedKeys, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
+            oldManifest.entries(), excludedKeys, currentIgnoredKeys, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
         );
-        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
+        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null, null);
         if (oldEntries == null || newEntries == null) {
             return List.of("manifest normalization conflict; migration proof is ambiguous");
         }
@@ -257,11 +260,12 @@ final class FingerprintManifest {
         int limit,
         Path historicalGeneration
     ) {
-        Map<String, Entry> current = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
+        Map<String, Entry> current = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null, null);
         if (current == null) return List.of();
+        Set<String> currentIgnoredKeys = ignoredKeys(newManifest.entries());
         List<String> proofs = new ArrayList<>();
         for (Entry original : oldManifest.entries()) {
-            if (excludedKeys.contains(original.key())) continue;
+            if (excludedKeys.contains(original.key()) || currentIgnoredKeys.contains(original.key())) continue;
             Entry normalized = CompatibilityInput.normalizeHistoricalEntry(original, historicalGeneration);
             if (normalized == original || normalized == null || normalized.impact() != Impact.RELEVANT) continue;
             Entry currentEntry = current.get(normalized.key());
@@ -285,13 +289,15 @@ final class FingerprintManifest {
     private static Map<String, Entry> compatibilityByKey(
         List<Entry> entries,
         Set<String> excludedKeys,
+        Set<String> reclassifiedNeutralKeys,
         Entry currentRawZfastnoise,
         Entry currentEffectiveZfastnoise,
         Path historicalGeneration
     ) {
         Map<String, Entry> result = new LinkedHashMap<>();
         for (Entry original : entries) {
-            if (excludedKeys.contains(original.key())) continue;
+            if (excludedKeys.contains(original.key())
+                || (reclassifiedNeutralKeys != null && reclassifiedNeutralKeys.contains(original.key()))) continue;
             Entry entry;
             if (original.key().equals(CompatibilityInput.ZFASTNOISE_PATH)
                 && currentRawZfastnoise != null
@@ -307,6 +313,14 @@ final class FingerprintManifest {
             if (previous != null && !equivalent(previous, entry)) return null;
         }
         return result;
+    }
+
+    private static Set<String> ignoredKeys(List<Entry> entries) {
+        Set<String> result = new LinkedHashSet<>();
+        for (Entry entry : entries) {
+            if (entry.impact() == Impact.IGNORED) result.add(entry.key());
+        }
+        return Set.copyOf(result);
     }
 
     private static Map<String, Entry> byKey(List<Entry> entries) {
