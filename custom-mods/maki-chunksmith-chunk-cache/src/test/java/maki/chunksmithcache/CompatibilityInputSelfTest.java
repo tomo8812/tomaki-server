@@ -56,7 +56,8 @@ public final class CompatibilityInputSelfTest {
 
         List<FingerprintManifest.Entry> unknownA = configEntries(temp, "u1.properties", "config/unknown.properties", "# one\nx=1\n");
         List<FingerprintManifest.Entry> unknownB = configEntries(temp, "u2.properties", "config/unknown.properties", "# two\nx=1\n");
-        require(!fingerprint(unknownA).equals(fingerprint(unknownB)), "unknown config formatting remains fail-closed relevant");
+        require(fingerprint(unknownA).equals(fingerprint(unknownB)),
+            "ordinary config formatting must not rotate generation compatibility without generation-sensitive evidence");
 
         List<String> ignored = FingerprintManifest.changedInputs(manifest(ea), manifest(eb), FingerprintManifest.Impact.IGNORED, 8);
         require(ignored.stream().anyMatch(v -> v.contains("source-format/comment changed")), "zfastnoise audit must explain source-only changes");
