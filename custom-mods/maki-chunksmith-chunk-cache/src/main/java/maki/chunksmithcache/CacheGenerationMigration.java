@@ -19,7 +19,7 @@ import net.minecraft.nbt.NbtIo;
  * can be proven are copied into the current generation; every source is retained.
  */
 final class CacheGenerationMigration {
-    static final String MIGRATION_CONTRACT = "entry-migration-v4";
+    static final String MIGRATION_CONTRACT = "entry-migration-v5";
     private static final long MIGRATION_RESERVATION_OVERHEAD = 65_536L;
     private static final Pattern CACHE_FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
 
@@ -49,6 +49,7 @@ final class CacheGenerationMigration {
         long duplicates = 0L;
         long promotionOnly = 0L;
         long unproven = 0L;
+        long unreadable = 0L;
         long invalid = 0L;
         long deferredCapacity = 0L;
         FingerprintManifest.Manifest sourceManifest =
@@ -59,8 +60,8 @@ final class CacheGenerationMigration {
             CompoundTag envelope;
             try {
                 envelope = NbtIo.readCompressed(path, NbtAccounter.create(64L << 20));
-            } catch (Throwable unreadable) {
-                invalid++;
+            } catch (Throwable readFailure) {
+                unreadable++;
                 continue;
             }
 
@@ -149,7 +150,8 @@ final class CacheGenerationMigration {
         }
 
         return new Stats(
-            files.size(), adopted, recoveredExisting, duplicates, promotionOnly, unproven, invalid, deferredCapacity
+            files.size(), adopted, recoveredExisting, duplicates, promotionOnly, unproven,
+            unreadable, invalid, deferredCapacity
         );
     }
 
@@ -216,6 +218,7 @@ final class CacheGenerationMigration {
         long duplicateEntries,
         long promotionOnlyEntries,
         long retainedUnprovenEntries,
+        long retainedUnreadableEntries,
         long retainedInvalidEntries,
         long deferredCapacityEntries
     ) {
@@ -223,8 +226,8 @@ final class CacheGenerationMigration {
             return adoptedEntries + recoveredExistingEntries;
         }
 
-        boolean completeForCurrentCapacity() {
-            return deferredCapacityEntries == 0L;
+        boolean completeForCurrentPass() {
+            return retainedUnreadableEntries == 0L && deferredCapacityEntries == 0L;
         }
     }
 }
