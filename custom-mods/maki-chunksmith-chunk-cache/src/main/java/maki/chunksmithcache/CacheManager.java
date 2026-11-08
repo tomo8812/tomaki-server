@@ -724,8 +724,12 @@ public final class CacheManager {
       }
    }
 
-   static boolean submitRetainedInspection(Runnable task) {
+   static boolean submitGenerationMaintenance(Runnable task) {
       return submitMigration(task);
+   }
+
+   static boolean submitRetainedInspection(Runnable task) {
+      return submitGenerationMaintenance(task);
    }
 
    static void maintenanceTick(MinecraftServer server) {
@@ -795,7 +799,7 @@ public final class CacheManager {
       String var2 = cacheRoot(var0).toAbsolutePath().normalize() + "|" + dimensionKey(var0) + "|" + snapshot.fingerprint();
       if (System.nanoTime()<ROTATION_RETRY.getOrDefault(var2,0L)) return;
       if (ROTATED.add(var2)) {
-         boolean queued = submitMigration(() -> {
+         boolean queued = submitGenerationMaintenance(() -> {
             try {
                if (!GenerationStore.reconcile(var0, snapshot, trigger)) {
                   ROTATION_RETRY.put(var2,System.nanoTime()+60_000_000_000L);
