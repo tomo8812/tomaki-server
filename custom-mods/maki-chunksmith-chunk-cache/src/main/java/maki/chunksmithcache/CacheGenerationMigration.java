@@ -220,7 +220,7 @@ final class CacheGenerationMigration {
         }
     }
 
-    private static CacheEnvelope.Reuse classify(
+    static CacheEnvelope.Reuse classify(
         Path path,
         CompoundTag envelope,
         FingerprintManifest.Manifest sourceManifest,
