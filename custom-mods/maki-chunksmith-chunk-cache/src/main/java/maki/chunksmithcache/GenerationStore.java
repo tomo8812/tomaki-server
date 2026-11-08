@@ -42,9 +42,10 @@ final class GenerationStore {
                 }
             }
 
-            migrateExactLegacy(root, snapshot, trigger);
-            migratePolicyEquivalent(root, snapshot, trigger);
-            migrateEquivalentQuarantines(root, snapshot, trigger);
+            String expectedDimension = level.dimension().location().toString();
+            migrateExactLegacy(root, snapshot, trigger, expectedDimension);
+            migratePolicyEquivalent(root, snapshot, trigger, expectedDimension);
+            migrateEquivalentQuarantines(root, snapshot, trigger, expectedDimension);
             retainIncompatible(root, snapshot, trigger);
             Path active = root.resolve(snapshot.fingerprint());
             Files.createDirectories(active);
@@ -147,7 +148,9 @@ final class GenerationStore {
             List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
                 manifest, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, source
             );
-            CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(source, active);
+            CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(
+                source, active, level.dimension().location().toString()
+            );
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
             if (migration.adoptedEntries() > 0L) {
@@ -177,7 +180,12 @@ final class GenerationStore {
         }
     }
 
-    private static void migrateExactLegacy(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+    private static void migrateExactLegacy(
+        Path root,
+        Fingerprint.Snapshot snapshot,
+        String trigger,
+        String expectedDimension
+    ) throws IOException {
         if (snapshot.legacyFingerprint().equals(snapshot.fingerprint())) return;
         Path legacy = root.resolve(snapshot.legacyFingerprint());
         if (!Files.isDirectory(legacy)) return;
@@ -187,7 +195,7 @@ final class GenerationStore {
         if (alreadyRecovered(legacy, snapshot.fingerprint(), snapshot.legacyFingerprint(), existing)) return;
 
         Stats before = stats(legacy);
-        CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(legacy, active);
+        CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(legacy, active, expectedDimension);
         Set<String> accepted = new LinkedHashSet<>();
         accepted.add(snapshot.fingerprint());
         if (migration.adoptedEntries() > 0L) accepted.add(snapshot.legacyFingerprint());
@@ -204,7 +212,12 @@ final class GenerationStore {
         );
     }
 
-    private static void migratePolicyEquivalent(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+    private static void migratePolicyEquivalent(
+        Path root,
+        Fingerprint.Snapshot snapshot,
+        String trigger,
+        String expectedDimension
+    ) throws IOException {
         FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
         List<Path> candidates;
         try (Stream<Path> stream = Files.list(root)) {
@@ -227,7 +240,7 @@ final class GenerationStore {
             List<String> proofDetails = FingerprintManifest.compatibilityProofs(
                 old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate
             );
-            CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(candidate, active);
+            CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(candidate, active, expectedDimension);
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
@@ -250,7 +263,12 @@ final class GenerationStore {
         }
     }
 
-    private static void migrateEquivalentQuarantines(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+    private static void migrateEquivalentQuarantines(
+        Path root,
+        Fingerprint.Snapshot snapshot,
+        String trigger,
+        String expectedDimension
+    ) throws IOException {
         Path quarantineRoot = root.resolve(QUARANTINE_DIR);
         if (!Files.isDirectory(quarantineRoot)) return;
 
@@ -298,7 +316,7 @@ final class GenerationStore {
             List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
                 old, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, candidate
             );
-            CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(candidate, active);
+            CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(candidate, active, expectedDimension);
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
