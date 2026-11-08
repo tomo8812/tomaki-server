@@ -73,8 +73,14 @@ final class PromotionClaim {
 
         // Keep payload visibility and completion-sidecar publication in one claim
         // critical section. A promotion cannot consume the payload between these
-        // operations and leave a marker behind at the old available path.
-        CacheManager.markGeneratedComplete(available);
+        // operations and leave a marker behind at the old available path. The
+        // schema-3 payload remains authoritative if only the repairable sidecar
+        // write fails; callers must still account the published payload.
+        try {
+            CacheManager.markGeneratedComplete(available);
+        } catch (IOException markerFailure) {
+            PipelineMetrics.count("generated-complete-marker-publication-failed");
+        }
         return true;
         }
     }
