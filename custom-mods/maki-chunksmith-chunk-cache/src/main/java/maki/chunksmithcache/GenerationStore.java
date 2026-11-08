@@ -148,9 +148,12 @@ final class GenerationStore {
                 manifest, current, GENERATION_COMPATIBILITY_EXCLUSIONS, 12, source
             );
             CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(source, active);
-            Set<String> accepted = new LinkedHashSet<>(manifest.storedFingerprints());
-            accepted.add(manifest.fingerprint());
+            Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
+            if (migration.adoptedEntries() > 0L) {
+                accepted.add(manifest.fingerprint());
+                accepted.addAll(manifest.storedFingerprints());
+            }
             if (activeManifest != null) accepted.addAll(activeManifest.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
             long activeEntries = stats(active).entries();
@@ -187,7 +190,7 @@ final class GenerationStore {
         CacheGenerationMigration.Stats migration = CacheGenerationMigration.copyReusableEntriesPreservingSource(legacy, active);
         Set<String> accepted = new LinkedHashSet<>();
         accepted.add(snapshot.fingerprint());
-        accepted.add(snapshot.legacyFingerprint());
+        if (migration.adoptedEntries() > 0L) accepted.add(snapshot.legacyFingerprint());
         if (existing != null) accepted.addAll(existing.storedFingerprints());
         FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
         long activeEntries = stats(active).entries();
@@ -228,8 +231,10 @@ final class GenerationStore {
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
-            accepted.add(oldFingerprint);
-            accepted.addAll(old.storedFingerprints());
+            if (migration.adoptedEntries() > 0L) {
+                accepted.add(oldFingerprint);
+                accepted.addAll(old.storedFingerprints());
+            }
             if (existing != null) accepted.addAll(existing.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
             long activeEntries = stats(active).entries();
@@ -254,7 +259,15 @@ final class GenerationStore {
         try (Stream<Path> stream = Files.list(quarantineRoot)) {
             for (Path candidate : stream.filter(Files::isDirectory).toList()) {
                 FingerprintManifest.Manifest manifest = FingerprintManifest.readIfValid(candidate.resolve(FingerprintManifest.FILE_NAME));
-                if (manifest != null) candidates.add(new QuarantineCandidate(candidate, manifest));
+                if (manifest != null) {
+                    candidates.add(new QuarantineCandidate(candidate, manifest));
+                } else {
+                    Stats retained = stats(candidate);
+                    LOG.warn(
+                        "Retaining quarantined chunk-cache {} for {}; re-adoption refused because no valid generation manifest is available; sourceEntries={} adoptedEntries=0 duplicateEntries=0 retainedUnprovenEntries={} sourcePreserved=true trigger={}",
+                        candidate.getFileName(), root.getFileName(), retained.entries(), retained.entries(), trigger
+                    );
+                }
             }
         }
         candidates.sort(Comparator.comparingLong((QuarantineCandidate value) -> value.manifest().createdAtMillis()).reversed());
@@ -289,8 +302,10 @@ final class GenerationStore {
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
-            accepted.add(old.fingerprint());
-            accepted.addAll(old.storedFingerprints());
+            if (migration.adoptedEntries() > 0L) {
+                accepted.add(old.fingerprint());
+                accepted.addAll(old.storedFingerprints());
+            }
             if (existing != null) accepted.addAll(existing.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
 
@@ -372,6 +387,7 @@ final class GenerationStore {
             source.resolve(RECOVERY_INFO),
             "sourceFingerprint=" + sourceFingerprint + "\n"
                 + "targetFingerprint=" + targetFingerprint + "\n"
+                + "migrationContract=" + CacheGenerationMigration.MIGRATION_CONTRACT + "\n"
                 + "proof=" + proof + "\n"
                 + "proofDetails=" + proofDetails + "\n"
                 + "sourceEntries=" + migration.sourceEntries() + "\n"
@@ -420,23 +436,25 @@ final class GenerationStore {
     }
 
     private static boolean alreadyRecovered(
-        Path quarantine,
+        Path source,
         String targetFingerprint,
         String sourceFingerprint,
         FingerprintManifest.Manifest activeManifest
     ) {
-        if (activeManifest == null
-            || !targetFingerprint.equals(activeManifest.fingerprint())
-            || !activeManifest.storedFingerprints().contains(sourceFingerprint)) {
-            return false;
-        }
-        Path info = quarantine.resolve(RECOVERY_INFO);
+        if (activeManifest == null || !targetFingerprint.equals(activeManifest.fingerprint())) return false;
+        Path info = source.resolve(RECOVERY_INFO);
         if (!Files.isRegularFile(info)) return false;
         try {
             String text = Files.readString(info);
-            return text.contains("sourceFingerprint=" + sourceFingerprint + "\n")
-                && text.contains("targetFingerprint=" + targetFingerprint + "\n")
-                && text.contains("sourcePreserved=true\n");
+            boolean currentContract =
+                text.contains("migrationContract=" + CacheGenerationMigration.MIGRATION_CONTRACT + "\n");
+            boolean matchingSource = text.contains("sourceFingerprint=" + sourceFingerprint + "\n");
+            boolean matchingTarget = text.contains("targetFingerprint=" + targetFingerprint + "\n");
+            boolean preserved = text.contains("sourcePreserved=true\n");
+            boolean copiedNothing = text.contains("adoptedEntries=0\n");
+            boolean copiedSourceAccepted = activeManifest.storedFingerprints().contains(sourceFingerprint);
+            return currentContract && matchingSource && matchingTarget && preserved
+                && (copiedNothing || copiedSourceAccepted);
         } catch (Throwable ignored) {
             return false;
         }
