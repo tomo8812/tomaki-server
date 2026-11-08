@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -25,6 +26,7 @@ final class RecoveryClaims {
     private static final Logger LOG=LoggerFactory.getLogger("MakiChunkCache");
     private static final Set<Path> READY=ConcurrentHashMap.newKeySet();
     private static final ConcurrentHashMap<Path,CompletableFuture<Void>> PREPARING=new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<Path,ConcurrentHashMap<String,Set<Path>>> CONFLICT_INDEX=new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<Path,Long> NEXT_FAILURE_LOG= new ConcurrentHashMap<>();
     private static final long FAILURE_LOG_INTERVAL_NANOS=TimeUnit.MINUTES.toNanos(1);
     private RecoveryClaims() {}
@@ -65,11 +67,12 @@ final class RecoveryClaims {
 
         if(claimExists(canonical)) return canonical;
 
-        // Conflict payloads intentionally remain under .promotions after initialization. They
-        // still represent unresolved interrupted state when normal FULL storage is unavailable.
+        // READY means initialize() has indexed every preserved conflict once. Keep the normal
+        // load/capture path O(1) instead of listing every UUID conflict bucket per coordinate.
+        if(READY.contains(key)) return indexedConflictClaim(key,file);
+
         Path conflict=findConflictClaim(key,file);
         if(conflict!=null) return conflict;
-        if(READY.contains(key)) return null;
 
         Path legacy=findLegacyClaim(key,region,file);
         if(legacy!=null) return legacy;
@@ -131,10 +134,56 @@ final class RecoveryClaims {
                 BasicFileAttributes bucketAttrs=attributesIfPresent(bucket);
                 if(bucketAttrs==null || !bucketAttrs.isDirectory()) continue;
                 Path candidate=bucket.resolve(file);
-                if(claimExists(candidate)) return candidate;
+                if(claimExists(candidate)) {
+                    indexConflict(dimension,file,candidate);
+                    return candidate;
+                }
             }
         }
         return null;
+    }
+
+    private static Path indexedConflictClaim(Path dimension,String file) throws IOException {
+        ConcurrentHashMap<String,Set<Path>> byFile=CONFLICT_INDEX.get(dimension);
+        if(byFile==null) return null;
+        Set<Path> candidates=byFile.get(file);
+        if(candidates==null) return null;
+        for(Path candidate:List.copyOf(candidates)) {
+            if(claimExists(candidate)) return candidate;
+            candidates.remove(candidate);
+        }
+        if(candidates.isEmpty()) byFile.remove(file,candidates);
+        return null;
+    }
+
+    private static void indexConflict(Path dimension,String file,Path claim) {
+        CONFLICT_INDEX.computeIfAbsent(dimension,ignored -> new ConcurrentHashMap<>())
+            .computeIfAbsent(file,ignored -> ConcurrentHashMap.newKeySet())
+            .add(claim.toAbsolutePath().normalize());
+    }
+
+    private static void rebuildConflictIndex(Path dimension) throws IOException {
+        CONFLICT_INDEX.remove(dimension);
+        Path conflicts=root(dimension).resolve(".conflicts");
+        BasicFileAttributes attrs=attributesIfPresent(conflicts);
+        if(attrs==null) return;
+        if(!attrs.isDirectory()) throw new IOException("Promotion conflict path is not a directory: "+conflicts);
+        try(Stream<Path> buckets=Files.list(conflicts)) {
+            for(Path bucket:buckets.toList()) {
+                BasicFileAttributes bucketAttrs=attributesIfPresent(bucket);
+                if(bucketAttrs==null || !bucketAttrs.isDirectory()) continue;
+                try(Stream<Path> claims=Files.list(bucket)) {
+                    for(Path claim:claims.toList()) {
+                        BasicFileAttributes claimAttrs=attributesIfPresent(claim);
+                        String file=claim.getFileName().toString();
+                        if(claimAttrs!=null && claimAttrs.isRegularFile()
+                            && file.matches("c\\.-?\\d+\\.-?\\d+\\.nbt\\.gz\\.in-use")) {
+                            indexConflict(dimension,file,claim);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private static BasicFileAttributes attributesIfPresent(Path path) throws IOException {
@@ -190,6 +239,7 @@ final class RecoveryClaims {
         Path key=dimension.toAbsolutePath().normalize();
         try(var ignored=CachePathLocks.lock(root(key))) {
             if(READY.contains(key)) return;
+            rebuildConflictIndex(key);
             if(Files.isDirectory(key)) Files.walkFileTree(key,new SimpleFileVisitor<>() {
                 @Override public FileVisitResult preVisitDirectory(Path directory,BasicFileAttributes attrs) {
                     return directory.equals(root(key)) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
@@ -207,6 +257,7 @@ final class RecoveryClaims {
                         Files.createDirectories(target.getParent());
                     }
                     Files.move(source,target,StandardCopyOption.ATOMIC_MOVE);
+                    if(target.startsWith(root(key).resolve(".conflicts"))) indexConflict(key,name,target);
                     }
                     return FileVisitResult.CONTINUE;
                 }
@@ -219,6 +270,7 @@ final class RecoveryClaims {
         Path key=dimension.toAbsolutePath().normalize();
         PREPARING.remove(key);
         READY.remove(key);
+        CONFLICT_INDEX.remove(key);
         NEXT_FAILURE_LOG.remove(key);
     }
 }
