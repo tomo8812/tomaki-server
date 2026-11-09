@@ -308,13 +308,14 @@ tasks.register('verifyIssue83UnifiedPregen') {
          'suppressPersistence', 'lodDone().isDone()', 'unloaded'].each { token ->
             if (!borrow.contains(token)) throw new GradleException('Issue #83 regression: pregen persistence lifecycle missing ' + token)
         }
-        ['PREGEN_NEW_TARGETS', 'preparePregenRequest', 'PregenBorrowLedger.beginGenerated',
+        ['PREGEN_NEW_TARGETS', 'PREGEN_REQUEST_TARGETS', 'preparePregenRequest', 'pregenRequestFinished',
+         'PregenBorrowLedger.beginGenerated',
          'PregenBorrowLedger.Kind.GENERATED', 'noteChunksmithGeneratedResult', 'noteChunksmithGeneratedFailure',
          'pregenRequestFailed'].each { token ->
             if (!cache.contains(token)) throw new GradleException('Issue #83 regression: new FULL target ownership missing ' + token)
         }
         if (!request.contains('CacheManager.preparePregenRequest')
-                || !request.contains('CacheManager.pregenRequestFailed')
+                || !request.contains('CacheManager.pregenRequestFinished')
                 || !world.contains('maki$rememberGeneratedDecision')
                 || !world.contains('CacheManager.noteChunksmithGeneratedResult')
                 || !world.contains('CacheManager.noteChunksmithGeneratedFailure')) {
@@ -324,6 +325,9 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !cache.contains('PromotionLedger.entitiesRestored(level,pos)')
                 || !cache.contains('pregen-borrow-player-handoff')) {
             throw new GradleException('Issue #83 regression: player handoff must claim promotion ownership before persistence')
+        }
+        if (!cache.contains('PREGEN_REQUEST_TARGETS.contains(captureKey(level,pos))')) {
+            throw new GradleException('Issue #83 regression: dependency reads can borrow target-only pregen FULL')
         }
         if (!chunkSave.contains('pregenPersistenceSuppressed')
                 || !entitySave.contains('pregenPersistenceSuppressed')
