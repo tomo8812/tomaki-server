@@ -11,9 +11,28 @@ final class FollowCaptureOwnership {
         try {
             GenerationTask task = ChunksmithProvider.get().getGenerationTasks()
                 .get(level.dimension().location().toString());
-            return task != null && Boolean.TRUE.equals(Class.forName("maki.lodcpu.TaskOwnership")
+            return owns(task);
+        } catch (LinkageError | RuntimeException error) {
+            return false;
+        }
+    }
+
+    static boolean owns(GenerationTask task) {
+        if(task==null)return false;
+        try {
+            return Boolean.TRUE.equals(Class.forName("maki.lodcpu.TaskOwnership")
                 .getMethod("isOwned", GenerationTask.class).invoke(null, task));
         } catch (ReflectiveOperationException | LinkageError | RuntimeException error) {
+            return false;
+        }
+    }
+
+    static boolean active(ServerLevel level,GenerationTask task) {
+        if(level==null||task==null||task.isStopping()||!owns(task))return false;
+        try {
+            return ChunksmithProvider.get().getGenerationTasks()
+                .get(level.dimension().location().toString())==task;
+        } catch (LinkageError | RuntimeException error) {
             return false;
         }
     }

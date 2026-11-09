@@ -261,6 +261,7 @@ sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
 
 
 def issue83CacheSource = file('src/main/java/maki/chunksmithcache/CacheManager.java')
+def issue83FollowOwnership = file('src/main/java/maki/chunksmithcache/FollowCaptureOwnership.java')
 def issue83PairMixin = file('src/main/java/maki/chunksmithcache/mixin/GenerationTaskPairMixin.java')
 def issue83Mixins = file('src/main/resources/maki-chunksmith-chunk-cache.mixins.json')
 def issue83DiskBudget = file('src/main/java/maki/chunksmithcache/CacheDiskBudget.java')
@@ -274,11 +275,12 @@ def issue83World = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldM
 def issue83Mod = file('src/main/java/maki/chunksmithcache/MakiChunksmithChunkCache.java')
 
 tasks.register('verifyIssue83UnifiedPregen') {
-    inputs.files(issue83CacheSource, issue83PairMixin, issue83Mixins, issue83DiskBudget,
+    inputs.files(issue83CacheSource, issue83FollowOwnership, issue83PairMixin, issue83Mixins, issue83DiskBudget,
         issue83Borrow, issue83ChunkSave, issue83EntitySave, issue83PoiSave, issue83Unload,
         issue83Request, issue83World, issue83Mod)
     doLast {
         def cache = issue83CacheSource.getText('UTF-8')
+        def followOwnership = issue83FollowOwnership.getText('UTF-8')
         def pair = issue83PairMixin.getText('UTF-8')
         def mixins = issue83Mixins.getText('UTF-8')
         def disk = issue83DiskBudget.getText('UTF-8')
@@ -328,12 +330,30 @@ tasks.register('verifyIssue83UnifiedPregen') {
          'pregenRequestFailed'].each { token ->
             if (!cache.contains(token)) throw new GradleException('Issue #83 regression: new FULL target ownership missing ' + token)
         }
-        if (!request.contains('CacheManager.preparePregenRequest')
+        if (!request.contains('GenerationTask sourceTask=(GenerationTask)(Object)this')
+                || !request.contains('CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)')
                 || !request.contains('CacheManager.pregenRequestFinished')
                 || !world.contains('maki$rememberGeneratedDecision')
                 || !world.contains('CacheManager.noteChunksmithGeneratedResult')
                 || !world.contains('CacheManager.noteChunksmithGeneratedFailure')) {
-            throw new GradleException('Issue #83 regression: target must be classified and guarded before getChunkAtAsync')
+            throw new GradleException('Issue #83 regression: target must retain source-task identity and be guarded before getChunkAtAsync')
+        }
+        def prepareStart = cache.indexOf('public static boolean preparePregenRequest')
+        def prepareEnd = cache.indexOf('public static void pregenRequestFinished', prepareStart)
+        def prepareBody = cache.substring(prepareStart, prepareEnd)
+        def requestMarker = prepareBody.indexOf('PREGEN_REQUEST_TARGETS.add(key)')
+        def activeSourceGate = prepareBody.indexOf('FollowCaptureOwnership.active(level,sourceTask)')
+        if (!prepareBody.contains('FollowCaptureOwnership.owns(sourceTask)')
+                || requestMarker < 0 || activeSourceGate < 0 || requestMarker > activeSourceGate
+                || !prepareBody.contains('pregen-stale-follow-request-blocked')) {
+            throw new GradleException('Issue #83 regression: stopped or detached follow requests can bypass unified persistence guards')
+        }
+        if (!followOwnership.contains('static boolean owns(GenerationTask task)')
+                || !followOwnership.contains('static boolean active(ServerLevel level,GenerationTask task)')
+                || !followOwnership.contains('task.isStopping()')
+                || !followOwnership.contains('getGenerationTasks()')
+                || !followOwnership.contains('==task')) {
+            throw new GradleException('Issue #83 regression: asynchronous request ownership is not bound to the originating task')
         }
         def captureStart = cache.indexOf('public static void captureFromChunksmith')
         def captureOwnershipGate = cache.indexOf('PREGEN_REQUEST_TARGETS.contains(key)', captureStart)

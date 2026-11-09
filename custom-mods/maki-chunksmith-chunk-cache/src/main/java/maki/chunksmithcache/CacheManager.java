@@ -1,6 +1,7 @@
 package maki.chunksmithcache;
 
 import com.kishku7.chunksmith.ChunksmithProvider;
+import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.lod.HorizonGuard;
 import com.kishku7.chunksmith.lod.LodSupport;
 import java.io.IOException;
@@ -216,12 +217,19 @@ public final class CacheManager {
       PipelineMetrics.count("pregen-generated-state-failed");
    }
 
-   public static boolean preparePregenRequest(ServerLevel level,ChunkPos pos) {
+   public static boolean preparePregenRequest(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
       if(level==null||pos==null)return false;
       if(STOPPING.contains(level.getServer()))return false;
-      if(!FollowCaptureOwnership.owns(level))return true;
+      // Classify the actual task that owns this asynchronous request. Looking up
+      // only the current world task loses identity after GenerationTask's 60s drain
+      // timeout and can let a stopped follow task generate without persistence guards.
+      if(!FollowCaptureOwnership.owns(sourceTask))return true;
       CaptureKey key=captureKey(level,pos);
       PREGEN_REQUEST_TARGETS.add(key);
+      if(!FollowCaptureOwnership.active(level,sourceTask)) {
+         PipelineMetrics.count("pregen-stale-follow-request-blocked");
+         return false;
+      }
       if(!PREGEN_NEW_TARGETS.containsKey(key))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null) {

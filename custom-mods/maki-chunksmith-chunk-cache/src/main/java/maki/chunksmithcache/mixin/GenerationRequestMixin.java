@@ -1,5 +1,6 @@
 package maki.chunksmithcache.mixin;
 
+import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.platform.World;
 import com.kishku7.chunksmith.platform.NeoForgeWorld;
 import java.util.concurrent.CompletableFuture;
@@ -39,8 +40,9 @@ public abstract class GenerationRequestMixin {
         target="Lcom/kishku7/chunksmith/platform/World;getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;"), require=2)
     private CompletableFuture<Void> maki$measureRequest(World world, int x, int z) {
         long started = System.nanoTime();
+        GenerationTask sourceTask=(GenerationTask)(Object)this;
         if(world instanceof NeoForgeWorld neoforge
-            && !CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z))) {
+            && !CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)) {
             CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z));
             return CompletableFuture.failedFuture(
                 new IllegalStateException("Unified pregen could not acquire normal-persistence guard for "+x+","+z));
