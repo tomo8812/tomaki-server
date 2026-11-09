@@ -63,6 +63,7 @@ public final class CacheManager {
    private static final Set<CaptureKey> PREGEN_RETRY = ConcurrentHashMap.newKeySet();
    private static final Set<CaptureKey> PREGEN_LOD_RETRY = ConcurrentHashMap.newKeySet();
    private static final ConcurrentHashMap<CaptureKey,Long> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
+   private static final Set<CaptureKey> PREGEN_REQUEST_TARGETS = ConcurrentHashMap.newKeySet();
    private static final ConcurrentHashMap<CaptureKey,AtomicInteger> LOD_PENDING = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,Path> CONFIRMED_PREGEN = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<Path,ConcurrentHashMap<String,Long>> NEXT_LOCAL_RECOVERY_WARNING = new ConcurrentHashMap<>();
@@ -207,7 +208,9 @@ public final class CacheManager {
 
    public static boolean preparePregenRequest(ServerLevel level,ChunkPos pos) {
       if(level==null||pos==null)return false;
+      if(!FollowCaptureOwnership.owns(level))return true;
       CaptureKey key=captureKey(level,pos);
+      PREGEN_REQUEST_TARGETS.add(key);
       if(!PREGEN_NEW_TARGETS.containsKey(key))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null) {
@@ -223,11 +226,17 @@ public final class CacheManager {
       return false;
    }
 
-   public static void pregenRequestFailed(ServerLevel level,ChunkPos pos) {
+   public static void pregenRequestFinished(ServerLevel level,ChunkPos pos,boolean success) {
       if(level==null||pos==null)return;
       CaptureKey key=captureKey(level,pos);
+      PREGEN_REQUEST_TARGETS.remove(key);
+      if(success)return;
       PREGEN_NEW_TARGETS.remove(key);
       PREGEN_RETRY.add(key);
+   }
+
+   public static void pregenRequestFailed(ServerLevel level,ChunkPos pos) {
+      pregenRequestFinished(level,pos,false);
    }
 
    public static boolean pregenReady(MinecraftServer server) {
@@ -617,10 +626,11 @@ public final class CacheManager {
    }
 
    private static boolean pregenBorrowAllowed(ServerLevel level, ChunkPos pos) {
-      // Ownership, not global player count or HorizonGuard radius, identifies a
-      // unified-pregen request. A player arriving mid-flight is handled later by
-      // the coordinate-local claim-before-write handoff.
-      return FollowCaptureOwnership.owns(level);
+      // Only the coordinate selected by GenerationTask may borrow pregen FULL.
+      // Dependency reads must keep normal-world semantics and must not acquire a
+      // LOD-repair guard for which no target LodSupport.offer will ever arrive.
+      return FollowCaptureOwnership.owns(level)
+         && PREGEN_REQUEST_TARGETS.contains(captureKey(level,pos));
    }
 
    private static CompletableFuture<Optional<CompoundTag>> loadForPregenLodRepair(ServerLevel level, ChunkPos pos) {
@@ -1196,6 +1206,7 @@ public final class CacheManager {
       PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_LOD_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_NEW_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
+      PREGEN_REQUEST_TARGETS.removeIf(key -> key.level().getServer()==server);
       LOD_PENDING.keySet().removeIf(key -> key.level().getServer()==server);
       CONFIRMED_PREGEN.keySet().removeIf(key -> key.level().getServer()==server);
       for(ServerLevel level:server.getAllLevels()) {
