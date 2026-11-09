@@ -48,11 +48,9 @@ public abstract class GenerationRequestMixin {
         CompletableFuture<Void> future = world.getChunkAtAsync(x,z);
         future.whenComplete((value,error) -> {
             PipelineMetrics.time("adapter-request",System.nanoTime()-started);
-            if (error != null) {
-                PipelineMetrics.count("adapter-failed");
-                if(world instanceof NeoForgeWorld neoforge)
-                    CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z));
-            }
+            if(world instanceof NeoForgeWorld neoforge)
+                CacheManager.pregenRequestFinished(neoforge.getWorld(),new ChunkPos(x,z),error==null);
+            if (error != null) PipelineMetrics.count("adapter-failed");
         });
         return future;
     }
