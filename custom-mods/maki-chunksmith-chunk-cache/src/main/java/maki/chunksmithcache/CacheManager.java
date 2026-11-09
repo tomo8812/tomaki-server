@@ -286,7 +286,13 @@ public final class CacheManager {
          PREGEN_LOD_RETRY.remove(key);
          return true;
       }
-      if(confirmed!=null)CONFIRMED_PREGEN.remove(key,confirmed);
+      if(confirmed!=null) {
+         CONFIRMED_PREGEN.remove(key,confirmed);
+         // A previously confirmed FULL that can no longer be proven is FULL debt.
+         // Keep the debt visible so a stale Chunksmith WorldState bit cannot turn
+         // a surviving LOD into a false completed pair before async validation.
+         addRetry(PREGEN_RETRY,key);
+      }
       // Do not let the horizon's cheap LOD-only test skip an unvalidated cache file.
       // The later isChunkGenerated Future can validate it off-thread.
       return false;
