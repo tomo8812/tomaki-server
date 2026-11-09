@@ -32,7 +32,8 @@ public abstract class GenerationTaskPairMixin {
     private boolean maki$requireFullSideForHorizonSkip(CsLodPresenceIndex index,int x,int z) {
         boolean lod=index.hasLod(x,z);
         if(!lod)return false;
-        if(selection.world() instanceof NeoForgeWorld world) {
+        if(selection.world() instanceof NeoForgeWorld world
+            && CacheManager.unifiedPregenOwns(world.getWorld())) {
             return CacheManager.unifiedPairSkipHint(world.getWorld(),new ChunkPos(x,z));
         }
         return lod;
