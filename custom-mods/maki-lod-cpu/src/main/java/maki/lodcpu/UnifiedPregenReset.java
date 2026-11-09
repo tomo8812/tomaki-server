@@ -2,7 +2,6 @@ package maki.lodcpu;
 
 import com.kishku7.chunksmith.ChunksmithProvider;
 import com.kishku7.chunksmith.GenerationTask;
-import com.kishku7.chunksmith.lod.LodSupport;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,15 +19,48 @@ final class UnifiedPregenReset {
     private static final Logger LOG=LoggerFactory.getLogger("MakiLodFollow");
     private static final String WORLD="minecraft:overworld";
     private static MinecraftServer completedServer;
+    private static MinecraftServer preparedServer;
+    private static boolean storagePrepared;
     private static long retryAfter;
 
     private UnifiedPregenReset(){}
 
+    /**
+     * Clear disposable storage before Chunksmith can create any LOD sink or resume
+     * a persisted task. Never retry this destructive phase from a live server tick.
+     */
+    static synchronized void prepareBeforeLod(MinecraftServer server) {
+        Path world=server.getWorldPath(LevelResource.ROOT);
+        Path marker=marker(world);
+        if(Files.isRegularFile(marker)) {
+            preparedServer=completedServer=server;
+            storagePrepared=true;
+            return;
+        }
+        preparedServer=server;
+        storagePrepared=false;
+        try {
+            deleteTree(world.resolve("chunksmith").resolve("lod").resolve("minecraft_overworld"));
+            resetPregenCacheDimension(world.resolve("chunksmith_chunk_cache").resolve("minecraft_overworld"));
+            storagePrepared=true;
+            LOG.info("Issue #83 disposable LOD/cache storage was reset before Chunksmith LOD startup; owned task progress will be finalized after Chunksmith initializes.");
+        } catch(Exception error) {
+            LOG.warn("Issue #83 disposable storage reset failed before Chunksmith LOD startup; unified pregen stays paused for this server session and will retry at the next server start",error);
+        }
+    }
+
     static synchronized boolean ensure(MinecraftServer server) {
         if(completedServer==server)return true;
         Path world=server.getWorldPath(LevelResource.ROOT);
-        Path marker=world.resolve("data/maki_pregen_unified_v1.reset");
-        if(Files.isRegularFile(marker)){completedServer=server;return true;}
+        Path marker=marker(world);
+        if(Files.isRegularFile(marker)){
+            preparedServer=completedServer=server;
+            storagePrepared=true;
+            return true;
+        }
+        // The storage phase is intentionally startup-only. Deleting a live .cslod
+        // tree can race the native writer's open RandomAccessFile handles.
+        if(preparedServer!=server||!storagePrepared)return false;
         long now=System.currentTimeMillis();
         if(now<retryAfter)return false;
 
@@ -50,15 +82,6 @@ final class UnifiedPregenReset {
                 }
             }
 
-            deleteTree(world.resolve("chunksmith").resolve("lod").resolve("minecraft_overworld"));
-            resetPregenCacheDimension(world.resolve("chunksmith_chunk_cache").resolve("minecraft_overworld"));
-            try {
-                var index=LodSupport.presenceIndexFor(server,WORLD);
-                if(index!=null)index.invalidate();
-            } catch(Throwable ignored) {
-                // No native LOD index has been installed yet; the first task will read the reset store.
-            }
-
             if(ChunksmithProvider.isLoaded()&&ChunksmithProvider.get()!=null) {
                 var chunky=ChunksmithProvider.get();
                 var owner=TaskOwnership.persistedOwner(chunky,WORLD);
@@ -76,14 +99,22 @@ final class UnifiedPregenReset {
             return true;
         } catch(Exception error) {
             retryAfter=now+30_000L;
-            LOG.warn("Unified pregen reset is incomplete; generation remains paused and this reset will retry",error);
+            LOG.warn("Unified pregen task-state cleanup is incomplete; generation remains paused and this non-destructive phase will retry",error);
             return false;
         }
     }
 
     static synchronized void stopped(MinecraftServer server){
         if(completedServer==server)completedServer=null;
+        if(preparedServer==server){
+            preparedServer=null;
+            storagePrepared=false;
+        }
         retryAfter=0L;
+    }
+
+    private static Path marker(Path world) {
+        return world.resolve("data/maki_pregen_unified_v1.reset");
     }
 
     private static void resetPregenCacheDimension(Path dimension) throws IOException {

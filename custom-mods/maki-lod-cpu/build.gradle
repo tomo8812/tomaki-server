@@ -91,18 +91,38 @@ tasks.named('check') {
 def issue83PlayerCenter = file('src/main/java/maki/lodcpu/PlayerCenter.java')
 def issue83Reset = file('src/main/java/maki/lodcpu/UnifiedPregenReset.java')
 def issue83Governor = file('src/main/java/maki/lodcpu/CpuGovernor.java')
+def issue83Mod = file('src/main/java/maki/lodcpu/MakiLodCpu.java')
 
 tasks.register('verifyIssue83UnifiedFollow') {
-    inputs.files(issue83PlayerCenter, issue83Reset, issue83Governor)
+    inputs.files(issue83PlayerCenter, issue83Reset, issue83Governor, issue83Mod)
     doLast {
         def center = issue83PlayerCenter.getText('UTF-8')
         def reset = issue83Reset.getText('UTF-8')
         def governor = issue83Governor.getText('UTF-8')
+        def mod = issue83Mod.getText('UTF-8')
         ['if(online){', 'pipeline-pressure:', 'retrying-incomplete-pairs', 'saved.x=0;saved.z=0'].each { token ->
             if (!center.contains(token)) throw new GradleException('Issue #83 regression: empty-server unified follow policy missing ' + token)
         }
         ['chunksmith_chunk_cache', 'resolve("chunksmith").resolve("lod")', 'minecraft_overworld', '.promotions', '.nbt.gz.in-use', 'maki_pregen_unified_v1.reset'].each { token ->
             if (!reset.contains(token)) throw new GradleException('Issue #83 regression: one-time disposable-state reset missing ' + token)
+        }
+        def prepareStart = reset.indexOf('static synchronized void prepareBeforeLod')
+        def ensureStart = reset.indexOf('static synchronized boolean ensure')
+        def ensureEnd = reset.indexOf('static synchronized void stopped', ensureStart)
+        if (!mod.contains('ServerAboutToStartEvent') || !mod.contains('UnifiedPregenReset.prepareBeforeLod')
+                || prepareStart < 0 || ensureStart <= prepareStart || ensureEnd <= ensureStart) {
+            throw new GradleException('Issue #83 regression: disposable LOD reset is not bound to the pre-LOD server lifecycle')
+        }
+        def prepareBody = reset.substring(prepareStart, ensureStart)
+        def ensureBody = reset.substring(ensureStart, ensureEnd)
+        if (!prepareBody.contains('resolve("chunksmith").resolve("lod").resolve("minecraft_overworld")')
+                || !prepareBody.contains('resetPregenCacheDimension(')
+                || !ensureBody.contains('preparedServer!=server||!storagePrepared')) {
+            throw new GradleException('Issue #83 regression: startup-only disposable storage reset/gate is incomplete')
+        }
+        if (ensureBody.contains('resolve("chunksmith").resolve("lod")')
+                || ensureBody.contains('resetPregenCacheDimension(')) {
+            throw new GradleException('Issue #83 regression: live follow tick can delete an open Chunksmith LOD store')
         }
         if (!governor.contains('pregenRetryPending') || !governor.contains('pipelinePressure()')
                 || !governor.contains('pregenReady')) {

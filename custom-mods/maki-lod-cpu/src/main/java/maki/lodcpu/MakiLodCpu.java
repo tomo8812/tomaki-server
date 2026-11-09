@@ -11,6 +11,7 @@ public final class MakiLodCpu {
     private static final Logger LOG = LoggerFactory.getLogger("MakiLodCpu");
     public MakiLodCpu(){
         LOG.info("Maki LOD CPU initialized; follow ownership, CPU governor and task migration commands are enabled.");
+        NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerAboutToStartEvent e)->UnifiedPregenReset.prepareBeforeLod(e.getServer()));
         NeoForge.EVENT_BUS.addListener(this::tick);
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent e)->{if(e.getEntity() instanceof net.minecraft.server.level.ServerPlayer p)PlayerCenter.login(p);});
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent e)->{if(e.getEntity() instanceof net.minecraft.server.level.ServerPlayer p)PlayerCenter.logout(p);});
