@@ -261,6 +261,10 @@ public final class CacheManager {
     * a visible path represents a completed write; CAPTURE_PENDING closes the
     * small race before that atomic move.
     */
+   public static boolean unifiedPregenOwns(ServerLevel level) {
+      return level!=null && FollowCaptureOwnership.owns(level);
+   }
+
    public static boolean unifiedPairSkipHint(ServerLevel level, ChunkPos pos) {
       if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return false;
       CaptureKey key=captureKey(level,pos);
