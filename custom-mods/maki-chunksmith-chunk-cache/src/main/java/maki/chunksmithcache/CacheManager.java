@@ -2,6 +2,7 @@ package maki.chunksmithcache;
 
 import com.kishku7.chunksmith.ChunksmithProvider;
 import com.kishku7.chunksmith.lod.HorizonGuard;
+import com.kishku7.chunksmith.lod.LodSupport;
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -91,6 +92,12 @@ public final class CacheManager {
       if (level == null || chunk == null) return;
       ChunkPos pos=chunk.getPos();
       CaptureKey key=captureKey(level,pos);
+      // The NeoForgeWorld hook also observes third-party Chunksmith tasks. Only
+      // a coordinate admitted by preparePregenRequest belongs to this unified flow.
+      if(!PREGEN_REQUEST_TARGETS.contains(key)) {
+         PipelineMetrics.count("direct-external-observed");
+         return;
+      }
       LOD_PENDING.compute(key,(ignored,count) -> {
          if(count==null)count=new AtomicInteger();
          count.incrementAndGet();
@@ -243,6 +250,20 @@ public final class CacheManager {
       if(success)return;
       PREGEN_NEW_TARGETS.remove(key);
       addRetry(PREGEN_RETRY,key);
+      // GenerationTask marks the native presence index before getChunkAtAsync.
+      // If that request fails before LodSupport.offer, the bit is only provisional.
+      // Keep LOD debt until a real writer ACK and force the next check back to disk.
+      addRetry(PREGEN_LOD_RETRY,key);
+      invalidateChunksmithLodPresence(level);
+   }
+
+   private static void invalidateChunksmithLodPresence(ServerLevel level) {
+      try {
+         var index=LodSupport.presenceIndexFor(level.getServer(),level.dimension().location().toString());
+         if(index!=null)index.invalidate();
+      } catch(Throwable unavailable) {
+         PipelineMetrics.count("pregen-lod-presence-invalidate-failed");
+      }
    }
 
    public static void pregenRequestFailed(ServerLevel level,ChunkPos pos) {

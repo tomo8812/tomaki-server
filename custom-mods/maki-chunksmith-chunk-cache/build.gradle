@@ -335,6 +335,21 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !world.contains('CacheManager.noteChunksmithGeneratedFailure')) {
             throw new GradleException('Issue #83 regression: target must be classified and guarded before getChunkAtAsync')
         }
+        def captureStart = cache.indexOf('public static void captureFromChunksmith')
+        def captureOwnershipGate = cache.indexOf('PREGEN_REQUEST_TARGETS.contains(key)', captureStart)
+        def capturePendingMutation = cache.indexOf('LOD_PENDING.compute', captureStart)
+        if (captureOwnershipGate < 0 || capturePendingMutation < 0 || captureOwnershipGate > capturePendingMutation) {
+            throw new GradleException('Issue #83 regression: external Chunksmith LOD callbacks can enter unified pending/retry state')
+        }
+        def requestFinishStart = cache.indexOf('public static void pregenRequestFinished')
+        def requestFinishEnd = cache.indexOf('public static void pregenRequestFailed', requestFinishStart)
+        def requestFinishBody = cache.substring(requestFinishStart, requestFinishEnd)
+        if (!requestFinishBody.contains('addRetry(PREGEN_LOD_RETRY,key)')
+                || !requestFinishBody.contains('invalidateChunksmithLodPresence(level)')
+                || !cache.contains('LodSupport.presenceIndexFor')
+                || !cache.contains('index.invalidate()')) {
+            throw new GradleException('Issue #83 regression: failed target request can leave provisional LOD presence authoritative')
+        }
         if (!cache.contains('PromotionLedger.adoptLive(level,pos,handoff,pending==null?null:pending.result())')
                 || !cache.contains('PromotionLedger.entitiesRestored(level,pos)')
                 || !cache.contains('pregen-borrow-player-handoff')) {
