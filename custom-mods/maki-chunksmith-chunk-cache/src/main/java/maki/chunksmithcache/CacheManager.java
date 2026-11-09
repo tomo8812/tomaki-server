@@ -356,6 +356,7 @@ public final class CacheManager {
       try {
          return NormalChunkStorage.inspectAsync(level,pos).handle((normal,error) -> {
             if(error==null && normal==NormalChunkStorage.State.FULL) {
+               PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
                PREGEN_RETRY.remove(key);
                PREGEN_NEW_TARGETS.remove(key);
                return true;
@@ -650,7 +651,14 @@ public final class CacheManager {
             work.result.complete(false);
             return;
          }
-         if (error != null || normal == NormalChunkStorage.State.FULL || normal == NormalChunkStorage.State.UNKNOWN
+         if (normal == NormalChunkStorage.State.FULL) {
+            PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
+            PREGEN_RETRY.remove(captureKey(level,pos));
+            PipelineMetrics.count("capture-normal-full-won");
+            work.result.complete(false);
+            return;
+         }
+         if (error != null || normal == NormalChunkStorage.State.UNKNOWN
             || claimed || STOPPING.contains(level.getServer())) {
             PipelineMetrics.count("capture-normal-storage-rejected"); work.result.complete(false); return;
          }
@@ -726,6 +734,7 @@ public final class CacheManager {
       ServerLevel level, ChunkPos pos, Optional<CompoundTag> normal
    ) {
       if (CacheLoadPolicy.keepNormal(normal.orElse(null))) {
+         PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
          PromotionLedger.normalFullPresent(level,pos);
          return CompletableFuture.completedFuture(normal);
       }
@@ -1119,6 +1128,10 @@ public final class CacheManager {
       Path file=path(level,pos,fingerprint.fingerprint());
       written.whenComplete((ignored,error) -> {
          if(error==null) {
+            // This write may have started just before beginGenerated armed the
+            // pregen guard. Once durable normal FULL wins, normal persistence
+            // must no longer be vetoed for this coordinate.
+            PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
             PREGEN_RETRY.remove(captureKey(level,pos));
             retireClaim(file, () -> {});
          }

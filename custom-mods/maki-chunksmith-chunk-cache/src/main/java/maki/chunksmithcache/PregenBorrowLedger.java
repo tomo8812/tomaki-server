@@ -70,6 +70,22 @@ final class PregenBorrowLedger {
     static void handedOff(ServerLevel level, ChunkPos pos) {
         Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
         if(borrow==null)return;
+        releasePersistence(level,borrow);
+    }
+
+    /**
+     * A normal FULL may win the race after a generated-target guard was armed.
+     * Stop vetoing normal persistence immediately, while restoring any chunk/POI
+     * dirty state that was already suppressed under this guard.
+     */
+    static boolean releaseGeneratedToNormal(ServerLevel level, ChunkPos pos) {
+        Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
+        if(borrow==null||borrow.kind()!=Kind.GENERATED)return false;
+        releasePersistence(level,borrow);
+        return borrow.handedOff().get();
+    }
+
+    private static void releasePersistence(ServerLevel level, Borrow borrow) {
         synchronized(borrow) {
             if(!borrow.handedOff().compareAndSet(false,true))return;
             ChunkAccess suppressed=borrow.suppressedChunk().getAndSet(null);
