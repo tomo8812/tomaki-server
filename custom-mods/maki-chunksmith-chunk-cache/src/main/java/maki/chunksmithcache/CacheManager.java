@@ -109,7 +109,7 @@ public final class CacheManager {
                PREGEN_LOD_RETRY.remove(key);
                PipelineMetrics.count("pregen-lod-repair-complete");
             } else {
-               PREGEN_LOD_RETRY.add(key);
+               addRetry(PREGEN_LOD_RETRY,key);
                PipelineMetrics.count("pregen-lod-repair-failed");
             }
          });
@@ -122,7 +122,7 @@ public final class CacheManager {
       if(!generatedTarget) {
          lodCommitted.whenComplete((lodSaved,lodError) -> {
             if(lodError==null && Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
-            else PREGEN_LOD_RETRY.add(key);
+            else addRetry(PREGEN_LOD_RETRY,key);
          });
          return;
       }
@@ -132,20 +132,20 @@ public final class CacheManager {
       // Player arrival does not cancel already-owned work; handoff is claim-before-write.
       if (!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(level)
          || BackfillGuard.suppress(level, pos)) {
-         PREGEN_RETRY.add(key);
+         addRetry(PREGEN_RETRY,key);
          PipelineMetrics.count("direct-ineligible");
          return;
       }
 
       if(PregenBorrowLedger.kind(level,pos)!=PregenBorrowLedger.Kind.GENERATED) {
-         PREGEN_RETRY.add(key);
+         addRetry(PREGEN_RETRY,key);
          PipelineMetrics.count("direct-persistence-guard-missing");
          return;
       }
       if(PregenBorrowLedger.isHandedOff(level,pos)) {
          lodCommitted.whenComplete((lodSaved,lodError) -> {
             if(lodError==null&&Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
-            else PREGEN_LOD_RETRY.add(key);
+            else addRetry(PREGEN_LOD_RETRY,key);
          });
          PipelineMetrics.count("direct-cache-skipped-after-player-handoff");
          return;
@@ -153,7 +153,7 @@ public final class CacheManager {
       PregenBorrowLedger.attachLod(level,pos,lodCommitted);
       lodCommitted.whenComplete((lodSaved,lodError) -> {
          if(lodError==null && Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
-         else PREGEN_LOD_RETRY.add(key);
+         else addRetry(PREGEN_LOD_RETRY,key);
       });
       CompletableFuture<Boolean> saved=capture(level, chunk, false, lodCommitted);
       saved.whenComplete((ok,error) -> {
@@ -167,17 +167,17 @@ public final class CacheManager {
          try {
             NormalChunkStorage.inspectAsync(level,pos).whenComplete((normal,inspectError) -> {
                if(inspectError!=null || normal!=NormalChunkStorage.State.FULL) {
-                  PREGEN_RETRY.add(key);
+                  addRetry(PREGEN_RETRY,key);
                   return;
                }
                PREGEN_RETRY.remove(key);
                lodCommitted.whenComplete((lodSaved,lodError) -> {
                   if(lodError==null && Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
-                  else PREGEN_LOD_RETRY.add(key);
+                  else addRetry(PREGEN_LOD_RETRY,key);
                });
             });
          } catch(Throwable inspectFailure) {
-            PREGEN_RETRY.add(key);
+            addRetry(PREGEN_RETRY,key);
          }
       });
    }
@@ -204,7 +204,7 @@ public final class CacheManager {
       if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return;
       CaptureKey key=captureKey(level,pos);
       PREGEN_NEW_TARGETS.remove(key);
-      PREGEN_RETRY.add(key);
+      addRetry(PREGEN_RETRY,key);
       PipelineMetrics.count("pregen-generated-state-failed");
    }
 
@@ -217,7 +217,7 @@ public final class CacheManager {
       if(!PREGEN_NEW_TARGETS.containsKey(key))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null) {
-         PREGEN_RETRY.add(key);
+         addRetry(PREGEN_RETRY,key);
          return false;
       }
       Path file=path(level,pos,snapshot.fingerprint());
@@ -225,7 +225,7 @@ public final class CacheManager {
       if(kind==PregenBorrowLedger.Kind.GENERATED)return true;
       if(kind!=null)return false;
       if(PregenBorrowLedger.beginGenerated(level,pos,file))return true;
-      PREGEN_RETRY.add(key);
+      addRetry(PREGEN_RETRY,key);
       return false;
    }
 
@@ -237,7 +237,7 @@ public final class CacheManager {
       if(!PREGEN_REQUEST_TARGETS.remove(key))return;
       if(success)return;
       PREGEN_NEW_TARGETS.remove(key);
-      PREGEN_RETRY.add(key);
+      addRetry(PREGEN_RETRY,key);
    }
 
    public static void pregenRequestFailed(ServerLevel level,ChunkPos pos) {
@@ -329,11 +329,11 @@ public final class CacheManager {
       Path claim=PromotionClaim.claimedPath(file);
       try {
          if(RecoveryClaims.claimExists(claim)) {
-            PREGEN_RETRY.add(key);
+            addRetry(PREGEN_RETRY,key);
             return CompletableFuture.completedFuture(true);
          }
       } catch(IOException ownershipUnknown) {
-         PREGEN_RETRY.add(key);
+         addRetry(PREGEN_RETRY,key);
          PipelineMetrics.count("promotion-claim-inspection-failed");
          return CompletableFuture.completedFuture(true);
       }
@@ -344,7 +344,7 @@ public final class CacheManager {
             try(var pathLock=CachePathLocks.lock(file)) {
                try {
                   if(RecoveryClaims.claimExists(claim)) {
-                     PREGEN_RETRY.add(key);
+                     addRetry(PREGEN_RETRY,key);
                      return true;
                   }
                   CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
@@ -362,11 +362,11 @@ public final class CacheManager {
                   CONFIRMED_PREGEN.remove(key);
                   try {
                      if(RecoveryClaims.claimExists(claim)) {
-                        PREGEN_RETRY.add(key);
+                        addRetry(PREGEN_RETRY,key);
                         return true;
                      }
                   } catch(IOException ownershipUnknown) {
-                     PREGEN_RETRY.add(key);
+                     addRetry(PREGEN_RETRY,key);
                      return true;
                   }
                   quarantineRejected(file);
@@ -381,7 +381,7 @@ public final class CacheManager {
             }
          },READ_IO);
       } catch(RejectedExecutionException full) {
-         PREGEN_RETRY.add(key);
+         addRetry(PREGEN_RETRY,key);
          return CompletableFuture.completedFuture(true);
       }
    }
@@ -418,6 +418,11 @@ public final class CacheManager {
    }
 
    private record CaptureKey(ServerLevel level, long pos) {}
+
+   private static void addRetry(Set<CaptureKey> retrySet,CaptureKey key) {
+      if(key!=null&&!STOPPING.contains(key.level().getServer())) retrySet.add(key);
+   }
+
    private record CaptureFlight(CompletableFuture<Boolean> result, long startedNanos) {}
 
    public record ResourceStatus(int pendingCaptures, long pendingBytes, long oldestPendingMillis,
@@ -666,12 +671,12 @@ public final class CacheManager {
       try {
          if(RecoveryClaims.claimExists(claim)) {
             PromotionLedger.blockReplay(level,pos,claim);
-            PREGEN_RETRY.add(captureKey(level,pos));
+            addRetry(PREGEN_RETRY,captureKey(level,pos));
             return CompletableFuture.failedFuture(new IOException("Promotion ownership is active at "+claim));
          }
       } catch(IOException ownershipFailure) {
          PromotionLedger.blockReplay(level,pos,claim);
-         PREGEN_RETRY.add(captureKey(level,pos));
+         addRetry(PREGEN_RETRY,captureKey(level,pos));
          return CompletableFuture.failedFuture(ownershipFailure);
       }
       if(!Files.isRegularFile(file))return CompletableFuture.completedFuture(Optional.empty());
@@ -682,18 +687,18 @@ public final class CacheManager {
                try {
                   if(RecoveryClaims.claimExists(claim)) {
                      PromotionLedger.blockReplay(level,pos,claim);
-                     PREGEN_RETRY.add(captureKey(level,pos));
+                     addRetry(PREGEN_RETRY,captureKey(level,pos));
                      throw new java.io.UncheckedIOException(new IOException("Promotion ownership changed at "+claim));
                   }
                   CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
                   if(!validEnvelope(envelope,level,pos,fingerprint)) {
                      quarantineRejected(file);
-                     PREGEN_RETRY.add(captureKey(level,pos));
+                     addRetry(PREGEN_RETRY,captureKey(level,pos));
                      return Optional.<CompoundTag>empty();
                   }
                   CONFIRMED_PREGEN.put(captureKey(level,pos),file);
                   if(!PregenBorrowLedger.beginBorrowed(level,pos,file)) {
-                     PREGEN_RETRY.add(captureKey(level,pos));
+                     addRetry(PREGEN_RETRY,captureKey(level,pos));
                      return Optional.<CompoundTag>empty();
                   }
                   PipelineMetrics.count("pregen-full-borrowed-for-lod");
@@ -702,14 +707,14 @@ public final class CacheManager {
                   throw ownershipFailure;
                } catch(Throwable invalid) {
                   quarantineRejected(file);
-                  PREGEN_RETRY.add(captureKey(level,pos));
+                  addRetry(PREGEN_RETRY,captureKey(level,pos));
                   LOG.warn("Pregen FULL {} could not be validated for LOD repair; quarantined for coordinate-local regeneration",file,invalid);
                   return Optional.<CompoundTag>empty();
                }
             }
          },READ_IO);
       } catch(RejectedExecutionException full) {
-         PREGEN_RETRY.add(captureKey(level,pos));
+         addRetry(PREGEN_RETRY,captureKey(level,pos));
          return CompletableFuture.failedFuture(full);
       }
    }
@@ -1230,6 +1235,12 @@ public final class CacheManager {
 
    /** Final cleanup only after vanilla/NeoForge have finished the shutdown save/close path. */
    public static void stopped(MinecraftServer server) {
+      // Crash shutdown can reach ServerStoppedEvent without ServerStoppingEvent.
+      // Keep this weak stop marker after cleanup so detached callbacks cannot
+      // resurrect retry state or publish new cache data for a dead server.
+      STOPPING.add(server);
+      CAPTURE_PENDING.forEach((key,flight) -> { if(key.level().getServer()==server) flight.result().complete(false); });
+      LIVE_INSPECTIONS.forEach(permit -> { if(permit.server==server) permit.close(); });
       PromotionLedger.clear(server);
       PregenBorrowLedger.clear(server);
       PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
@@ -1250,7 +1261,6 @@ public final class CacheManager {
          RecoveryClaims.clear(dimension);
          NEXT_LOCAL_RECOVERY_WARNING.remove(dimension);
       }
-      STOPPING.remove(server);
    }
 
    private static void rotateGenerations(ServerLevel var0, Fingerprint.Snapshot snapshot, String trigger) {
