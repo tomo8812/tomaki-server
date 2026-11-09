@@ -86,3 +86,31 @@ tasks.named('check') {
     dependsOn tasks.named('verifyIssue66SharedScheduling')
     dependsOn tasks.named('verifyIssue66ChunksmithBytecode')
 }
+
+
+def issue83PlayerCenter = file('src/main/java/maki/lodcpu/PlayerCenter.java')
+def issue83Reset = file('src/main/java/maki/lodcpu/UnifiedPregenReset.java')
+def issue83Governor = file('src/main/java/maki/lodcpu/CpuGovernor.java')
+
+tasks.register('verifyIssue83UnifiedFollow') {
+    inputs.files(issue83PlayerCenter, issue83Reset, issue83Governor)
+    doLast {
+        def center = issue83PlayerCenter.getText('UTF-8')
+        def reset = issue83Reset.getText('UTF-8')
+        def governor = issue83Governor.getText('UTF-8')
+        ['if(online){', 'pipeline-pressure:', 'retrying-incomplete-pairs', 'saved.x=0;saved.z=0'].each { token ->
+            if (!center.contains(token)) throw new GradleException('Issue #83 regression: empty-server unified follow policy missing ' + token)
+        }
+        ['chunksmith_chunk_cache', 'resolve("chunksmith").resolve("lod")', 'minecraft_overworld', '.promotions', '.nbt.gz.in-use', 'maki_pregen_unified_v1.reset'].each { token ->
+            if (!reset.contains(token)) throw new GradleException('Issue #83 regression: one-time disposable-state reset missing ' + token)
+        }
+        if (!governor.contains('pregenRetryPending') || !governor.contains('pipelinePressure()')
+                || !governor.contains('pregenReady')) {
+            throw new GradleException('Issue #83 regression: unified retry/pressure/readiness bridge missing')
+        }
+        if (!center.contains('waiting-pregen-fingerprint')) {
+            throw new GradleException('Issue #83 regression: generation can start before cache identity is ready')
+        }
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifyIssue83UnifiedFollow') }

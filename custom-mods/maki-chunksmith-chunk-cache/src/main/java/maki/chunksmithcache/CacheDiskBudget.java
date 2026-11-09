@@ -10,13 +10,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /** Cached disk observations only on the caller path; inventory and FileStore reads run off-thread. */
 final class CacheDiskBudget {
-    private static final long DEFAULT_MAX = 20L << 30;
+    private static final long DEFAULT_MAX = 15L << 30;
     private static final long DEFAULT_RESERVE = 2L << 30;
     private static final Map<Path, CacheDiskBudget> ROOTS = new ConcurrentHashMap<>();
     private final Path root;
     private long observedAt;
     private long inventoriedAt;
     private long activeBytes;
+    private long lodBytes;
     private long usableBytes;
     private long reservedBytes;
     private long additions;
@@ -57,6 +58,7 @@ final class CacheDiskBudget {
                     }
                 }
             }
+            long observedLodBytes = treeBytes(root.getParent().resolve("chunksmith").resolve("lod"));
             synchronized (this) {
                 maxBytes = max;
                 minimumFree = reserve;
@@ -64,12 +66,23 @@ final class CacheDiskBudget {
                 // Inventory is not a filesystem snapshot. Concurrent additions may already be in
                 // it, so count them again conservatively rather than underestimating occupancy.
                 if (inventory) { activeBytes = Math.addExact(bytes, additions-additionsBefore); inventoriedAt = inventoryEpoch==epoch?now:0L; }
+                lodBytes = observedLodBytes;
                 observedAt = now;
                 observationFailure = null;
             }
         } catch (Exception error) {
             synchronized (this) { observationFailure = "cache-disk-unavailable"; }
         }
+    }
+
+    private static long treeBytes(Path tree) throws IOException {
+        if (!Files.isDirectory(tree)) return 0L;
+        long total=0L;
+        try (var walk=Files.walk(tree)) {
+            var files=walk.filter(Files::isRegularFile).iterator();
+            while(files.hasNext()) total=Math.addExact(total,Files.size(files.next()));
+        }
+        return total;
     }
 
     private static long positive(Properties properties, String key, long fallback) {
@@ -83,7 +96,7 @@ final class CacheDiskBudget {
     synchronized String pressure(long additional) {
         if (observationFailure != null) return observationFailure;
         if (System.nanoTime() - observedAt > 60_000_000_000L) return "cache-disk-measurement-stale";
-        if (additional > maxBytes - activeBytes - reservedBytes) return "cache-active-capacity";
+        if (additional > maxBytes - activeBytes - lodBytes - reservedBytes) return "pregen-combined-capacity";
         if (additional > usableBytes - minimumFree - reservedBytes) return "cache-disk-reserve";
         return null;
     }
@@ -106,7 +119,7 @@ final class CacheDiskBudget {
 
     synchronized void deleted(long bytes) { activeBytes = Math.max(0, activeBytes - bytes); }
     synchronized void invalidateInventory() { inventoryEpoch++; inventoriedAt=0L; }
-    synchronized long activeBytes() { return activeBytes; }
+    synchronized long activeBytes() { return Math.max(0L, activeBytes + lodBytes); }
     synchronized long usableBytes() { return usableBytes; }
 
     final class Lease implements AutoCloseable {

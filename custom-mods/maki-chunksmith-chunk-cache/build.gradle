@@ -46,8 +46,8 @@ def registeredMixins = [
     'maki.chunksmithcache.mixin.SectionStorageMixin',
     'maki.chunksmithcache.mixin.EntityStorageMixin',
     'maki.chunksmithcache.mixin.ServerLevelUnloadMixin',
-    'maki.chunksmithcache.mixin.MinecraftServerMixin',
     'maki.chunksmithcache.mixin.NeoForgeWorldMixin',
+    'maki.chunksmithcache.mixin.GenerationTaskPairMixin',
     'maki.chunksmithcache.mixin.GenerationRequestMixin',
     'maki.chunksmithcache.mixin.LodStoreCommitMixin',
     'maki.chunksmithcache.mixin.ServerLevelEntityAccessor',
@@ -177,7 +177,7 @@ tasks.register('verifyIssue66CacheVisibility') {
             if (!cache.contains(token)) throw new GradleException('Issue #66 regression: cache overlap protection missing ' + token)
         }
         if (!mixin.contains('isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;')
-                || !mixin.contains('chunksmithGeneratedHint')) {
+                || !mixin.contains('protectChunksmithGeneratedResult')) {
             throw new GradleException('Issue #66 regression: cache-backed generated-state Mixin missing')
         }
         def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
@@ -258,3 +258,79 @@ tasks.named('check') { dependsOn tasks.named('cachePipelineTest') }
 // Pipeline tests exercise vanilla NBT and the installed native record ABI.
 sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
 sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
+
+
+def issue83CacheSource = file('src/main/java/maki/chunksmithcache/CacheManager.java')
+def issue83PairMixin = file('src/main/java/maki/chunksmithcache/mixin/GenerationTaskPairMixin.java')
+def issue83Mixins = file('src/main/resources/maki-chunksmith-chunk-cache.mixins.json')
+def issue83DiskBudget = file('src/main/java/maki/chunksmithcache/CacheDiskBudget.java')
+def issue83Borrow = file('src/main/java/maki/chunksmithcache/PregenBorrowLedger.java')
+def issue83ChunkSave = file('src/main/java/maki/chunksmithcache/mixin/ChunkMapSaveMixin.java')
+def issue83EntitySave = file('src/main/java/maki/chunksmithcache/mixin/EntityStorageMixin.java')
+def issue83PoiSave = file('src/main/java/maki/chunksmithcache/mixin/SectionStorageMixin.java')
+def issue83Unload = file('src/main/java/maki/chunksmithcache/mixin/ServerLevelUnloadMixin.java')
+def issue83Request = file('src/main/java/maki/chunksmithcache/mixin/GenerationRequestMixin.java')
+def issue83World = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldMixin.java')
+
+tasks.register('verifyIssue83UnifiedPregen') {
+    inputs.files(issue83CacheSource, issue83PairMixin, issue83Mixins, issue83DiskBudget,
+        issue83Borrow, issue83ChunkSave, issue83EntitySave, issue83PoiSave, issue83Unload,
+        issue83Request, issue83World)
+    doLast {
+        def cache = issue83CacheSource.getText('UTF-8')
+        def pair = issue83PairMixin.getText('UTF-8')
+        def mixins = issue83Mixins.getText('UTF-8')
+        def disk = issue83DiskBudget.getText('UTF-8')
+        def borrow = issue83Borrow.getText('UTF-8')
+        def chunkSave = issue83ChunkSave.getText('UTF-8')
+        def entitySave = issue83EntitySave.getText('UTF-8')
+        def poiSave = issue83PoiSave.getText('UTF-8')
+        def unload = issue83Unload.getText('UTF-8')
+        def request = issue83Request.getText('UTF-8')
+        def world = issue83World.getText('UTF-8')
+        if (mixins.contains('"MinecraftServerMixin"')) {
+            throw new GradleException('Issue #83 regression: independent Backfill server-tick exploration is active')
+        }
+        ['loadForPregenLodRepair', 'PregenBorrowLedger.attachLod', 'pregenRetryPending', 'LOD_PENDING',
+         'chunksmithGeneratedDecision', 'protectChunksmithGeneratedResult', 'unifiedPairSkipHint'].each { token ->
+            if (!cache.contains(token)) throw new GradleException('Issue #83 regression: unified cache/LOD state missing ' + token)
+        }
+        if (!pair.contains('ordinal=0') || !pair.contains('ordinal=1') || !pair.contains('ordinal=2')
+                || !pair.contains('unifiedPairSkipHint')
+                || !pair.contains('noteObservedNormalFullLod')
+                || !pair.contains('noteObservedLodPresent')) {
+            throw new GradleException('Issue #83 regression: pair-aware skip/retry reconciliation is incomplete')
+        }
+        if (!disk.contains('15L << 30') || !disk.contains('pregen-combined-capacity') || !disk.contains('resolve("chunksmith").resolve("lod")')) {
+            throw new GradleException('Issue #83 regression: combined FULL+LOD capacity guard missing')
+        }
+        ['Kind { GENERATED, BORROWED }', 'beginGenerated', 'beginBorrowed', 'handoffCandidate', 'handedOff', 'isHandedOff',
+         'suppressPersistence', 'lodDone().isDone()', 'unloaded'].each { token ->
+            if (!borrow.contains(token)) throw new GradleException('Issue #83 regression: pregen persistence lifecycle missing ' + token)
+        }
+        ['PREGEN_NEW_TARGETS', 'preparePregenRequest', 'PregenBorrowLedger.beginGenerated',
+         'PregenBorrowLedger.Kind.GENERATED', 'noteChunksmithGeneratedResult', 'noteChunksmithGeneratedFailure',
+         'pregenRequestFailed'].each { token ->
+            if (!cache.contains(token)) throw new GradleException('Issue #83 regression: new FULL target ownership missing ' + token)
+        }
+        if (!request.contains('CacheManager.preparePregenRequest')
+                || !request.contains('CacheManager.pregenRequestFailed')
+                || !world.contains('maki$rememberGeneratedDecision')
+                || !world.contains('CacheManager.noteChunksmithGeneratedResult')
+                || !world.contains('CacheManager.noteChunksmithGeneratedFailure')) {
+            throw new GradleException('Issue #83 regression: target must be classified and guarded before getChunkAtAsync')
+        }
+        if (!cache.contains('PromotionLedger.adoptLive(level,pos,handoff,pending==null?null:pending.result())')
+                || !cache.contains('PromotionLedger.entitiesRestored(level,pos)')
+                || !cache.contains('pregen-borrow-player-handoff')) {
+            throw new GradleException('Issue #83 regression: player handoff must claim promotion ownership before persistence')
+        }
+        if (!chunkSave.contains('pregenPersistenceSuppressed')
+                || !entitySave.contains('pregenPersistenceSuppressed')
+                || !poiSave.contains('pregenPoiPersistenceSuppressed')
+                || !unload.contains('pregenBorrowUnloaded')) {
+            throw new GradleException('Issue #83 regression: borrowed FULL can leak into normal chunk/entity/POI storage')
+        }
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifyIssue83UnifiedPregen') }

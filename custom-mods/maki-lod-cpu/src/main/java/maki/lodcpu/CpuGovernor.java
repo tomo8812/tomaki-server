@@ -32,6 +32,20 @@ public final class CpuGovernor {
     public static boolean onlineOverload(){return !configGood||!Double.isFinite(observedCpu)||observedCpu>=98||observedMspt>=45||observedHeap>=settings.highHeap;}
     public static boolean recovered(){return configGood&&Double.isFinite(observedCpu)&&observedCpu<80&&observedMspt<25&&observedHeap<settings.highHeap-10;}
     public static int cap(){return cap;}
+    public static String pipelinePressure(){refreshPipelinePressure();return pipelinePressure;}
+    public static boolean pregenRetryPending(int centerX,int centerZ,int radiusBlocks){
+        try { return Boolean.TRUE.equals(Class.forName("maki.chunksmithcache.CacheManager")
+            .getMethod("pregenRetryPending",int.class,int.class,int.class).invoke(null,centerX,centerZ,radiusBlocks)); }
+        catch (ClassNotFoundException absent) { return false; }
+        catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) { return true; }
+    }
+
+    public static boolean pregenReady(net.minecraft.server.MinecraftServer server){
+        try { return Boolean.TRUE.equals(Class.forName("maki.chunksmithcache.CacheManager")
+            .getMethod("pregenReady",net.minecraft.server.MinecraftServer.class).invoke(null,server)); }
+        catch (ClassNotFoundException absent) { return true; }
+        catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) { return false; }
+    }
 
     // Observation only: source MODs retain authoritative queue/memory ownership.
     // Missing optional MODs do not block startup or a healthy standalone governor.

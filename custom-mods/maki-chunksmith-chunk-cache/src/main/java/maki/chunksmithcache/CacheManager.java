@@ -26,6 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ThreadPoolExecutor.AbortPolicy;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
@@ -57,9 +58,19 @@ public final class CacheManager {
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
    private static final Map<String,Long> ROTATION_RETRY = new ConcurrentHashMap<>();
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
+   // FULL/ownership and LOD persistence debt are independent: a normal FULL save
+   // must never erase a failed/missing LOD obligation.
+   private static final Set<CaptureKey> PREGEN_RETRY = ConcurrentHashMap.newKeySet();
+   private static final Set<CaptureKey> PREGEN_LOD_RETRY = ConcurrentHashMap.newKeySet();
+   private static final ConcurrentHashMap<CaptureKey,Long> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
+   private static final ConcurrentHashMap<CaptureKey,AtomicInteger> LOD_PENDING = new ConcurrentHashMap<>();
+   private static final ConcurrentHashMap<CaptureKey,Path> CONFIRMED_PREGEN = new ConcurrentHashMap<>();
+   private static final ConcurrentHashMap<Path,ConcurrentHashMap<String,Long>> NEXT_LOCAL_RECOVERY_WARNING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
    private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
    private static final long MAINTENANCE_RETRY_MS = TimeUnit.MINUTES.toMillis(1L);
+   private static final long LOCAL_RECOVERY_WARNING_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1L);
+   private static final long LOCAL_OWNERSHIP_TIMEOUT_SECONDS = 10L;
    private static final ThreadPoolExecutor WRITE_IO = new ThreadPoolExecutor(
       1, 1, 30L, TimeUnit.SECONDS, new ArrayBlockingQueue<>(128), daemonFactory("maki-chunk-cache-write"), new AbortPolicy()
    );
@@ -75,21 +86,162 @@ public final class CacheManager {
 
    public static void captureFromChunksmith(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> lodCommitted) {
       PipelineMetrics.count("direct-full-candidates");
-      // A generic LodSupport.offer can also come from save/unload refreshes or
-      // another owner's task. Only the world-adapter call site invokes us now.
-      if (level == null || chunk == null || !level.getServer().isSameThread()
-         || level.getServer().getPlayerCount() != 0 || !FollowCaptureOwnership.owns(level)
-         || BackfillGuard.suppress(level, chunk.getPos()) || !HorizonGuard.drop(level, chunk.getPos())) {
+      if (level == null || chunk == null) return;
+      ChunkPos pos=chunk.getPos();
+      CaptureKey key=captureKey(level,pos);
+      LOD_PENDING.compute(key,(ignored,count) -> {
+         if(count==null)count=new AtomicInteger();
+         count.incrementAndGet();
+         return count;
+      });
+      lodCommitted.whenComplete((saved,error) -> LOD_PENDING.computeIfPresent(key,(ignored,count) ->
+         count.decrementAndGet()<=0?null:count));
+
+      // A confirmed cache FULL borrowed to repair LOD already owns its read-only
+      // persistence guard. Attach the native writer ACK and keep the guard until unload.
+      if (PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.BORROWED) {
+         PregenBorrowLedger.attachLod(level,pos,lodCommitted);
+         PREGEN_NEW_TARGETS.remove(key);
+         lodCommitted.whenComplete((saved,error) -> {
+            if(error==null && Boolean.TRUE.equals(saved)) {
+               PREGEN_LOD_RETRY.remove(key);
+               PipelineMetrics.count("pregen-lod-repair-complete");
+            } else {
+               PREGEN_LOD_RETRY.add(key);
+               PipelineMetrics.count("pregen-lod-repair-failed");
+            }
+         });
+         return;
+      }
+
+      // No NEW marker means Chunksmith loaded an already-authoritative normal FULL
+      // only to repair LOD. Do not copy it into the pregen cache or suppress its saves.
+      boolean generatedTarget=PREGEN_NEW_TARGETS.remove(key)!=null;
+      if(!generatedTarget) {
+         lodCommitted.whenComplete((lodSaved,lodError) -> {
+            if(lodError==null && Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
+            else PREGEN_LOD_RETRY.add(key);
+         });
+         return;
+      }
+
+      // A generic LodSupport.offer can also come from another owner's task.
+      // Only a target proven NEW by this follow-owned Chunksmith task is cached.
+      // Player arrival does not cancel already-owned work; handoff is claim-before-write.
+      if (!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(level)
+         || BackfillGuard.suppress(level, pos)) {
+         PREGEN_RETRY.add(key);
          PipelineMetrics.count("direct-ineligible");
          return;
       }
-      ChunkPos pos=chunk.getPos();
-      lodCommitted.whenComplete((saved,error) -> {
-         if(error!=null || !Boolean.TRUE.equals(saved)) Fingerprint.whenReady(level).thenAccept(fingerprint -> {
-            if(fingerprint!=null) BackfillController.retryDirectLod(level,pos,fingerprint.fingerprint());
+
+      if(PregenBorrowLedger.kind(level,pos)!=PregenBorrowLedger.Kind.GENERATED) {
+         PREGEN_RETRY.add(key);
+         PipelineMetrics.count("direct-persistence-guard-missing");
+         return;
+      }
+      if(PregenBorrowLedger.isHandedOff(level,pos)) {
+         lodCommitted.whenComplete((lodSaved,lodError) -> {
+            if(lodError==null&&Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
+            else PREGEN_LOD_RETRY.add(key);
          });
+         PipelineMetrics.count("direct-cache-skipped-after-player-handoff");
+         return;
+      }
+      PregenBorrowLedger.attachLod(level,pos,lodCommitted);
+      lodCommitted.whenComplete((lodSaved,lodError) -> {
+         if(lodError==null && Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
+         else PREGEN_LOD_RETRY.add(key);
       });
-      capture(level, chunk, false, lodCommitted);
+      CompletableFuture<Boolean> saved=capture(level, chunk, false, lodCommitted);
+      saved.whenComplete((ok,error) -> {
+         if(error==null && Boolean.TRUE.equals(ok)) {
+            Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+            if(snapshot!=null)CONFIRMED_PREGEN.put(key,path(level,pos,snapshot.fingerprint()));
+            PREGEN_RETRY.remove(key);
+            PREGEN_LOD_RETRY.remove(key);
+            return;
+         }
+         try {
+            NormalChunkStorage.inspectAsync(level,pos).whenComplete((normal,inspectError) -> {
+               if(inspectError!=null || normal!=NormalChunkStorage.State.FULL) {
+                  PREGEN_RETRY.add(key);
+                  return;
+               }
+               PREGEN_RETRY.remove(key);
+               lodCommitted.whenComplete((lodSaved,lodError) -> {
+                  if(lodError==null && Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
+                  else PREGEN_LOD_RETRY.add(key);
+               });
+            });
+         } catch(Throwable inspectFailure) {
+            PREGEN_RETRY.add(key);
+         }
+      });
+   }
+
+   public static boolean pregenRetryPending(int centerX, int centerZ, int radiusBlocks) {
+      long radius=(long)Math.max(0,radiusBlocks)+16L;
+      long radiusSquared=radius*radius;
+      if(anyInRange(PREGEN_RETRY,centerX,centerZ,radiusSquared))return true;
+      if(anyInRange(PREGEN_LOD_RETRY,centerX,centerZ,radiusSquared))return true;
+      if(anyInRange(PREGEN_NEW_TARGETS.keySet(),centerX,centerZ,radiusSquared))return true;
+      if(anyInRange(LOD_PENDING.keySet(),centerX,centerZ,radiusSquared))return true;
+      return anyInRange(CAPTURE_PENDING.keySet(),centerX,centerZ,radiusSquared);
+   }
+
+   public static void noteChunksmithGeneratedResult(ServerLevel level,ChunkPos pos,boolean generated) {
+      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return;
+      CaptureKey key=captureKey(level,pos);
+      if(generated) PREGEN_NEW_TARGETS.remove(key);
+      else PREGEN_NEW_TARGETS.put(key,System.currentTimeMillis());
+   }
+
+   public static void noteChunksmithGeneratedFailure(ServerLevel level,ChunkPos pos) {
+      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return;
+      CaptureKey key=captureKey(level,pos);
+      PREGEN_NEW_TARGETS.remove(key);
+      PREGEN_RETRY.add(key);
+      PipelineMetrics.count("pregen-generated-state-failed");
+   }
+
+   public static boolean preparePregenRequest(ServerLevel level,ChunkPos pos) {
+      if(level==null||pos==null)return false;
+      CaptureKey key=captureKey(level,pos);
+      if(!PREGEN_NEW_TARGETS.containsKey(key))return true;
+      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+      if(snapshot==null) {
+         PREGEN_RETRY.add(key);
+         return false;
+      }
+      Path file=path(level,pos,snapshot.fingerprint());
+      PregenBorrowLedger.Kind kind=PregenBorrowLedger.kind(level,pos);
+      if(kind==PregenBorrowLedger.Kind.GENERATED)return true;
+      if(kind!=null)return false;
+      if(PregenBorrowLedger.beginGenerated(level,pos,file))return true;
+      PREGEN_RETRY.add(key);
+      return false;
+   }
+
+   public static void pregenRequestFailed(ServerLevel level,ChunkPos pos) {
+      if(level==null||pos==null)return;
+      CaptureKey key=captureKey(level,pos);
+      PREGEN_NEW_TARGETS.remove(key);
+      PREGEN_RETRY.add(key);
+   }
+
+   public static boolean pregenReady(MinecraftServer server) {
+      return server!=null && Fingerprint.snapshotForLevel(server.overworld())!=null;
+   }
+
+   private static boolean anyInRange(Iterable<CaptureKey> keys,int centerX,int centerZ,long radiusSquared) {
+      for(CaptureKey key:keys) {
+         ChunkPos pos=new ChunkPos(key.pos());
+         long x=((long)pos.x<<4)+8L-centerX;
+         long z=((long)pos.z<<4)+8L-centerZ;
+         if(x*x+z*z<=radiusSquared)return true;
+      }
+      return false;
    }
 
    /**
@@ -98,16 +250,145 @@ public final class CacheManager {
     * a visible path represents a completed write; CAPTURE_PENDING closes the
     * small race before that atomic move.
     */
+   public static boolean unifiedPairSkipHint(ServerLevel level, ChunkPos pos) {
+      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return false;
+      CaptureKey key=captureKey(level,pos);
+      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+      if(snapshot==null)return false;
+      Path expected=path(level,pos,snapshot.fingerprint());
+      Path confirmed=CONFIRMED_PREGEN.get(key);
+      if(expected.equals(confirmed)&&Files.isRegularFile(expected)) {
+         PREGEN_RETRY.remove(key);
+         PREGEN_LOD_RETRY.remove(key);
+         return true;
+      }
+      if(confirmed!=null)CONFIRMED_PREGEN.remove(key,confirmed);
+      // Do not let the horizon's cheap LOD-only test skip an unvalidated cache file.
+      // The later isChunkGenerated Future can validate it off-thread.
+      return false;
+   }
+
+   public static CompletableFuture<Boolean> protectChunksmithGeneratedResult(
+      ServerLevel level, ChunkPos pos, CompletableFuture<Boolean> nativeResult
+   ) {
+      if(level==null||pos==null||nativeResult==null)return nativeResult;
+      CaptureKey key=captureKey(level,pos);
+      return nativeResult.thenCompose(generated -> {
+         if(Boolean.TRUE.equals(generated)) {
+            // Native FULL is authoritative over every pregen/cache observation.
+            PREGEN_RETRY.remove(key);
+            PREGEN_NEW_TARGETS.remove(key);
+            return CompletableFuture.completedFuture(true);
+         }
+         CompletableFuture<Boolean> cacheDecision=chunksmithGeneratedDecision(level,pos);
+         return cacheDecision==null?CompletableFuture.completedFuture(false):cacheDecision;
+      });
+   }
+
+   public static CompletableFuture<Boolean> chunksmithGeneratedDecision(ServerLevel level, ChunkPos pos) {
+      if(level==null||pos==null)return null;
+      CaptureKey key=captureKey(level,pos);
+      if(BackfillGuard.active(level,pos))return CompletableFuture.completedFuture(true);
+      CaptureFlight pending=CAPTURE_PENDING.get(key);
+      if(pending!=null)return pending.result().thenApply(Boolean.TRUE::equals);
+
+      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+      if(snapshot==null)return null;
+      String fingerprint=snapshot.fingerprint();
+      Path file=path(level,pos,fingerprint);
+      Path confirmed=CONFIRMED_PREGEN.get(key);
+      if(file.equals(confirmed)&&Files.isRegularFile(file)) {
+         PREGEN_RETRY.remove(key);
+         return CompletableFuture.completedFuture(true);
+      }
+      if(confirmed!=null)CONFIRMED_PREGEN.remove(key,confirmed);
+
+      Path claim=PromotionClaim.claimedPath(file);
+      try {
+         if(RecoveryClaims.claimExists(claim)) {
+            PREGEN_RETRY.add(key);
+            return CompletableFuture.completedFuture(true);
+         }
+      } catch(IOException ownershipUnknown) {
+         PREGEN_RETRY.add(key);
+         PipelineMetrics.count("promotion-claim-inspection-failed");
+         return CompletableFuture.completedFuture(true);
+      }
+      if(!Files.isRegularFile(file))return null;
+
+      try {
+         return CompletableFuture.supplyAsync(() -> {
+            try(var pathLock=CachePathLocks.lock(file)) {
+               try {
+                  if(RecoveryClaims.claimExists(claim)) {
+                     PREGEN_RETRY.add(key);
+                     return true;
+                  }
+                  CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
+                  if(validEnvelope(envelope,level,pos,fingerprint)) {
+                     CONFIRMED_PREGEN.put(key,file);
+                     PREGEN_RETRY.remove(key);
+                     PipelineMetrics.count("pregen-full-validated");
+                     return true;
+                  }
+                  CONFIRMED_PREGEN.remove(key);
+                  quarantineRejected(file);
+                  PipelineMetrics.count("pregen-full-invalid");
+                  return false;
+               } catch(IOException ownershipOrReadFailure) {
+                  CONFIRMED_PREGEN.remove(key);
+                  try {
+                     if(RecoveryClaims.claimExists(claim)) {
+                        PREGEN_RETRY.add(key);
+                        return true;
+                     }
+                  } catch(IOException ownershipUnknown) {
+                     PREGEN_RETRY.add(key);
+                     return true;
+                  }
+                  quarantineRejected(file);
+                  PipelineMetrics.count("pregen-full-invalid");
+                  return false;
+               } catch(Throwable invalid) {
+                  CONFIRMED_PREGEN.remove(key);
+                  quarantineRejected(file);
+                  PipelineMetrics.count("pregen-full-invalid");
+                  return false;
+               }
+            }
+         },READ_IO);
+      } catch(RejectedExecutionException full) {
+         PREGEN_RETRY.add(key);
+         return CompletableFuture.completedFuture(true);
+      }
+   }
+
+   public static void noteObservedNormalFullLod(ServerLevel level,ChunkPos pos) {
+      if(level==null||pos==null)return;
+      CaptureKey key=captureKey(level,pos);
+      PREGEN_RETRY.remove(key);
+      PREGEN_LOD_RETRY.remove(key);
+      PREGEN_NEW_TARGETS.remove(key);
+   }
+
+   public static void noteObservedLodPresent(ServerLevel level,ChunkPos pos) {
+      if(level==null||pos==null)return;
+      PREGEN_LOD_RETRY.remove(captureKey(level,pos));
+   }
+
    public static boolean chunksmithGeneratedHint(ServerLevel level, ChunkPos pos) {
       if(level==null||pos==null)return false;
-      if(BackfillGuard.active(level,pos)||CAPTURE_PENDING.containsKey(captureKey(level,pos)))return true;
+      CaptureKey key=captureKey(level,pos);
+      if(BackfillGuard.active(level,pos)||CAPTURE_PENDING.containsKey(key))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
-      if (snapshot == null) return false;
-      Path file = path(level, pos, snapshot.fingerprint());
+      if(snapshot==null)return false;
+      Path file=path(level,pos,snapshot.fingerprint());
+      Path confirmed=CONFIRMED_PREGEN.get(key);
+      if(file.equals(confirmed)&&Files.isRegularFile(file))return true;
+      if(confirmed!=null)CONFIRMED_PREGEN.remove(key,confirmed);
       try {
-         return Files.isRegularFile(file) || RecoveryClaims.claimExists(PromotionClaim.claimedPath(file));
+         return RecoveryClaims.claimExists(PromotionClaim.claimedPath(file));
       } catch(IOException error) {
-         // Unknown ownership is generated/pending for admission purposes: never generate over it.
          PipelineMetrics.count("promotion-claim-inspection-failed");
          return true;
       }
@@ -329,35 +610,206 @@ public final class CacheManager {
          return CompletableFuture.completedFuture(normal);
       }
 
+      if (pregenBorrowAllowed(level,pos)) {
+         return loadForPregenLodRepair(level,pos).thenApply(cached -> cached.isPresent() ? cached : normal);
+      }
       return loadIfPresent(level, pos).thenApply(cached -> cached.isPresent() ? cached : normal);
+   }
+
+   private static boolean pregenBorrowAllowed(ServerLevel level, ChunkPos pos) {
+      // Ownership, not global player count or HorizonGuard radius, identifies a
+      // unified-pregen request. A player arriving mid-flight is handled later by
+      // the coordinate-local claim-before-write handoff.
+      return FollowCaptureOwnership.owns(level);
+   }
+
+   private static CompletableFuture<Optional<CompoundTag>> loadForPregenLodRepair(ServerLevel level, ChunkPos pos) {
+      // A GENERATED guard is armed before getChunkAtAsync precisely so the target
+      // can reach FULL without entering normal persistence. Do not wait on its own
+      // future LOD ACK or try to load a cache that does not exist yet.
+      if(PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.GENERATED)
+         return CompletableFuture.completedFuture(Optional.empty());
+
+      CompletableFuture<Boolean> active=PregenBorrowLedger.pending(level,pos);
+      if(active!=null) return active.handle((ignored,error)->null).thenCompose(ignored -> loadForPregenLodRepair(level,pos));
+
+      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+      if(snapshot==null)return CompletableFuture.completedFuture(Optional.empty());
+      String fingerprint=snapshot.fingerprint();
+      rotateGenerations(level,snapshot,"pregen-lod-repair");
+      Path file=path(level,pos,fingerprint);
+      Path claim=PromotionClaim.claimedPath(file);
+      try {
+         if(RecoveryClaims.claimExists(claim)) {
+            PromotionLedger.blockReplay(level,pos,claim);
+            PREGEN_RETRY.add(captureKey(level,pos));
+            return CompletableFuture.failedFuture(new IOException("Promotion ownership is active at "+claim));
+         }
+      } catch(IOException ownershipFailure) {
+         PromotionLedger.blockReplay(level,pos,claim);
+         PREGEN_RETRY.add(captureKey(level,pos));
+         return CompletableFuture.failedFuture(ownershipFailure);
+      }
+      if(!Files.isRegularFile(file))return CompletableFuture.completedFuture(Optional.empty());
+
+      try {
+         return CompletableFuture.supplyAsync(() -> {
+            try(var pathLock=CachePathLocks.lock(file)) {
+               try {
+                  if(RecoveryClaims.claimExists(claim)) {
+                     PromotionLedger.blockReplay(level,pos,claim);
+                     PREGEN_RETRY.add(captureKey(level,pos));
+                     throw new java.io.UncheckedIOException(new IOException("Promotion ownership changed at "+claim));
+                  }
+                  CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
+                  if(!validEnvelope(envelope,level,pos,fingerprint)) {
+                     quarantineRejected(file);
+                     PREGEN_RETRY.add(captureKey(level,pos));
+                     return Optional.<CompoundTag>empty();
+                  }
+                  CONFIRMED_PREGEN.put(captureKey(level,pos),file);
+                  if(!PregenBorrowLedger.beginBorrowed(level,pos,file)) {
+                     PREGEN_RETRY.add(captureKey(level,pos));
+                     return Optional.<CompoundTag>empty();
+                  }
+                  PipelineMetrics.count("pregen-full-borrowed-for-lod");
+                  return Optional.of(envelope.getCompound("chunk"));
+               } catch(java.io.UncheckedIOException ownershipFailure) {
+                  throw ownershipFailure;
+               } catch(Throwable invalid) {
+                  quarantineRejected(file);
+                  PREGEN_RETRY.add(captureKey(level,pos));
+                  LOG.warn("Pregen FULL {} could not be validated for LOD repair; quarantined for coordinate-local regeneration",file,invalid);
+                  return Optional.<CompoundTag>empty();
+               }
+            }
+         },READ_IO);
+      } catch(RejectedExecutionException full) {
+         PREGEN_RETRY.add(captureKey(level,pos));
+         return CompletableFuture.failedFuture(full);
+      }
    }
 
    public static CompletableFuture<Optional<CompoundTag>> loadIfPresent(ServerLevel var0, ChunkPos var1) {
       Path dimension=cacheRoot(var0).resolve(dimensionKey(var0));
       // Ownership is independent of fingerprint readiness and admission vetoes.
-      // Concurrent loads share off-thread startup inventory, never a server-thread scan.
-      return RecoveryClaims.prepare(dimension,VALIDATE_IO).copy().orTimeout(30,TimeUnit.SECONDS).thenCompose(ignored -> {
-         Path claim=RecoveryClaims.root(dimension).resolve("r."+Math.floorDiv(var1.x,32)+"."+Math.floorDiv(var1.z,32))
-            .resolve("c."+var1.x+"."+var1.z+".nbt.gz.in-use");
-         try {
-            if(RecoveryClaims.claimExists(claim)) {
-               PromotionLedger.blockReplay(var0,var1,claim);
-               PipelineMetrics.count("promotion-replay-blocked");
-               return CompletableFuture.completedFuture(Optional.empty());
-            }
-         } catch(IOException claimError) {
-            PipelineMetrics.count("promotion-claim-inspection-failed");
-            return CompletableFuture.failedFuture(claimError);
+      // Dimension-wide recovery remains the fast path. If it fails or exceeds the load deadline,
+      // inspect only ownership paths that can belong to this coordinate before allowing fallback.
+      return ownershipForLoad(dimension,var1).thenCompose(claim -> {
+         if(claim!=null) {
+            PromotionLedger.blockReplay(var0,var1,claim);
+            PipelineMetrics.count("promotion-replay-blocked");
+            return CompletableFuture.completedFuture(Optional.empty());
          }
          return loadReadyCache(var0,var1);
       }).whenComplete((cached,error) -> {
-         // Vanilla catches read failures and can substitute an empty ProtoChunk. Keep the
-         // ownership failure until the outer scheduleChunkLoad boundary rejects that fallback.
+         // Vanilla catches read failures and can substitute an empty ProtoChunk. Keep target
+         // ownership uncertainty until the outer scheduleChunkLoad boundary rejects that fallback.
          if(error!=null && !STOPPING.contains(var0.getServer())) PromotionLedger.blockReplay(var0,var1,RecoveryClaims.root(dimension));
       });
    }
 
+   private static CompletableFuture<Path> ownershipForLoad(Path dimension,ChunkPos pos) {
+      CompletableFuture<Throwable> prepared=RecoveryClaims.prepare(dimension,VALIDATE_IO)
+         .copy().orTimeout(30,TimeUnit.SECONDS).handle((ignored,error) -> error);
+      return prepared.thenCompose(recoveryFailure -> {
+         if(recoveryFailure==null) {
+            try {
+               return CompletableFuture.completedFuture(RecoveryClaims.claimForCoordinate(dimension,pos.x,pos.z));
+            } catch(IOException targetFailure) {
+               PipelineMetrics.count("promotion-claim-inspection-failed");
+               return CompletableFuture.failedFuture(targetFailure);
+            }
+         }
+
+         try {
+            CompletableFuture<Path> probe=CompletableFuture.supplyAsync(() -> {
+               try {
+                  Path claim=RecoveryClaims.claimForCoordinate(dimension,pos.x,pos.z);
+                  if(claim==null) {
+                     PipelineMetrics.count("promotion-recovery-localized");
+                     LOG.debug(
+                        "Chunk-cache recovery is unavailable for {} but coordinate {} has no ownership in canonical, legacy, quarantine, or conflict paths; normal cache/world loading may continue for this coordinate; recoveryFailure={}",
+                        dimension.getFileName(),pos,failureSummary(recoveryFailure)
+                     );
+                  } else {
+                     PipelineMetrics.count("promotion-recovery-local-claim");
+                     if(allowLocalRecoveryWarning(dimension,"claim")) LOG.warn(
+                        "Chunk-cache load remains blocked for {} {}: dimension recovery is unavailable and targeted ownership proof found {}; repair cache-directory access and retry recovery; recoveryFailure={}",
+                        dimension.getFileName(),pos,claim,failureSummary(recoveryFailure)
+                     );
+                  }
+                  return claim;
+               } catch(IOException targetFailure) {
+                  PipelineMetrics.count("promotion-recovery-local-proof-failed");
+                  String category="proof-"+unwrapFailure(targetFailure).getClass().getName();
+                  if(allowLocalRecoveryWarning(dimension,category)) LOG.warn(
+                     "Chunk-cache load remains blocked for {} {}: dimension recovery failed and target ownership absence cannot be proven; repair cache-directory access before retrying this coordinate; recoveryFailure={}",
+                     dimension.getFileName(),pos,failureSummary(recoveryFailure),targetFailure
+                  );
+                  throw new java.io.UncheckedIOException(
+                     "Cannot prove chunk-cache promotion ownership absence for "+dimension.getFileName()+" "+pos,
+                     targetFailure
+                  );
+               }
+            },READ_IO);
+            return boundedOwnershipProbe(probe,LOCAL_OWNERSHIP_TIMEOUT_SECONDS,TimeUnit.SECONDS)
+               .whenComplete((claim,error) -> {
+                  Throwable failure=unwrapFailure(error);
+                  if(failure instanceof java.util.concurrent.TimeoutException) {
+                     PipelineMetrics.count("promotion-recovery-local-timeout");
+                     if(allowLocalRecoveryWarning(dimension,"timeout")) LOG.warn(
+                        "Chunk-cache load remains blocked for {} {}: coordinate-local ownership proof exceeded {}s after dimension recovery failed; ownership is unknown, so replacement generation remains disabled; repair cache-directory I/O and retry",
+                        dimension.getFileName(),pos,LOCAL_OWNERSHIP_TIMEOUT_SECONDS
+                     );
+                  }
+               });
+         } catch(RejectedExecutionException rejected) {
+            return CompletableFuture.failedFuture(new IOException(
+               "Cannot queue coordinate-local chunk-cache ownership proof for "+dimension.getFileName()+" "+pos,
+               rejected
+            ));
+         }
+      });
+   }
+
+   static <T> CompletableFuture<T> boundedOwnershipProbe(CompletableFuture<T> probe,long timeout,TimeUnit unit) {
+      return probe.orTimeout(timeout,unit);
+   }
+
+   private static boolean allowLocalRecoveryWarning(Path dimension,String category) {
+      Path key=dimension.toAbsolutePath().normalize();
+      long now=System.nanoTime();
+      AtomicBoolean allowed=new AtomicBoolean();
+      NEXT_LOCAL_RECOVERY_WARNING.computeIfAbsent(key,ignored -> new ConcurrentHashMap<>()).compute(category,(ignored,next) -> {
+         if(next==null || now>=next) {
+            allowed.set(true);
+            return now+LOCAL_RECOVERY_WARNING_INTERVAL_NANOS;
+         }
+         return next;
+      });
+      return allowed.get();
+   }
+
+   private static Throwable unwrapFailure(Throwable error) {
+      if(error==null) return null;
+      Throwable value=error;
+      while(value.getCause()!=null && (value instanceof java.util.concurrent.CompletionException
+         || value instanceof java.util.concurrent.ExecutionException)) value=value.getCause();
+      return value;
+   }
+
+   private static String failureSummary(Throwable error) {
+      Throwable value=unwrapFailure(error);
+      String message=value==null?null:value.getMessage();
+      return value==null?"none":value.getClass().getSimpleName()+(message==null?"":": "+message);
+   }
+
    private static CompletableFuture<Optional<CompoundTag>> loadReadyCache(ServerLevel var0, ChunkPos var1) {
+      CompletableFuture<Boolean> borrowed=PregenBorrowLedger.pending(var0,var1);
+      if(borrowed!=null) {
+         return borrowed.handle((ignored,error)->null).thenCompose(ignored -> loadReadyCache(var0,var1));
+      }
       if (!BackfillGuard.suppress(var0, var1) && promotionAllowed(var0, var1)) {
          Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
          if (snapshot == null) {
@@ -466,9 +918,50 @@ public final class CacheManager {
       }
    }
 
+   public static boolean pregenPersistenceSuppressed(ServerLevel level, ChunkPos pos) {
+      Path handoff=PregenBorrowLedger.handoffCandidate(level,pos);
+      if(handoff!=null) {
+         CaptureFlight pending=CAPTURE_PENDING.get(captureKey(level,pos));
+         try {
+            // Existing cache repair claims the durable payload. A newly generated
+            // target may still be publishing; in that case adoptLive creates the
+            // restart-safe marker that prevents a delayed cache publication.
+            if(Files.isRegularFile(handoff) || pending!=null) {
+               if(!PromotionLedger.adoptLive(level,pos,handoff,pending==null?null:pending.result())) {
+                  throw new IOException("pregen payload is no longer claimable at "+handoff);
+               }
+               PromotionLedger.entitiesRestored(level,pos);
+            }
+            // If capture already failed and no payload exists, there is no delayed
+            // pregen state left to own; normal player persistence may become authoritative.
+            PregenBorrowLedger.handedOff(level,pos);
+            PipelineMetrics.count("pregen-borrow-player-handoff");
+            return false;
+         } catch(IOException ownershipFailure) {
+            PromotionLedger.blockReplay(level,pos,handoff);
+            throw new IllegalStateException(
+               "Cannot hand pregen FULL to normal persistence at "+level.dimension().location()+" "+pos
+                  +"; keeping normal writes blocked until cache ownership is unambiguous",
+               ownershipFailure
+            );
+         }
+      }
+      return PregenBorrowLedger.suppressPersistence(level,pos);
+   }
+
+   public static boolean pregenPoiPersistenceSuppressed(Object poiManager, ChunkPos pos) {
+      ServerLevel level=PregenBorrowLedger.levelForPoi(poiManager,pos);
+      return level!=null&&pregenPersistenceSuppressed(level,pos);
+   }
+
+   public static void pregenBorrowUnloaded(ServerLevel level, ChunkPos pos) {
+      PregenBorrowLedger.unloaded(level,pos);
+   }
+
    /** IOWorker.store's Future completes after RegionFileStorage.write, not just enqueue. */
    public static void prepareNormalWrite(ServerLevel level, ChunkPos pos, CompoundTag tag) {
-      if(NormalChunkStorage.fromTag(tag)!=NormalChunkStorage.State.FULL || BackfillGuard.suppress(level,pos)) return;
+      if(NormalChunkStorage.fromTag(tag)!=NormalChunkStorage.State.FULL
+         || BackfillGuard.suppress(level,pos) || pregenPersistenceSuppressed(level,pos)) return;
       Fingerprint.Snapshot fingerprint=Fingerprint.snapshotForLevel(level);
       if(fingerprint==null) return;
       Path file=path(level,pos,fingerprint.fingerprint());
@@ -486,12 +979,18 @@ public final class CacheManager {
    }
 
    public static void onNormalWrite(ServerLevel level, ChunkPos pos, CompoundTag tag, CompletableFuture<Void> written) {
-      if (NormalChunkStorage.fromTag(tag) != NormalChunkStorage.State.FULL || BackfillGuard.suppress(level,pos)) return;
+      if (NormalChunkStorage.fromTag(tag) != NormalChunkStorage.State.FULL
+         || BackfillGuard.suppress(level,pos) || pregenPersistenceSuppressed(level,pos)) return;
       if (PromotionLedger.observeChunkWrite(level,pos,written)) return;
       Fingerprint.Snapshot fingerprint=Fingerprint.snapshotForLevel(level);
       if (fingerprint==null) return;
       Path file=path(level,pos,fingerprint.fingerprint());
-      written.whenComplete((ignored,error) -> { if(error==null) retireClaim(file, () -> {}); });
+      written.whenComplete((ignored,error) -> {
+         if(error==null) {
+            PREGEN_RETRY.remove(captureKey(level,pos));
+            retireClaim(file, () -> {});
+         }
+      });
    }
 
    static boolean retireClaim(Path file, Runnable completed) {
@@ -693,7 +1192,17 @@ public final class CacheManager {
       CAPTURE_PENDING.forEach((key,flight) -> { if(key.level().getServer()==server) flight.result().complete(false); });
       LIVE_INSPECTIONS.forEach(permit -> { if(permit.server==server) permit.close(); });
       PromotionLedger.clear(server);
-      for(ServerLevel level:server.getAllLevels()) RecoveryClaims.clear(cacheRoot(level).resolve(dimensionKey(level)));
+      PregenBorrowLedger.clear(server);
+      PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
+      PREGEN_LOD_RETRY.removeIf(key -> key.level().getServer()==server);
+      PREGEN_NEW_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
+      LOD_PENDING.keySet().removeIf(key -> key.level().getServer()==server);
+      CONFIRMED_PREGEN.keySet().removeIf(key -> key.level().getServer()==server);
+      for(ServerLevel level:server.getAllLevels()) {
+         Path dimension=cacheRoot(level).resolve(dimensionKey(level));
+         RecoveryClaims.clear(dimension);
+         NEXT_LOCAL_RECOVERY_WARNING.remove(dimension.toAbsolutePath().normalize());
+      }
       synchronized(NEXT_MAINTENANCE) { NEXT_MAINTENANCE.remove(server); }
       synchronized(NEXT_DISK_REFRESH) { NEXT_DISK_REFRESH.remove(server); }
    }

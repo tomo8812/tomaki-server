@@ -26,17 +26,23 @@ public abstract class NeoForgeWorldMixin {
 
    @Inject(
       method="isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;",
-      at=@At("HEAD"),
+      at=@At("RETURN"),
       cancellable=true,
       require=1
    )
-   private void maki$cachedFullCountsAsGenerated(
+   private void maki$rememberGeneratedDecision(
       int x,int z,CallbackInfoReturnable<CompletableFuture<Boolean>> cir
    ) {
-      if(CacheManager.chunksmithGeneratedHint(this.world,new ChunkPos(x,z))) {
-         cir.setReturnValue(CompletableFuture.completedFuture(true));
-      }
+      CompletableFuture<Boolean> nativeResult=cir.getReturnValue();
+      if(nativeResult==null)return;
+      ChunkPos pos=new ChunkPos(x,z);
+      CompletableFuture<Boolean> result=CacheManager.protectChunksmithGeneratedResult(this.world,pos,nativeResult);
+      cir.setReturnValue(result.whenComplete((generated,error) -> {
+         if(error==null) CacheManager.noteChunksmithGeneratedResult(this.world,pos,Boolean.TRUE.equals(generated));
+         else CacheManager.noteChunksmithGeneratedFailure(this.world,pos);
+      }));
    }
+
    @Redirect(method="lambda$getChunkAtAsync$8", at=@At(value="INVOKE",
       target="Lcom/kishku7/chunksmith/lod/LodSupport;offer(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;)V"), require=1)
    private void maki$offerAndCapture(ServerLevel level, LevelChunk chunk) {

@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
 public final class MakiChunksmithChunkCache {
     private static final Logger LOG = LoggerFactory.getLogger("MakiChunkCache");
     public MakiChunksmithChunkCache() {
-        LOG.info("Maki Chunksmith Chunk Cache initialized; cold-cache capture, guarded backfill and compatibility quarantine are enabled.");
+        LOG.info("Maki Chunksmith Chunk Cache initialized; unified FULL+LOD capture, read-only LOD repair, safe handoff and compatibility quarantine are enabled.");
         NeoForge.EVENT_BUS.addListener((ServerStoppingEvent event) -> {
             BackfillController.stopping(event.getServer());
             CacheManager.stop(event.getServer());

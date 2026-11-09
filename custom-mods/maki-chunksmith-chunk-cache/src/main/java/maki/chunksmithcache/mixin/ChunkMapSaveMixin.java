@@ -25,7 +25,8 @@ public abstract class ChunkMapSaveMixin {
 
    @Inject(method = "save(Lnet/minecraft/world/level/chunk/ChunkAccess;)Z", at = @At("HEAD"), cancellable = true)
    private void maki$backfillVeto(ChunkAccess var1, CallbackInfoReturnable<Boolean> var2) {
-      if (BackfillGuard.suppress(this.level, var1.getPos())) {
+      if (BackfillGuard.suppress(this.level, var1.getPos())
+         || CacheManager.pregenPersistenceSuppressed(this.level, var1.getPos())) {
          var1.setUnsaved(false);
          var2.setReturnValue(false);
       }

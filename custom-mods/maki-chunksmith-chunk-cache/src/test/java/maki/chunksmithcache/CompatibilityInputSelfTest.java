@@ -56,7 +56,7 @@ public final class CompatibilityInputSelfTest {
 
         List<FingerprintManifest.Entry> unknownA = configEntries(temp, "u1.properties", "config/unknown.properties", "# one\nx=1\n");
         List<FingerprintManifest.Entry> unknownB = configEntries(temp, "u2.properties", "config/unknown.properties", "# two\nx=1\n");
-        require(!fingerprint(unknownA).equals(fingerprint(unknownB)), "unknown config formatting remains fail-closed relevant");
+        require(!fingerprint(unknownA).equals(fingerprint(unknownB)), "unknown configuration must remain fail-closed because code-driven generation impact is not provably absent");
 
         List<String> ignored = FingerprintManifest.changedInputs(manifest(ea), manifest(eb), FingerprintManifest.Impact.IGNORED, 8);
         require(ignored.stream().anyMatch(v -> v.contains("source-format/comment changed")), "zfastnoise audit must explain source-only changes");
@@ -66,13 +66,18 @@ public final class CompatibilityInputSelfTest {
         Path unknownLod = temp.resolve("maki-lod-cpu-9.9.9.jar");
         writeModJar(unknownLod, "maki_lod_cpu", "9.9.9", "future-code");
         List<FingerprintManifest.Entry> unknown = jarEntries("mods/maki-lod-cpu-9.9.9.jar", unknownLod);
-        require(unknown.size() == 1 && unknown.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            "unknown future version of a known neutral mod must fail closed");
+        require(unknown.size() == 1 && unknown.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
+            "future scheduling-only MOD bytes must not rotate generated-result compatibility without generation evidence");
+
+        Path overrideLod = temp.resolve("maki-lod-cpu-10.0.0.jar");
+        writeOverrideModJar(overrideLod, "maki_lod_cpu", "10.0.0", "future-worldgen-hook");
+        require(jarEntries("mods/maki-lod-cpu-10.0.0.jar", overrideLod).getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
+            "an indirect generation override must remain fail-closed even for a normally neutral MOD role");
 
         Path unknownWorldgen = temp.resolve("worldgen.jar");
-        writeModJar(unknownWorldgen, "worldgen_mod", "1.0.1", "terrain-change");
+        writeModJar(unknownWorldgen, "epicterrain", "1.0.1", "terrain-change");
         require(jarEntries("mods/worldgen.jar", unknownWorldgen).getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            "unknown/worldgen mod must remain relevant");
+            "known code-driven worldgen MOD ids must remain relevant");
     }
 
     private static void testInstalledModAudit(Path temp) throws Exception {
@@ -101,7 +106,7 @@ public final class CompatibilityInputSelfTest {
         repack(jade, altered, true);
         List<FingerprintManifest.Entry> alteredEntries = jarEntries("mods/Jade-future.jar", altered);
         require(alteredEntries.size() == 1 && alteredEntries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            "same mod id with altered JAR content must fail closed until separately audited");
+            "unknown future bytes of a third-party UI/runtime MOD must fail closed until audited");
 
         for (String name : List.of(
             "zfastnoise-1.0.13+1.21.1+neoforge.jar",
@@ -181,11 +186,18 @@ public final class CompatibilityInputSelfTest {
     private static void assertAudited(Path jar, String modId) throws Exception {
         require(Files.isRegularFile(jar), "missing installed test JAR " + jar);
         List<FingerprintManifest.Entry> entries = jarEntries("mods/" + jar.getFileName(), jar);
-        require(entries.size() == 2, jar.getFileName() + " must resolve to audited contract + raw audit");
-        require(entries.getFirst().key().equals("compat:mod:" + modId) && entries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            jar.getFileName() + " contract key mismatch");
+        if (Set.of("maki_lod_cpu", "maki_lod_cpu_online_fix", "maki_diorama_share", "maki_mods_observer").contains(modId)) {
+            require(entries.size() == 1 && entries.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
+                jar.getFileName() + " owned scheduling/UI/diagnostic role must remain generation-neutral across updates");
+            return;
+        }
+        require(entries.size() == 2, jar.getFileName() + " must resolve to audited compatibility contract + raw audit");
+        require(entries.getFirst().key().equals("compat:mod:" + modId)
+            && entries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
+            jar.getFileName() + " audited contract key mismatch");
         require(entries.get(1).key().equals(AuditedModCompatibility.RAW_AUDIT_PREFIX + modId)
-            && entries.get(1).impact() == FingerprintManifest.Impact.IGNORED, jar.getFileName() + " raw audit mismatch");
+            && entries.get(1).impact() == FingerprintManifest.Impact.IGNORED,
+            jar.getFileName() + " raw audit mismatch");
     }
 
     private static List<FingerprintManifest.Entry> configEntries(Path temp, String fileName, String key, String content) throws Exception {
@@ -233,6 +245,18 @@ public final class CompatibilityInputSelfTest {
         try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(path))) {
             jar.putNextEntry(new JarEntry("META-INF/neoforge.mods.toml"));
             jar.write(("modLoader=\"javafml\"\n[[mods]]\nmodId=\"" + modId + "\"\nversion=\"" + version + "\"\n").getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+            jar.putNextEntry(new JarEntry("payload.txt"));
+            jar.write(payload.getBytes(StandardCharsets.UTF_8));
+            jar.closeEntry();
+        }
+    }
+
+    private static void writeOverrideModJar(Path path, String modId, String version, String payload) throws IOException {
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(path))) {
+            jar.putNextEntry(new JarEntry("META-INF/neoforge.mods.toml"));
+            jar.write(("modLoader=\"javafml\"\n[[mods]]\nmodId=\"" + modId + "\"\nversion=\"" + version
+                + "\"\n# zfastnoise:overrides\n").getBytes(StandardCharsets.UTF_8));
             jar.closeEntry();
             jar.putNextEntry(new JarEntry("payload.txt"));
             jar.write(payload.getBytes(StandardCharsets.UTF_8));

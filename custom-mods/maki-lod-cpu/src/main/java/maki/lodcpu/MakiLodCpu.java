@@ -16,7 +16,8 @@ public final class MakiLodCpu {
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent e)->{if(e.getEntity() instanceof net.minecraft.server.level.ServerPlayer p)PlayerCenter.logout(p);});
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e)->{
             PlayerCenter.shutdown(e.getServer());
-            LOG.info("Maki LOD CPU stopped; authoritative Chunksmith task progress and migration backups remain in their durable stores.");
+            UnifiedPregenReset.stopped(e.getServer());
+            LOG.info("Maki LOD CPU stopped; authoritative normal-world data remains untouched and unified pregen state stays resumable.");
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.RegisterCommandsEvent e)->PlayerCenter.register(e.getDispatcher()));
     }

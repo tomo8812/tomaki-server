@@ -29,6 +29,15 @@ public final class LodCommitTracker {
         if (!registered && !result.isDone()) result.complete(false); // disabled/no native sink
         result.orTimeout(30, TimeUnit.SECONDS).whenComplete((ok,error) -> {
             synchronized (PENDING) { PENDING.values().removeIf(value -> value == result); }
+            if (error != null || !Boolean.TRUE.equals(ok)) {
+                try {
+                    var index=LodSupport.presenceIndexFor(level.getServer(), level.dimension().location().toString());
+                    if(index!=null)index.invalidate();
+                } catch(Throwable ignored) {
+                    // A failed repair remains retry debt even if the native presence cache
+                    // cannot be invalidated immediately; restart will reread disk state.
+                }
+            }
         });
         return result;
     }

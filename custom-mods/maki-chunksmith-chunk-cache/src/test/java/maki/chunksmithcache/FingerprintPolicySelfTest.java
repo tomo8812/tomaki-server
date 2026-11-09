@@ -15,14 +15,18 @@ public final class FingerprintPolicySelfTest {
         Path temp = Files.createTempDirectory("maki-cache-issue40-test");
         try {
             Path observerJar = temp.resolve("diagnostic-probe.jar");
-            writeModJar(observerJar, "diagnostic_probe", "payload-a");
+            writeModJar(observerJar, "maki_lod_cpu", "payload-a");
+            Path unknownJar = temp.resolve("unknown.jar");
+            writeModJar(unknownJar, "diagnostic_probe", "payload-a");
             Path worldgenJar = temp.resolve("worldgen.jar");
-            writeModJar(worldgenJar, "worldgen_mod", "payload-a");
+            writeModJar(worldgenJar, "epicterrain", "payload-a");
 
             FingerprintPolicy policy = FingerprintPolicy.forTesting(List.of("config/diagnostic-probe.properties"));
-            require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.RELEVANT,
-                "a mod id alone must not bypass compatibility checks; audited artifacts are normalized before policy fallback");
-            require(policy.classify("mods/worldgen.jar", worldgenJar) == FingerprintManifest.Impact.RELEVANT, "unknown/worldgen mod must remain relevant");
+            require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.IGNORED,
+                "owned scheduling-only MOD role must remain neutral across updates");
+            require(policy.classify("mods/unknown.jar", unknownJar) == FingerprintManifest.Impact.RELEVANT,
+                "unknown code-only MOD must fail closed even without recognizable worldgen resources");
+            require(policy.classify("mods/worldgen.jar", worldgenJar) == FingerprintManifest.Impact.RELEVANT, "known worldgen mod must remain relevant");
             require(FingerprintPolicy.isAlwaysExcluded("config/chunksmith/tasks/minecraft/overworld.properties"), "Chunksmith task progress regression");
 
             List<FingerprintManifest.Entry> baseline = new ArrayList<>();
@@ -76,9 +80,9 @@ public final class FingerprintPolicySelfTest {
             }
             require(corruptRejected, "corrupt manifest must fail closed");
 
-            writeModJar(observerJar, "diagnostic_probe", "payload-b");
-            require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.RELEVANT,
-                "unknown changed bytes must remain relevant even when the mod id is unchanged");
+            writeModJar(observerJar, "maki_lod_cpu", "payload-b");
+            require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.IGNORED,
+                "owned neutral MOD byte updates must not invalidate generated-result compatibility");
             System.out.println("Issue #40 fingerprint/quarantine regression checks: PASS");
         } finally {
             deleteTree(temp);

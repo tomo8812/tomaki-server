@@ -1,6 +1,7 @@
 package maki.chunksmithcache.mixin;
 
 import com.kishku7.chunksmith.platform.World;
+import com.kishku7.chunksmith.platform.NeoForgeWorld;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -9,6 +10,8 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import maki.chunksmithcache.PipelineMetrics;
+import maki.chunksmithcache.CacheManager;
+import net.minecraft.world.level.ChunkPos;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -36,10 +39,20 @@ public abstract class GenerationRequestMixin {
         target="Lcom/kishku7/chunksmith/platform/World;getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;"), require=2)
     private CompletableFuture<Void> maki$measureRequest(World world, int x, int z) {
         long started = System.nanoTime();
+        if(world instanceof NeoForgeWorld neoforge
+            && !CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z))) {
+            CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z));
+            return CompletableFuture.failedFuture(
+                new IllegalStateException("Unified pregen could not acquire normal-persistence guard for "+x+","+z));
+        }
         CompletableFuture<Void> future = world.getChunkAtAsync(x,z);
         future.whenComplete((value,error) -> {
             PipelineMetrics.time("adapter-request",System.nanoTime()-started);
-            if (error != null) PipelineMetrics.count("adapter-failed");
+            if (error != null) {
+                PipelineMetrics.count("adapter-failed");
+                if(world instanceof NeoForgeWorld neoforge)
+                    CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z));
+            }
         });
         return future;
     }
