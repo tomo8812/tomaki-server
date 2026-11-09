@@ -208,6 +208,7 @@ public final class CacheManager {
 
    public static boolean preparePregenRequest(ServerLevel level,ChunkPos pos) {
       if(level==null||pos==null)return false;
+      if(STOPPING.contains(level.getServer()))return false;
       if(!FollowCaptureOwnership.owns(level))return true;
       CaptureKey key=captureKey(level,pos);
       PREGEN_REQUEST_TARGETS.add(key);
