@@ -159,7 +159,8 @@ public final class CacheManager {
       saved.whenComplete((ok,error) -> {
          if(error==null && Boolean.TRUE.equals(ok)) {
             Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
-            if(snapshot!=null)CONFIRMED_PREGEN.put(key,path(level,pos,snapshot.fingerprint()));
+            if(snapshot!=null&&!STOPPING.contains(level.getServer()))
+               CONFIRMED_PREGEN.put(key,path(level,pos,snapshot.fingerprint()));
             PREGEN_RETRY.remove(key);
             PREGEN_LOD_RETRY.remove(key);
             return;
@@ -194,14 +195,14 @@ public final class CacheManager {
    }
 
    public static void noteChunksmithGeneratedResult(ServerLevel level,ChunkPos pos,boolean generated) {
-      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return;
+      if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level))return;
       CaptureKey key=captureKey(level,pos);
       if(generated) PREGEN_NEW_TARGETS.remove(key);
       else PREGEN_NEW_TARGETS.put(key,System.currentTimeMillis());
    }
 
    public static void noteChunksmithGeneratedFailure(ServerLevel level,ChunkPos pos) {
-      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return;
+      if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level))return;
       CaptureKey key=captureKey(level,pos);
       PREGEN_NEW_TARGETS.remove(key);
       addRetry(PREGEN_RETRY,key);
@@ -235,6 +236,10 @@ public final class CacheManager {
       // Only requests admitted as follow-owned targets may mutate unified-pregen debt.
       // External Chunksmith tasks pass through this Mixin but never enter this set.
       if(!PREGEN_REQUEST_TARGETS.remove(key))return;
+      if(STOPPING.contains(level.getServer())) {
+         PREGEN_NEW_TARGETS.remove(key);
+         return;
+      }
       if(success)return;
       PREGEN_NEW_TARGETS.remove(key);
       addRetry(PREGEN_RETRY,key);
@@ -310,6 +315,7 @@ public final class CacheManager {
 
    public static CompletableFuture<Boolean> chunksmithGeneratedDecision(ServerLevel level, ChunkPos pos) {
       if(level==null||pos==null)return null;
+      if(STOPPING.contains(level.getServer()))return CompletableFuture.completedFuture(true);
       CaptureKey key=captureKey(level,pos);
       if(BackfillGuard.active(level,pos))return CompletableFuture.completedFuture(true);
       CaptureFlight pending=CAPTURE_PENDING.get(key);
@@ -349,7 +355,7 @@ public final class CacheManager {
                   }
                   CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
                   if(validEnvelope(envelope,level,pos,fingerprint)) {
-                     CONFIRMED_PREGEN.put(key,file);
+                     if(!STOPPING.contains(level.getServer()))CONFIRMED_PREGEN.put(key,file);
                      PREGEN_RETRY.remove(key);
                      PipelineMetrics.count("pregen-full-validated");
                      return true;
@@ -387,7 +393,7 @@ public final class CacheManager {
    }
 
    public static void noteObservedNormalFullLod(ServerLevel level,ChunkPos pos) {
-      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return;
+      if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level))return;
       CaptureKey key=captureKey(level,pos);
       PREGEN_RETRY.remove(key);
       PREGEN_LOD_RETRY.remove(key);
@@ -395,7 +401,7 @@ public final class CacheManager {
    }
 
    public static void noteObservedLodPresent(ServerLevel level,ChunkPos pos) {
-      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return;
+      if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level))return;
       PREGEN_LOD_RETRY.remove(captureKey(level,pos));
    }
 
@@ -696,6 +702,7 @@ public final class CacheManager {
                      addRetry(PREGEN_RETRY,captureKey(level,pos));
                      return Optional.<CompoundTag>empty();
                   }
+                  if(STOPPING.contains(level.getServer()))return Optional.<CompoundTag>empty();
                   CONFIRMED_PREGEN.put(captureKey(level,pos),file);
                   if(!PregenBorrowLedger.beginBorrowed(level,pos,file)) {
                      addRetry(PREGEN_RETRY,captureKey(level,pos));
