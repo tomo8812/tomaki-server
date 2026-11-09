@@ -68,6 +68,7 @@ public final class CacheManager {
    private static final ConcurrentHashMap<CaptureKey,Path> CONFIRMED_PREGEN = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<Path,ConcurrentHashMap<String,Long>> NEXT_LOCAL_RECOVERY_WARNING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
+   private static final Map<MinecraftServer, List<Path>> STOPPING_DIMENSIONS = new WeakHashMap<>();
    private static final long MAINTENANCE_INTERVAL_MS = TimeUnit.MINUTES.toMillis(15L);
    private static final long MAINTENANCE_RETRY_MS = TimeUnit.MINUTES.toMillis(1L);
    private static final long LOCAL_RECOVERY_WARNING_INTERVAL_NANOS = TimeUnit.MINUTES.toNanos(1L);
@@ -1212,6 +1213,10 @@ public final class CacheManager {
     */
    public static void stop(MinecraftServer server) {
       STOPPING.add(server);
+      ArrayList<Path> stoppingDimensions=new ArrayList<>();
+      for(ServerLevel level:server.getAllLevels())
+         stoppingDimensions.add(cacheRoot(level).resolve(dimensionKey(level)).toAbsolutePath().normalize());
+      synchronized(STOPPING_DIMENSIONS) { STOPPING_DIMENSIONS.put(server,List.copyOf(stoppingDimensions)); }
       if(currentServer==server) { currentServer=null; activeRoots=List.of(); }
       // No join on server callbacks/native I/O during shutdown. Detached queued captures are
       // invalidated; a running writer checks this flag again before atomic publication.
@@ -1231,10 +1236,17 @@ public final class CacheManager {
       PREGEN_REQUEST_TARGETS.removeIf(key -> key.level().getServer()==server);
       LOD_PENDING.keySet().removeIf(key -> key.level().getServer()==server);
       CONFIRMED_PREGEN.keySet().removeIf(key -> key.level().getServer()==server);
-      for(ServerLevel level:server.getAllLevels()) {
-         Path dimension=cacheRoot(level).resolve(dimensionKey(level));
+      List<Path> stoppingDimensions;
+      synchronized(STOPPING_DIMENSIONS) { stoppingDimensions=STOPPING_DIMENSIONS.remove(server); }
+      if(stoppingDimensions==null) {
+         ArrayList<Path> fallback=new ArrayList<>();
+         for(ServerLevel level:server.getAllLevels())
+            fallback.add(cacheRoot(level).resolve(dimensionKey(level)).toAbsolutePath().normalize());
+         stoppingDimensions=List.copyOf(fallback);
+      }
+      for(Path dimension:stoppingDimensions) {
          RecoveryClaims.clear(dimension);
-         NEXT_LOCAL_RECOVERY_WARNING.remove(dimension.toAbsolutePath().normalize());
+         NEXT_LOCAL_RECOVERY_WARNING.remove(dimension);
       }
       STOPPING.remove(server);
    }
