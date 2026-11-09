@@ -291,6 +291,10 @@ public final class CacheManager {
             PREGEN_NEW_TARGETS.remove(key);
             return CompletableFuture.completedFuture(true);
          }
+         // The unified cache is an implementation detail of the follow-owned
+         // pipeline. External Chunksmith tasks retain native generated-state
+         // semantics and are never adopted or redirected through this cache.
+         if(!FollowCaptureOwnership.owns(level))return CompletableFuture.completedFuture(false);
          CompletableFuture<Boolean> cacheDecision=chunksmithGeneratedDecision(level,pos);
          return cacheDecision==null?CompletableFuture.completedFuture(false):cacheDecision;
       });
