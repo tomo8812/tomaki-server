@@ -308,6 +308,12 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !pair.contains('noteObservedLodPresent')) {
             throw new GradleException('Issue #83 regression: pair-aware skip/retry reconciliation or external native behavior is incomplete')
         }
+        def pairSkipStart = cache.indexOf('public static boolean unifiedPairSkipHint')
+        def pairSkipBody = cache.substring(pairSkipStart, cache.indexOf('\n   }', pairSkipStart))
+        if (!pairSkipBody.contains('CONFIRMED_PREGEN.remove(key,confirmed)')
+                || !pairSkipBody.contains('addRetry(PREGEN_RETRY,key)')) {
+            throw new GradleException('Issue #83 regression: missing confirmed FULL can leave stale WorldState authoritative')
+        }
         if (!disk.contains('15L << 30') || !disk.contains('pregen-combined-capacity') || !disk.contains('resolve("chunksmith").resolve("lod")')) {
             throw new GradleException('Issue #83 regression: combined FULL+LOD capacity guard missing')
         }
