@@ -5,6 +5,7 @@ import java.lang.management.ManagementFactory;
 import java.nio.file.*;
 import java.io.Reader;
 import java.util.*;
+import net.minecraft.server.MinecraftServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,9 +34,10 @@ public final class CpuGovernor {
     public static boolean recovered(){return configGood&&Double.isFinite(observedCpu)&&observedCpu<80&&observedMspt<25&&observedHeap<settings.highHeap-10;}
     public static int cap(){return cap;}
     public static String pipelinePressure(){refreshPipelinePressure();return pipelinePressure;}
-    public static boolean pregenRetryPending(int centerX,int centerZ,int radiusBlocks){
+    public static boolean pregenRetryPending(MinecraftServer server,int centerX,int centerZ,int radiusBlocks){
         try { return Boolean.TRUE.equals(Class.forName("maki.chunksmithcache.CacheManager")
-            .getMethod("pregenRetryPending",int.class,int.class,int.class).invoke(null,centerX,centerZ,radiusBlocks)); }
+            .getMethod("pregenRetryPending",MinecraftServer.class,int.class,int.class,int.class)
+            .invoke(null,server,centerX,centerZ,radiusBlocks)); }
         catch (ClassNotFoundException absent) { return false; }
         catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) { return true; }
     }
