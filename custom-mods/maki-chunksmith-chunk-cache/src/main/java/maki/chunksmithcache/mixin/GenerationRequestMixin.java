@@ -43,7 +43,7 @@ public abstract class GenerationRequestMixin {
         GenerationTask sourceTask=(GenerationTask)(Object)this;
         if(world instanceof NeoForgeWorld neoforge
             && !CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)) {
-            CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z));
+            CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z),sourceTask);
             return CompletableFuture.failedFuture(
                 new IllegalStateException("Unified pregen could not acquire normal-persistence guard for "+x+","+z));
         }
@@ -51,7 +51,7 @@ public abstract class GenerationRequestMixin {
         future.whenComplete((value,error) -> {
             PipelineMetrics.time("adapter-request",System.nanoTime()-started);
             if(world instanceof NeoForgeWorld neoforge)
-                CacheManager.pregenRequestFinished(neoforge.getWorld(),new ChunkPos(x,z),error==null);
+                CacheManager.pregenRequestFinished(neoforge.getWorld(),new ChunkPos(x,z),sourceTask,error==null);
             if (error != null) PipelineMetrics.count("adapter-failed");
         });
         return future;

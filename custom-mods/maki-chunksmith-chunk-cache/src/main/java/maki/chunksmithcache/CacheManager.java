@@ -65,7 +65,7 @@ public final class CacheManager {
    private static final Set<CaptureKey> PREGEN_RETRY = ConcurrentHashMap.newKeySet();
    private static final Set<CaptureKey> PREGEN_LOD_RETRY = ConcurrentHashMap.newKeySet();
    private static final ConcurrentHashMap<CaptureKey,Long> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
-   private static final Set<CaptureKey> PREGEN_REQUEST_TARGETS = ConcurrentHashMap.newKeySet();
+   private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_REQUEST_TARGETS = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,AtomicInteger> LOD_PENDING = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,Path> CONFIRMED_PREGEN = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<Path,ConcurrentHashMap<String,Long>> NEXT_LOCAL_RECOVERY_WARNING = new ConcurrentHashMap<>();
@@ -95,7 +95,7 @@ public final class CacheManager {
       CaptureKey key=captureKey(level,pos);
       // The NeoForgeWorld hook also observes third-party Chunksmith tasks. Only
       // a coordinate admitted by preparePregenRequest belongs to this unified flow.
-      if(!PREGEN_REQUEST_TARGETS.contains(key)) {
+      if(!PREGEN_REQUEST_TARGETS.containsKey(key)) {
          PipelineMetrics.count("direct-external-observed");
          return;
       }
@@ -224,10 +224,16 @@ public final class CacheManager {
       // only the current world task loses identity after GenerationTask's 60s drain
       // timeout and can let a stopped follow task generate without persistence guards.
       if(!FollowCaptureOwnership.owns(sourceTask))return true;
-      CaptureKey key=captureKey(level,pos);
-      PREGEN_REQUEST_TARGETS.add(key);
       if(!FollowCaptureOwnership.active(level,sourceTask)) {
          PipelineMetrics.count("pregen-stale-follow-request-blocked");
+         return false;
+      }
+      CaptureKey key=captureKey(level,pos);
+      GenerationTask admitted=PREGEN_REQUEST_TARGETS.compute(key,(ignored,existing) ->
+         existing==null || existing==sourceTask || !FollowCaptureOwnership.active(level,existing)
+            ? sourceTask : existing);
+      if(admitted!=sourceTask) {
+         PipelineMetrics.count("pregen-request-owner-conflict");
          return false;
       }
       if(!PREGEN_NEW_TARGETS.containsKey(key))return true;
@@ -245,12 +251,13 @@ public final class CacheManager {
       return false;
    }
 
-   public static void pregenRequestFinished(ServerLevel level,ChunkPos pos,boolean success) {
-      if(level==null||pos==null)return;
+   public static void pregenRequestFinished(ServerLevel level,ChunkPos pos,GenerationTask sourceTask,boolean success) {
+      if(level==null||pos==null||sourceTask==null)return;
       CaptureKey key=captureKey(level,pos);
-      // Only requests admitted as follow-owned targets may mutate unified-pregen debt.
-      // External Chunksmith tasks pass through this Mixin but never enter this set.
-      if(!PREGEN_REQUEST_TARGETS.remove(key))return;
+      // Only the exact follow task admitted for this coordinate may mutate unified
+      // request state. A detached task's late completion must not erase a newer
+      // task's marker or persistence guard for the same coordinate.
+      if(!PREGEN_REQUEST_TARGETS.remove(key,sourceTask))return;
       if(STOPPING.contains(level.getServer())) {
          PREGEN_NEW_TARGETS.remove(key);
          return;
@@ -258,6 +265,9 @@ public final class CacheManager {
       if(success)return;
       PREGEN_NEW_TARGETS.remove(key);
       addRetry(PREGEN_RETRY,key);
+      // A failed target never reached a durable FULL result. Drop its pregen
+      // persistence guard and restore any chunk/POI dirty state it already vetoed.
+      PregenBorrowLedger.cancel(level,pos);
       // GenerationTask marks the native presence index before getChunkAtAsync.
       // If that request fails before LodSupport.offer, the bit is only provisional.
       // Keep LOD debt until a real writer ACK and force the next check back to disk.
@@ -274,8 +284,8 @@ public final class CacheManager {
       }
    }
 
-   public static void pregenRequestFailed(ServerLevel level,ChunkPos pos) {
-      pregenRequestFinished(level,pos,false);
+   public static void pregenRequestFailed(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
+      pregenRequestFinished(level,pos,sourceTask,false);
    }
 
    public static boolean pregenReady(MinecraftServer server) {
@@ -750,7 +760,7 @@ public final class CacheManager {
       // Dependency reads must keep normal-world semantics and must not acquire a
       // LOD-repair guard for which no target LodSupport.offer will ever arrive.
       return FollowCaptureOwnership.owns(level)
-         && PREGEN_REQUEST_TARGETS.contains(captureKey(level,pos));
+         && PREGEN_REQUEST_TARGETS.containsKey(captureKey(level,pos));
    }
 
    private static CompletableFuture<Optional<CompoundTag>> loadForPregenLodRepair(ServerLevel level, ChunkPos pos) {
@@ -1362,7 +1372,7 @@ public final class CacheManager {
       PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_LOD_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_NEW_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
-      PREGEN_REQUEST_TARGETS.removeIf(key -> key.level().getServer()==server);
+      PREGEN_REQUEST_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
       LOD_PENDING.keySet().removeIf(key -> key.level().getServer()==server);
       CONFIRMED_PREGEN.keySet().removeIf(key -> key.level().getServer()==server);
       List<Path> stoppingDimensions;

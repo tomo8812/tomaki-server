@@ -335,7 +335,8 @@ tasks.register('verifyIssue83UnifiedPregen') {
         }
         if (!request.contains('GenerationTask sourceTask=(GenerationTask)(Object)this')
                 || !request.contains('CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)')
-                || !request.contains('CacheManager.pregenRequestFinished')
+                || !request.contains('CacheManager.pregenRequestFinished(neoforge.getWorld(),new ChunkPos(x,z),sourceTask,error==null)')
+                || !request.contains('CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)')
                 || !world.contains('maki$rememberGeneratedDecision')
                 || !world.contains('CacheManager.noteChunksmithGeneratedResult')
                 || !world.contains('CacheManager.noteChunksmithGeneratedFailure')) {
@@ -344,10 +345,10 @@ tasks.register('verifyIssue83UnifiedPregen') {
         def prepareStart = cache.indexOf('public static boolean preparePregenRequest')
         def prepareEnd = cache.indexOf('public static void pregenRequestFinished', prepareStart)
         def prepareBody = cache.substring(prepareStart, prepareEnd)
-        def requestMarker = prepareBody.indexOf('PREGEN_REQUEST_TARGETS.add(key)')
+        def requestMarker = prepareBody.indexOf('PREGEN_REQUEST_TARGETS.compute(key')
         def activeSourceGate = prepareBody.indexOf('FollowCaptureOwnership.active(level,sourceTask)')
         if (!prepareBody.contains('FollowCaptureOwnership.owns(sourceTask)')
-                || requestMarker < 0 || activeSourceGate < 0 || requestMarker > activeSourceGate
+                || requestMarker < 0 || activeSourceGate < 0 || activeSourceGate > requestMarker
                 || !prepareBody.contains('pregen-stale-follow-request-blocked')) {
             throw new GradleException('Issue #83 regression: stopped or detached follow requests can bypass unified persistence guards')
         }
@@ -371,16 +372,19 @@ tasks.register('verifyIssue83UnifiedPregen') {
         def releaseStart = borrow.indexOf('static boolean releaseGeneratedToNormal')
         def releaseEnd = borrow.indexOf('static boolean suppressChunkSave', releaseStart)
         def releaseBody = borrow.substring(releaseStart, releaseEnd)
-        if (!releaseBody.contains('borrow.kind()!=Kind.GENERATED')
+        if (releaseBody.contains('borrow.kind()!=Kind.GENERATED')
+                || !releaseBody.contains('releaseOnServerThread(level,key,borrow,false)')
+                || !releaseBody.contains('releaseOnServerThread(level,key,borrow,true)')
+                || !releaseBody.contains('ACTIVE.remove(key,borrow)')
                 || !releaseBody.contains('server.isSameThread()')
                 || !releaseBody.contains('server.execute(() ->')
                 || !releaseBody.contains('releasePersistence(level,borrow)')
                 || !releaseBody.contains('setUnsaved(true)')
                 || !releaseBody.contains('maki$restorePregenPoiDirty(sections)')) {
-            throw new GradleException('Issue #83 regression: normal-FULL guard release must restore suppressed chunk and POI dirty state')
+            throw new GradleException('Issue #83 regression: normal-FULL/failed-request guard release must restore suppressed chunk and POI dirty state')
         }
         def captureStart = cache.indexOf('public static void captureFromChunksmith')
-        def captureOwnershipGate = cache.indexOf('PREGEN_REQUEST_TARGETS.contains(key)', captureStart)
+        def captureOwnershipGate = cache.indexOf('PREGEN_REQUEST_TARGETS.containsKey(key)', captureStart)
         def capturePendingMutation = cache.indexOf('LOD_PENDING.compute', captureStart)
         if (captureOwnershipGate < 0 || capturePendingMutation < 0 || captureOwnershipGate > capturePendingMutation) {
             throw new GradleException('Issue #83 regression: external Chunksmith LOD callbacks can enter unified pending/retry state')
@@ -388,7 +392,9 @@ tasks.register('verifyIssue83UnifiedPregen') {
         def requestFinishStart = cache.indexOf('public static void pregenRequestFinished')
         def requestFinishEnd = cache.indexOf('public static void pregenRequestFailed', requestFinishStart)
         def requestFinishBody = cache.substring(requestFinishStart, requestFinishEnd)
-        if (!requestFinishBody.contains('addRetry(PREGEN_LOD_RETRY,key)')
+        if (!requestFinishBody.contains('PREGEN_REQUEST_TARGETS.remove(key,sourceTask)')
+                || !requestFinishBody.contains('PregenBorrowLedger.cancel(level,pos)')
+                || !requestFinishBody.contains('addRetry(PREGEN_LOD_RETRY,key)')
                 || !requestFinishBody.contains('invalidateChunksmithLodPresence(level)')
                 || !cache.contains('LodSupport.presenceIndexFor')
                 || !cache.contains('index.invalidate()')) {
@@ -399,7 +405,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !cache.contains('pregen-borrow-player-handoff')) {
             throw new GradleException('Issue #83 regression: player handoff must claim promotion ownership before persistence')
         }
-        if (!cache.contains('PREGEN_REQUEST_TARGETS.contains(captureKey(level,pos))')) {
+        if (!cache.contains('PREGEN_REQUEST_TARGETS.containsKey(captureKey(level,pos))')) {
             throw new GradleException('Issue #83 regression: dependency reads can borrow target-only pregen FULL')
         }
         ['noteObservedNormalFullLod', 'noteObservedLodPresent'].each { method ->
