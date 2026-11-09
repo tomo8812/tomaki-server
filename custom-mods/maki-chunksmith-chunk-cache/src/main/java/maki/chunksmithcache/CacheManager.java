@@ -383,7 +383,7 @@ public final class CacheManager {
    }
 
    public static void noteObservedNormalFullLod(ServerLevel level,ChunkPos pos) {
-      if(level==null||pos==null)return;
+      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return;
       CaptureKey key=captureKey(level,pos);
       PREGEN_RETRY.remove(key);
       PREGEN_LOD_RETRY.remove(key);
@@ -391,7 +391,7 @@ public final class CacheManager {
    }
 
    public static void noteObservedLodPresent(ServerLevel level,ChunkPos pos) {
-      if(level==null||pos==null)return;
+      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return;
       PREGEN_LOD_RETRY.remove(captureKey(level,pos));
    }
 
