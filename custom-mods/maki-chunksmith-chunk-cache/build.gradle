@@ -353,8 +353,11 @@ tasks.register('verifyIssue83UnifiedPregen') {
         if (stopBody.contains('PregenBorrowLedger.clear(server)') || stopBody.contains('PromotionLedger.clear(server)')
                 || !stoppedBody.contains('PregenBorrowLedger.clear(server)')
                 || !stoppedBody.contains('PromotionLedger.clear(server)')
+                || !stoppedBody.contains('STOPPING.add(server)')
+                || stoppedBody.contains('STOPPING.remove(server)')
+                || !cache.contains('private static void addRetry')
                 || !mod.contains('CacheManager.stopped(event.getServer())')) {
-            throw new GradleException('Issue #83 regression: shutdown clears persistence ownership before final world save')
+            throw new GradleException('Issue #83 regression: shutdown/crash can clear persistence ownership early or revive dead-server retry state')
         }
     }
 }
