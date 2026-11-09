@@ -333,6 +333,13 @@ tasks.register('verifyIssue83UnifiedPregen') {
         if (!cache.contains('PREGEN_REQUEST_TARGETS.contains(captureKey(level,pos))')) {
             throw new GradleException('Issue #83 regression: dependency reads can borrow target-only pregen FULL')
         }
+        ['noteObservedNormalFullLod', 'noteObservedLodPresent'].each { method ->
+            def start = cache.indexOf('public static void ' + method)
+            def body = cache.substring(start, cache.indexOf('\n   }', start))
+            if (!body.contains('!FollowCaptureOwnership.owns(level)')) {
+                throw new GradleException('Issue #83 regression: external Chunksmith observations can mutate unified retry debt via ' + method)
+            }
+        }
         if (!chunkSave.contains('pregenPersistenceSuppressed')
                 || !entitySave.contains('pregenPersistenceSuppressed')
                 || !poiSave.contains('pregenPoiPersistenceSuppressed')
