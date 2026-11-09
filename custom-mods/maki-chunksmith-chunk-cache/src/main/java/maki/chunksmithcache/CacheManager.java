@@ -182,14 +182,15 @@ public final class CacheManager {
       });
    }
 
-   public static boolean pregenRetryPending(int centerX, int centerZ, int radiusBlocks) {
+   public static boolean pregenRetryPending(MinecraftServer server, int centerX, int centerZ, int radiusBlocks) {
+      if(server==null)return false;
       long radius=(long)Math.max(0,radiusBlocks)+16L;
       long radiusSquared=radius*radius;
-      if(anyInRange(PREGEN_RETRY,centerX,centerZ,radiusSquared))return true;
-      if(anyInRange(PREGEN_LOD_RETRY,centerX,centerZ,radiusSquared))return true;
-      if(anyInRange(PREGEN_NEW_TARGETS.keySet(),centerX,centerZ,radiusSquared))return true;
-      if(anyInRange(LOD_PENDING.keySet(),centerX,centerZ,radiusSquared))return true;
-      return anyInRange(CAPTURE_PENDING.keySet(),centerX,centerZ,radiusSquared);
+      if(anyInRange(server,PREGEN_RETRY,centerX,centerZ,radiusSquared))return true;
+      if(anyInRange(server,PREGEN_LOD_RETRY,centerX,centerZ,radiusSquared))return true;
+      if(anyInRange(server,PREGEN_NEW_TARGETS.keySet(),centerX,centerZ,radiusSquared))return true;
+      if(anyInRange(server,LOD_PENDING.keySet(),centerX,centerZ,radiusSquared))return true;
+      return anyInRange(server,CAPTURE_PENDING.keySet(),centerX,centerZ,radiusSquared);
    }
 
    public static void noteChunksmithGeneratedResult(ServerLevel level,ChunkPos pos,boolean generated) {
@@ -247,8 +248,9 @@ public final class CacheManager {
       return server!=null && Fingerprint.snapshotForLevel(server.overworld())!=null;
    }
 
-   private static boolean anyInRange(Iterable<CaptureKey> keys,int centerX,int centerZ,long radiusSquared) {
+   private static boolean anyInRange(MinecraftServer server,Iterable<CaptureKey> keys,int centerX,int centerZ,long radiusSquared) {
       for(CaptureKey key:keys) {
+         if(key.level().getServer()!=server)continue;
          ChunkPos pos=new ChunkPos(key.pos());
          long x=((long)pos.x<<4)+8L-centerX;
          long z=((long)pos.z<<4)+8L-centerZ;
