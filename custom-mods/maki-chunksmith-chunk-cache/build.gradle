@@ -298,10 +298,12 @@ tasks.register('verifyIssue83UnifiedPregen') {
             if (!cache.contains(token)) throw new GradleException('Issue #83 regression: unified cache/LOD state missing ' + token)
         }
         if (!pair.contains('ordinal=0') || !pair.contains('ordinal=1') || !pair.contains('ordinal=2')
+                || !pair.contains('unifiedPregenOwns')
                 || !pair.contains('unifiedPairSkipHint')
+                || !pair.contains('return lod;')
                 || !pair.contains('noteObservedNormalFullLod')
                 || !pair.contains('noteObservedLodPresent')) {
-            throw new GradleException('Issue #83 regression: pair-aware skip/retry reconciliation is incomplete')
+            throw new GradleException('Issue #83 regression: pair-aware skip/retry reconciliation or external native behavior is incomplete')
         }
         if (!disk.contains('15L << 30') || !disk.contains('pregen-combined-capacity') || !disk.contains('resolve("chunksmith").resolve("lod")')) {
             throw new GradleException('Issue #83 regression: combined FULL+LOD capacity guard missing')
