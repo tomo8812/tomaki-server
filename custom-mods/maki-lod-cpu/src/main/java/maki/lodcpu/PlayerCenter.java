@@ -222,7 +222,7 @@ public final class PlayerCenter {
         if(current==null&&!requested&&lastTask!=null&&lastTask.getCount()<lastTask.getChunkIterator().total()){
             manualPause=true;reason="native-safety-pause";report(server,chunky,now);return;
         }
-        if(current==null&&!requested&&lastTask!=null&&lastTask.getCount()>=lastTask.getChunkIterator().total()&&CpuGovernor.pregenRetryPending(saved.x,saved.z,settings().followRadius)){
+        if(current==null&&!requested&&lastTask!=null&&lastTask.getCount()>=lastTask.getChunkIterator().total()&&CpuGovernor.pregenRetryPending(server,saved.x,saved.z,settings().followRadius)){
             requested=true;reason="retrying-incomplete-pairs";
         }
         if(current==null&&!requested&&appliedX!=null&&FollowPolicy.moved(saved.x,saved.z,appliedX,appliedZ)&&FollowPolicy.due(now,lastCenterChange,settings().recenterSeconds))requested=true;
