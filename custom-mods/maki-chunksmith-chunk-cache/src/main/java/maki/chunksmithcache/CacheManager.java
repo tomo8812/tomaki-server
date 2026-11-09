@@ -1200,6 +1200,11 @@ public final class CacheManager {
       }
    }
 
+   /**
+    * ServerStoppingEvent fires before MinecraftServer.stopServer() performs the final
+    * world save. Close new/detached work here, but keep coordinate persistence guards
+    * and promotion ownership alive until ServerStoppedEvent.
+    */
    public static void stop(MinecraftServer server) {
       STOPPING.add(server);
       if(currentServer==server) { currentServer=null; activeRoots=List.of(); }
@@ -1207,6 +1212,12 @@ public final class CacheManager {
       // invalidated; a running writer checks this flag again before atomic publication.
       CAPTURE_PENDING.forEach((key,flight) -> { if(key.level().getServer()==server) flight.result().complete(false); });
       LIVE_INSPECTIONS.forEach(permit -> { if(permit.server==server) permit.close(); });
+      synchronized(NEXT_MAINTENANCE) { NEXT_MAINTENANCE.remove(server); }
+      synchronized(NEXT_DISK_REFRESH) { NEXT_DISK_REFRESH.remove(server); }
+   }
+
+   /** Final cleanup only after vanilla/NeoForge have finished the shutdown save/close path. */
+   public static void stopped(MinecraftServer server) {
       PromotionLedger.clear(server);
       PregenBorrowLedger.clear(server);
       PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
@@ -1220,8 +1231,7 @@ public final class CacheManager {
          RecoveryClaims.clear(dimension);
          NEXT_LOCAL_RECOVERY_WARNING.remove(dimension.toAbsolutePath().normalize());
       }
-      synchronized(NEXT_MAINTENANCE) { NEXT_MAINTENANCE.remove(server); }
-      synchronized(NEXT_DISK_REFRESH) { NEXT_DISK_REFRESH.remove(server); }
+      STOPPING.remove(server);
    }
 
    private static void rotateGenerations(ServerLevel var0, Fingerprint.Snapshot snapshot, String trigger) {
