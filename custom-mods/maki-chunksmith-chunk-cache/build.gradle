@@ -294,10 +294,13 @@ tasks.register('verifyIssue83UnifiedPregen') {
             throw new GradleException('Issue #83 regression: independent Backfill server-tick exploration is active')
         }
         ['loadForPregenLodRepair', 'PregenBorrowLedger.attachLod', 'pregenRetryPending', 'LOD_PENDING',
-         'chunksmithGeneratedDecision', 'protectChunksmithGeneratedResult', 'unifiedPairSkipHint'].each { token ->
+         'chunksmithGeneratedDecision', 'protectChunksmithGeneratedResult', 'confirmNativeGenerated',
+         'chunksmithWorldStateGenerated', 'unifiedPairSkipHint'].each { token ->
             if (!cache.contains(token)) throw new GradleException('Issue #83 regression: unified cache/LOD state missing ' + token)
         }
         if (!pair.contains('ordinal=0') || !pair.contains('ordinal=1') || !pair.contains('ordinal=2')
+                || !pair.contains('RegionCache$WorldState;isGenerated(II)Z')
+                || !pair.contains('chunksmithWorldStateGenerated')
                 || !pair.contains('unifiedPregenOwns')
                 || !pair.contains('unifiedPairSkipHint')
                 || !pair.contains('return lod;')
@@ -309,7 +312,8 @@ tasks.register('verifyIssue83UnifiedPregen') {
             throw new GradleException('Issue #83 regression: combined FULL+LOD capacity guard missing')
         }
         ['Kind { GENERATED, BORROWED }', 'beginGenerated', 'beginBorrowed', 'handoffCandidate', 'handedOff', 'isHandedOff',
-         'suppressPersistence', 'lodDone().isDone()', 'unloaded'].each { token ->
+         'suppressPersistence', 'suppressChunkSave', 'setUnsaved(false)', 'setUnsaved(true)',
+         'lodDone().isDone()', 'unloaded'].each { token ->
             if (!borrow.contains(token)) throw new GradleException('Issue #83 regression: pregen persistence lifecycle missing ' + token)
         }
         ['PREGEN_NEW_TARGETS', 'PREGEN_REQUEST_TARGETS', 'preparePregenRequest', 'pregenRequestFinished',
@@ -341,6 +345,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
             }
         }
         if (!chunkSave.contains('pregenPersistenceSuppressed')
+                || !chunkSave.contains('suppressPregenChunkSave')
                 || !entitySave.contains('pregenPersistenceSuppressed')
                 || !poiSave.contains('pregenPoiPersistenceSuppressed')
                 || !unload.contains('pregenBorrowUnloaded')) {

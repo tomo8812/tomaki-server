@@ -296,21 +296,71 @@ public final class CacheManager {
       ServerLevel level, ChunkPos pos, CompletableFuture<Boolean> nativeResult
    ) {
       if(level==null||pos==null||nativeResult==null)return nativeResult;
+      // External Chunksmith tasks retain native generated-state semantics. The
+      // follow-owned task must prove persistent authority because native
+      // isChunkGenerated() also reports an unsaved visible FULL as generated.
+      if(!FollowCaptureOwnership.owns(level))return nativeResult;
       CaptureKey key=captureKey(level,pos);
       return nativeResult.thenCompose(generated -> {
-         if(Boolean.TRUE.equals(generated)) {
-            // Native FULL is authoritative over every pregen/cache observation.
-            PREGEN_RETRY.remove(key);
-            PREGEN_NEW_TARGETS.remove(key);
-            return CompletableFuture.completedFuture(true);
-         }
-         // The unified cache is an implementation detail of the follow-owned
-         // pipeline. External Chunksmith tasks retain native generated-state
-         // semantics and are never adopted or redirected through this cache.
-         if(!FollowCaptureOwnership.owns(level))return CompletableFuture.completedFuture(false);
+         if(Boolean.TRUE.equals(generated))return confirmNativeGenerated(level,pos,key);
          CompletableFuture<Boolean> cacheDecision=chunksmithGeneratedDecision(level,pos);
          return cacheDecision==null?CompletableFuture.completedFuture(false):cacheDecision;
       });
+   }
+
+   private static CompletableFuture<Boolean> confirmNativeGenerated(ServerLevel level,ChunkPos pos,CaptureKey key) {
+      CompletableFuture<Boolean> cacheDecision=chunksmithGeneratedDecision(level,pos);
+      if(cacheDecision==null)return confirmNormalFull(level,pos,key);
+      return cacheDecision.handle((accepted,error) -> error==null?accepted:null)
+         .thenCompose(accepted -> Boolean.TRUE.equals(accepted)
+            ? CompletableFuture.completedFuture(true)
+            : confirmNormalFull(level,pos,key));
+   }
+
+   private static CompletableFuture<Boolean> confirmNormalFull(ServerLevel level,ChunkPos pos,CaptureKey key) {
+      try {
+         return NormalChunkStorage.inspectAsync(level,pos).handle((normal,error) -> {
+            if(error==null && normal==NormalChunkStorage.State.FULL) {
+               PREGEN_RETRY.remove(key);
+               PREGEN_NEW_TARGETS.remove(key);
+               return true;
+            }
+            addRetry(PREGEN_RETRY,key);
+            if(error!=null || normal==NormalChunkStorage.State.UNKNOWN) {
+               PipelineMetrics.count("pregen-normal-full-inspection-unknown");
+               // Unknown ownership is not permission to generate a replacement.
+               return true;
+            }
+            return false;
+         });
+      } catch(Throwable inspectFailure) {
+         addRetry(PREGEN_RETRY,key);
+         PipelineMetrics.count("pregen-normal-full-inspection-unknown");
+         return CompletableFuture.completedFuture(true);
+      }
+   }
+
+   public static boolean chunksmithWorldStateGenerated(ServerLevel level,ChunkPos pos,boolean nativeGenerated) {
+      if(!nativeGenerated||level==null||pos==null||!FollowCaptureOwnership.owns(level))return nativeGenerated;
+      CaptureKey key=captureKey(level,pos);
+      if(PREGEN_RETRY.contains(key) || PREGEN_NEW_TARGETS.containsKey(key)
+         || CAPTURE_PENDING.containsKey(key) || PregenBorrowLedger.kind(level,pos)!=null
+         || PromotionLedger.owns(level,pos)) return false;
+
+      // A successful pregen may leave Chunksmith's in-memory WorldState bit set
+      // after unload. It is safe only while its confirmed cache still exists.
+      Path confirmed=CONFIRMED_PREGEN.get(key);
+      if(confirmed!=null) {
+         Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+         Path expected=snapshot==null?null:path(level,pos,snapshot.fingerprint());
+         if(confirmed.equals(expected)&&Files.isRegularFile(confirmed))return true;
+         CONFIRMED_PREGEN.remove(key,confirmed);
+         addRetry(PREGEN_RETRY,key);
+         return false;
+      }
+      // With no unified-pregen ownership/debt, this bit came from Chunksmith's
+      // normal region pre-scan or another native-authoritative observation.
+      return true;
    }
 
    public static CompletableFuture<Boolean> chunksmithGeneratedDecision(ServerLevel level, ChunkPos pos) {
@@ -393,7 +443,8 @@ public final class CacheManager {
    }
 
    public static void noteObservedNormalFullLod(ServerLevel level,ChunkPos pos) {
-      if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level))return;
+      if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level)
+         || !chunksmithWorldStateGenerated(level,pos,true))return;
       CaptureKey key=captureKey(level,pos);
       PREGEN_RETRY.remove(key);
       PREGEN_LOD_RETRY.remove(key);
@@ -983,6 +1034,10 @@ public final class CacheManager {
          }
       }
       return PregenBorrowLedger.suppressPersistence(level,pos);
+   }
+
+   public static boolean suppressPregenChunkSave(ServerLevel level,ChunkAccess chunk) {
+      return level!=null&&chunk!=null&&PregenBorrowLedger.suppressChunkSave(level,chunk);
    }
 
    public static boolean pregenPoiPersistenceSuppressed(Object poiManager, ChunkPos pos) {

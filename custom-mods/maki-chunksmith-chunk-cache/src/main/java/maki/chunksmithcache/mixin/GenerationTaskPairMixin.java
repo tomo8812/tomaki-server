@@ -3,6 +3,7 @@ package maki.chunksmithcache.mixin;
 import com.kishku7.chunksmith.Selection;
 import com.kishku7.chunksmith.lod.CsLodPresenceIndex;
 import com.kishku7.chunksmith.platform.NeoForgeWorld;
+import com.kishku7.chunksmith.util.RegionCache;
 import maki.chunksmithcache.CacheManager;
 import net.minecraft.world.level.ChunkPos;
 import org.spongepowered.asm.mixin.Final;
@@ -19,6 +20,21 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(targets="com.kishku7.chunksmith.GenerationTask",remap=false)
 public abstract class GenerationTaskPairMixin {
     @Shadow @Final private Selection selection;
+
+    @Redirect(
+        method="run()V",
+        at=@At(
+            value="INVOKE",
+            target="Lcom/kishku7/chunksmith/util/RegionCache$WorldState;isGenerated(II)Z"
+        ),
+        require=1
+    )
+    private boolean maki$requirePersistentWorldState(RegionCache.WorldState state,int x,int z) {
+        boolean generated=state.isGenerated(x,z);
+        if(selection.world() instanceof NeoForgeWorld world)
+            return CacheManager.chunksmithWorldStateGenerated(world.getWorld(),new ChunkPos(x,z),generated);
+        return generated;
+    }
 
     @Redirect(
         method="run()V",

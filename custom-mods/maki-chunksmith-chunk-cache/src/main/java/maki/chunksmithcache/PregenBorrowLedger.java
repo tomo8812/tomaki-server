@@ -9,6 +9,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.chunk.ChunkAccess;
 
 /**
  * Owns the normal-persistence veto for unified pregen targets. A guard is armed
@@ -18,7 +19,8 @@ import net.minecraft.world.level.ChunkPos;
 final class PregenBorrowLedger {
     enum Kind { GENERATED, BORROWED }
     private record Key(ServerLevel level, long pos) {}
-    private record Borrow(Path file, Kind kind, CompletableFuture<Boolean> lodDone, AtomicBoolean handedOff) {}
+    private record Borrow(Path file, Kind kind, CompletableFuture<Boolean> lodDone, AtomicBoolean handedOff,
+                          java.util.concurrent.atomic.AtomicReference<ChunkAccess> suppressedChunk) {}
     private static final ConcurrentHashMap<Key, Borrow> ACTIVE = new ConcurrentHashMap<>();
 
     private PregenBorrowLedger() {}
@@ -37,7 +39,7 @@ final class PregenBorrowLedger {
         if(existing!=null)return existing.kind()==kind && existing.file().equals(file);
         CompletableFuture<Boolean> lodDone=new CompletableFuture<>();
         lodDone.completeOnTimeout(false,30L,TimeUnit.SECONDS);
-        Borrow borrow=new Borrow(file,kind,lodDone,new AtomicBoolean());
+        Borrow borrow=new Borrow(file,kind,lodDone,new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>());
         return ACTIVE.putIfAbsent(key,borrow)==null;
     }
 
@@ -66,7 +68,28 @@ final class PregenBorrowLedger {
 
     static void handedOff(ServerLevel level, ChunkPos pos) {
         Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
-        if(borrow!=null)borrow.handedOff().set(true);
+        if(borrow==null)return;
+        synchronized(borrow) {
+            if(!borrow.handedOff().compareAndSet(false,true))return;
+            ChunkAccess suppressed=borrow.suppressedChunk().getAndSet(null);
+            if(suppressed!=null)suppressed.setUnsaved(true);
+        }
+    }
+
+    /**
+     * Records the exact loaded chunk whose normal save is being vetoed. The
+     * unsaved transition is serialized with handoff so an Entity/POI handoff
+     * cannot race between clearing and restoring the chunk dirty bit.
+     */
+    static boolean suppressChunkSave(ServerLevel level, ChunkAccess chunk) {
+        Borrow borrow=ACTIVE.get(new Key(level,chunk.getPos().toLong()));
+        if(borrow==null)return false;
+        synchronized(borrow) {
+            if(borrow.handedOff().get())return false;
+            borrow.suppressedChunk().set(chunk);
+            chunk.setUnsaved(false);
+            return true;
+        }
     }
 
     static boolean isHandedOff(ServerLevel level, ChunkPos pos) {
