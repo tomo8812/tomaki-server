@@ -229,7 +229,9 @@ public final class CacheManager {
    public static void pregenRequestFinished(ServerLevel level,ChunkPos pos,boolean success) {
       if(level==null||pos==null)return;
       CaptureKey key=captureKey(level,pos);
-      PREGEN_REQUEST_TARGETS.remove(key);
+      // Only requests admitted as follow-owned targets may mutate unified-pregen debt.
+      // External Chunksmith tasks pass through this Mixin but never enter this set.
+      if(!PREGEN_REQUEST_TARGETS.remove(key))return;
       if(success)return;
       PREGEN_NEW_TARGETS.remove(key);
       PREGEN_RETRY.add(key);
