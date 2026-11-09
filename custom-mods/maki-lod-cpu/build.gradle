@@ -111,6 +111,11 @@ tasks.register('verifyIssue83UnifiedFollow') {
         if (!center.contains('waiting-pregen-fingerprint')) {
             throw new GradleException('Issue #83 regression: generation can start before cache identity is ready')
         }
+        if (!center.contains('persistedOwner==TaskOwnership.PersistedOwner.PREVIOUS_SESSION&&chunky.getConfig().getContinueOnRestart()')
+                || !center.contains('task=new GenerationTask(chunky,selection)')
+                || !center.contains('PlayerCenter-persisted-rewind')) {
+            throw new GradleException('Issue #83 regression: previous-session follow progress can skip in-memory retry debt after restart')
+        }
     }
 }
 tasks.named('check') { dependsOn tasks.named('verifyIssue83UnifiedFollow') }

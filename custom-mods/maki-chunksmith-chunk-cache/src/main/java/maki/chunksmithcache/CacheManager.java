@@ -1080,6 +1080,12 @@ public final class CacheManager {
       return level!=null&&pregenPersistenceSuppressed(level,pos);
    }
 
+   public static boolean suppressPregenPoiPersistence(Object poiManager, ChunkPos pos) {
+      ServerLevel level=PregenBorrowLedger.levelForPoi(poiManager,pos);
+      if(level==null||!pregenPersistenceSuppressed(level,pos))return false;
+      return PregenBorrowLedger.suppressPoiSave(level,pos,poiManager);
+   }
+
    public static void pregenBorrowUnloaded(ServerLevel level, ChunkPos pos) {
       PregenBorrowLedger.unloaded(level,pos);
    }

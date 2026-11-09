@@ -20,7 +20,8 @@ final class PregenBorrowLedger {
     enum Kind { GENERATED, BORROWED }
     private record Key(ServerLevel level, long pos) {}
     private record Borrow(Path file, Kind kind, CompletableFuture<Boolean> lodDone, AtomicBoolean handedOff,
-                          java.util.concurrent.atomic.AtomicReference<ChunkAccess> suppressedChunk) {}
+                          java.util.concurrent.atomic.AtomicReference<ChunkAccess> suppressedChunk,
+                          java.util.Set<Long> suppressedPoiSections) {}
     private static final ConcurrentHashMap<Key, Borrow> ACTIVE = new ConcurrentHashMap<>();
 
     private PregenBorrowLedger() {}
@@ -39,7 +40,7 @@ final class PregenBorrowLedger {
         if(existing!=null)return existing.kind()==kind && existing.file().equals(file);
         CompletableFuture<Boolean> lodDone=new CompletableFuture<>();
         lodDone.completeOnTimeout(false,30L,TimeUnit.SECONDS);
-        Borrow borrow=new Borrow(file,kind,lodDone,new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>());
+        Borrow borrow=new Borrow(file,kind,lodDone,new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>(),new java.util.HashSet<>());
         return ACTIVE.putIfAbsent(key,borrow)==null;
     }
 
@@ -73,6 +74,12 @@ final class PregenBorrowLedger {
             if(!borrow.handedOff().compareAndSet(false,true))return;
             ChunkAccess suppressed=borrow.suppressedChunk().getAndSet(null);
             if(suppressed!=null)suppressed.setUnsaved(true);
+            if(!borrow.suppressedPoiSections().isEmpty()) {
+                long[] sections=borrow.suppressedPoiSections().stream().mapToLong(Long::longValue).toArray();
+                borrow.suppressedPoiSections().clear();
+                Object poiManager=level.getPoiManager();
+                if(poiManager instanceof PregenPoiDirtyBridge bridge)bridge.maki$restorePregenPoiDirty(sections);
+            }
         }
     }
 
@@ -88,6 +95,18 @@ final class PregenBorrowLedger {
             if(borrow.handedOff().get())return false;
             borrow.suppressedChunk().set(chunk);
             chunk.setUnsaved(false);
+            return true;
+        }
+    }
+
+    static boolean suppressPoiSave(ServerLevel level, ChunkPos pos, Object poiManager) {
+        Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
+        if(borrow==null)return false;
+        synchronized(borrow) {
+            if(borrow.handedOff().get())return false;
+            if(poiManager instanceof PregenPoiDirtyBridge bridge) {
+                for(long section:bridge.maki$clearPregenPoiDirty(pos))borrow.suppressedPoiSections().add(section);
+            }
             return true;
         }
     }

@@ -243,8 +243,14 @@ public final class PlayerCenter {
                         if(prior.isPresent()&&!prior.get().isCancelled()){
                             var selection=prior.get().getSelection();
                             if(!FollowPolicy.moved(saved.x,saved.z,(int)selection.centerX(),(int)selection.centerZ())&&selection.radiusX()==settings().followRadius&&selection.horizon()==1){
-                                task=prior.get();
-                                TaskOwnership.claim(task,"PlayerCenter-persisted");
+                                if(persistedOwner==TaskOwnership.PersistedOwner.PREVIOUS_SESSION&&chunky.getConfig().getContinueOnRestart()){
+                                    task=new GenerationTask(chunky,selection);
+                                    TaskOwnership.claim(task,"PlayerCenter-persisted-rewind");
+                                    LOG.info("Previous-session follow task will rescan from the selection start so incomplete FULL+LOD pairs can be retried; confirmed pairs remain skippable.");
+                                }else{
+                                    task=prior.get();
+                                    TaskOwnership.claim(task,"PlayerCenter-persisted");
+                                }
                             }
                         }
                     }else if(persistedOwner==TaskOwnership.PersistedOwner.PREVIOUS_SESSION){

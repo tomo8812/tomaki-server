@@ -266,6 +266,7 @@ def issue83PairMixin = file('src/main/java/maki/chunksmithcache/mixin/Generation
 def issue83Mixins = file('src/main/resources/maki-chunksmith-chunk-cache.mixins.json')
 def issue83DiskBudget = file('src/main/java/maki/chunksmithcache/CacheDiskBudget.java')
 def issue83Borrow = file('src/main/java/maki/chunksmithcache/PregenBorrowLedger.java')
+def issue83PoiBridge = file('src/main/java/maki/chunksmithcache/PregenPoiDirtyBridge.java')
 def issue83ChunkSave = file('src/main/java/maki/chunksmithcache/mixin/ChunkMapSaveMixin.java')
 def issue83EntitySave = file('src/main/java/maki/chunksmithcache/mixin/EntityStorageMixin.java')
 def issue83PoiSave = file('src/main/java/maki/chunksmithcache/mixin/SectionStorageMixin.java')
@@ -276,7 +277,7 @@ def issue83Mod = file('src/main/java/maki/chunksmithcache/MakiChunksmithChunkCac
 
 tasks.register('verifyIssue83UnifiedPregen') {
     inputs.files(issue83CacheSource, issue83FollowOwnership, issue83PairMixin, issue83Mixins, issue83DiskBudget,
-        issue83Borrow, issue83ChunkSave, issue83EntitySave, issue83PoiSave, issue83Unload,
+        issue83Borrow, issue83PoiBridge, issue83ChunkSave, issue83EntitySave, issue83PoiSave, issue83Unload,
         issue83Request, issue83World, issue83Mod)
     doLast {
         def cache = issue83CacheSource.getText('UTF-8')
@@ -285,6 +286,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
         def mixins = issue83Mixins.getText('UTF-8')
         def disk = issue83DiskBudget.getText('UTF-8')
         def borrow = issue83Borrow.getText('UTF-8')
+        def poiBridge = issue83PoiBridge.getText('UTF-8')
         def chunkSave = issue83ChunkSave.getText('UTF-8')
         def entitySave = issue83EntitySave.getText('UTF-8')
         def poiSave = issue83PoiSave.getText('UTF-8')
@@ -320,7 +322,8 @@ tasks.register('verifyIssue83UnifiedPregen') {
             throw new GradleException('Issue #83 regression: combined FULL+LOD capacity guard missing')
         }
         ['Kind { GENERATED, BORROWED }', 'beginGenerated', 'beginBorrowed', 'handoffCandidate', 'handedOff', 'isHandedOff',
-         'suppressPersistence', 'suppressChunkSave', 'setUnsaved(false)', 'setUnsaved(true)',
+         'suppressPersistence', 'suppressChunkSave', 'suppressPoiSave', 'suppressedPoiSections',
+         'setUnsaved(false)', 'setUnsaved(true)', 'maki$restorePregenPoiDirty',
          'lodDone().isDone()', 'unloaded'].each { token ->
             if (!borrow.contains(token)) throw new GradleException('Issue #83 regression: pregen persistence lifecycle missing ' + token)
         }
@@ -388,7 +391,9 @@ tasks.register('verifyIssue83UnifiedPregen') {
         if (!chunkSave.contains('pregenPersistenceSuppressed')
                 || !chunkSave.contains('suppressPregenChunkSave')
                 || !entitySave.contains('pregenPersistenceSuppressed')
-                || !poiSave.contains('pregenPoiPersistenceSuppressed')
+                || !poiSave.contains('CacheManager.suppressPregenPoiPersistence')
+                || !poiBridge.contains('maki$clearPregenPoiDirty')
+                || !poiBridge.contains('maki$restorePregenPoiDirty')
                 || !unload.contains('pregenBorrowUnloaded')) {
             throw new GradleException('Issue #83 regression: borrowed FULL can leak into normal chunk/entity/POI storage')
         }
