@@ -79,10 +79,27 @@ final class PregenBorrowLedger {
      * dirty state that was already suppressed under this guard.
      */
     static boolean releaseGeneratedToNormal(ServerLevel level, ChunkPos pos) {
-        Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
+        Key key=new Key(level,pos.toLong());
+        Borrow borrow=ACTIVE.get(key);
         if(borrow==null||borrow.kind()!=Kind.GENERATED)return false;
-        releasePersistence(level,borrow);
-        return borrow.handedOff().get();
+        MinecraftServer server=level.getServer();
+        if(server.isSameThread()) {
+            releasePersistence(level,borrow);
+            return true;
+        }
+        try {
+            // Normal-storage inspection/write ACKs complete on I/O workers. Keep
+            // ChunkAccess and POI dirty-state mutation on the server thread.
+            server.execute(() -> {
+                Borrow active=ACTIVE.get(key);
+                if(active==borrow&&active.kind()==Kind.GENERATED)releasePersistence(level,active);
+            });
+            return true;
+        } catch(RuntimeException unavailable) {
+            // Fail closed: retaining the guard is safer than restoring world state
+            // from an arbitrary I/O thread after the server executor has closed.
+            return false;
+        }
     }
 
     private static void releasePersistence(ServerLevel level, Borrow borrow) {

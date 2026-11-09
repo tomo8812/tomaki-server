@@ -372,6 +372,8 @@ tasks.register('verifyIssue83UnifiedPregen') {
         def releaseEnd = borrow.indexOf('static boolean suppressChunkSave', releaseStart)
         def releaseBody = borrow.substring(releaseStart, releaseEnd)
         if (!releaseBody.contains('borrow.kind()!=Kind.GENERATED')
+                || !releaseBody.contains('server.isSameThread()')
+                || !releaseBody.contains('server.execute(() ->')
                 || !releaseBody.contains('releasePersistence(level,borrow)')
                 || !releaseBody.contains('setUnsaved(true)')
                 || !releaseBody.contains('maki$restorePregenPoiDirty(sections)')) {
