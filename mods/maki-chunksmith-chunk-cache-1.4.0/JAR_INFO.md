@@ -1,8 +1,8 @@
 # maki-chunksmith-chunk-cache-1.4.0.jar
 
 - Source: `mods/maki-chunksmith-chunk-cache-1.4.0.jar`
-- Git blob OID: `9cdd6d1c4f0b0c2a589030c3c526a755569e52d4`
-- SHA-256: `8595679988a2199c1d2cac59b93f9ab956dac1336e9d72443081af22c6f6b2f3`
+- Git blob OID: `e1f884e301daa02abb0206d42c8d94bafe8e774f`
+- SHA-256: `112a7bb4a640e1eda6c55951e46e2d66ac9e8e1b75b8199bb905132f71b80bec`
 - Decompiler: Vineflower `1.12.0`
 - Extracted text resources: `3`
 

@@ -19,7 +19,7 @@ final class FingerprintPolicy {
    static final String UNKNOWN_MOD_REASON = "unknown code-driven generation impact; fail-closed until audited";
    private static final String OWN_MOD_ID = "maki_chunksmith_chunk_cache";
    private static final Set<String> BUILTIN_GENERATION_NEUTRAL_MOD_IDS = Set.of(
-      "maki_chunksmith_chunk_cache", "maki_lod_cpu", "maki_lod_cpu_online_fix", "maki_mods_observer", "maki_diorama_share"
+      "maki_chunksmith_chunk_cache", "maki_lod_cpu", "maki_mods_observer", "maki_diorama_share"
    );
    private static final String DEFAULT_IGNORED_PATHS = "config/maki-mods-observer.properties,config/maki-lod-cpu.properties,config/maki-diorama-share-client.toml,config/chunksmith/config.json,config/millenaire-common.toml";
    private static final long DEFAULT_MAX_BYTES = 53687091200L;

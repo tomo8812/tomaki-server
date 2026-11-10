@@ -16,7 +16,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -932,13 +931,6 @@ public final class BackfillController {
       advanceIfCurrent(level, pos, state);
    }
 
-   private static void releaseIdlePregenClaim(BackfillController.State state) {
-      if (state.idlePregenClaimed) {
-         IdlePregenBridge.setBackfillActive(false);
-         state.idlePregenClaimed = false;
-      }
-   }
-
    private static boolean active(BackfillController.State var0, long var1, ServerLevel var3, ChunkPos var4) {
       return !var0.stopping
          && var0.busy
@@ -1058,14 +1050,6 @@ public final class BackfillController {
             }
          );
       }
-   }
-
-   private static Double metric(double value) {
-      return !(value < 0.0) && Double.isFinite(value) ? Math.round(value * 1000.0) / 1000.0 : null;
-   }
-
-   private static String instant(long millis) {
-      return millis == 0L ? null : Instant.ofEpochMilli(millis).toString();
    }
 
    private static BackfillController.Target nextCandidate(ServerLevel var0, BackfillController.Cursor var1, String var2, BackfillController.State state) {
