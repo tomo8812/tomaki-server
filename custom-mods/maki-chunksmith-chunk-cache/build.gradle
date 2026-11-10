@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.4.2'
+version = '1.4.3'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -18,8 +18,8 @@ neoForge {
 
 
 dependencies {
-    compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
-    compileOnly files('../../mods/maki-idle-pregen-1.1.1.jar')
+    compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
+    compileOnly files('../../mods/maki-idle-pregen-1.1.2.jar')
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -167,7 +167,7 @@ tasks.register('verifyIssue66SharedBudget') {
 def issue66CacheManagerSource = file('src/main/java/maki/chunksmithcache/CacheManager.java')
 def issue66WorldMixinSource = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldMixin.java')
 def issue66RequestMixinSource = file('src/main/java/maki/chunksmithcache/mixin/GenerationRequestMixin.java')
-def issue66ChunksmithJar = file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+def issue66ChunksmithJar = file('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
 
 tasks.register('verifyIssue66CacheVisibility') {
     inputs.files(issue66CacheManagerSource, issue66WorldMixinSource, issue66RequestMixinSource, issue66ChunksmithJar)
@@ -240,7 +240,7 @@ tasks.register('issue74Test', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'maki.chunksmithcache.Issue74SelfTest'
-    systemProperty 'issue74.chunksmithJar', file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar').absolutePath
+    systemProperty 'issue74.chunksmithJar', file('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar').absolutePath
 }
 tasks.named('check') { dependsOn tasks.named('issue74Test') }
 
