@@ -16,6 +16,7 @@ import java.util.jar.JarFile;
 
 final class FingerprintPolicy {
     static final String CONFIG_RELATIVE = "config/maki-chunksmith-chunk-cache.properties";
+    static final String UNKNOWN_MOD_REASON = "unknown code-driven generation impact; fail-closed until audited";
     private static final String OWN_MOD_ID = "maki_chunksmith_chunk_cache";
     private static final Set<String> BUILTIN_GENERATION_NEUTRAL_MOD_IDS = Set.of(
         OWN_MOD_ID, "maki_lod_cpu", "maki_lod_cpu_online_fix", "maki_mods_observer", "maki_diorama_share"
@@ -178,7 +179,7 @@ final class FingerprintPolicy {
                 if (containsWorldgenResources(physicalPath)) {
                     return "JAR contains worldgen/structure/dimension datapack resources";
                 }
-                return "unknown code-driven generation impact; fail-closed until audited";
+                return UNKNOWN_MOD_REASON;
             }
             if (ids.size() == 1 && BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())) {
                 return "owned scheduling/UI/diagnostic MOD role is generation-neutral";
