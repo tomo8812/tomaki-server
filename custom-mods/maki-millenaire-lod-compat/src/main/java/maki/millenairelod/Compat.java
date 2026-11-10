@@ -40,7 +40,8 @@ public final class Compat {
    }
 
    public static void onChunk(VillageSpawnQueue queue, ChunkPos pos, boolean natural, ServerLevel level) {
-      queue.markResolved(pos);
+      // Millenaire 9.1.0 resolves the chunk and records SiteSurvey/SiteHunter
+      // before the RETURN injection calls this compatibility policy.
       DeferredData data = DeferredData.get(level);
       long key = pos.toLong();
       if ((natural || data.pending.contains(key)) && !data.queued.contains(key)) {
