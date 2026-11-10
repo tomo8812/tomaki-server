@@ -3,7 +3,7 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_lod_cpu"
-version="1.4.2"
+version="1.4.3"
 displayName="Maki LOD CPU Governor"
 description="Server-only Chunksmith persisted-LOD throughput controller and named-player center tracking. Follow dispatch and real-chunk backfill share a pressure-aware time budget using tick, memory, GC, I/O and storage telemetry without stop/resume cycling the follow task. Online background generation is disabled by default."
 [[dependencies.maki_lod_cpu]]
@@ -19,7 +19,7 @@ side="SERVER"
 [[dependencies.maki_lod_cpu]]
 modId="chunksmith"
 type="required"
-versionRange="[4.6.0]"
+versionRange="[4.8.1]"
 ordering="AFTER"
 side="SERVER"
 [[mixins]]
