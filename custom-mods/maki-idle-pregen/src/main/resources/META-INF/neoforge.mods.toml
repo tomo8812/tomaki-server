@@ -4,7 +4,7 @@ license="MIT"
 
 [[mods]]
 modId="maki_idle_pregen"
-version="1.1.1"
+version="1.1.2"
 displayName="Maki Idle Pregen"
 description="Server-only idle generation coordinator with bounded, loaded-chunk-only Millenaire startup initialization. It freezes normal simulation and owned Valkyrien Skies physics time while preserving state synchronization, while empty background generation is active without owning Chunksmith tasks."
 
@@ -23,14 +23,14 @@ side="SERVER"
 [[dependencies.maki_idle_pregen]]
 modId="chunksmith"
 type="required"
-versionRange="[4.6.0]"
+versionRange="[4.8.1]"
 ordering="AFTER"
 side="SERVER"
 
 [[dependencies.maki_idle_pregen]]
 modId="millenaire"
 type="required"
-versionRange="[9.0.3]"
+versionRange="[9.1.0]"
 ordering="AFTER"
 side="SERVER"
 
