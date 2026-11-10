@@ -271,6 +271,13 @@ def scan(mods_dir: Path):
                             if target not in classes:
                                 warnings.append(f"{jar.name}:{fqcn}: target {target} not found in top-level MOD bytecode")
                                 continue
+                            target_jar = classes[target]
+                            if target_jar not in metadata:
+                                # Fabric-target bytecode may be remapped or adapted
+                                # by Sinytra Connector; raw pre-transform signatures
+                                # are not a reliable runtime injection contract.
+                                warnings.append(f"{jar.name}:{fqcn}: {target} in {target_jar.name} needs Connector runtime validation")
+                                continue
                             try:
                                 target_class = bytecode(target)
                             except (ValueError, KeyError) as exc:
