@@ -111,7 +111,7 @@ public final class ReplayController {
                         continue;
                     }
                     Object chunkPos = rt.newChunkPos(x, z);
-                    if (chunkPos == null || rt.horizonDrop(level, chunkPos)) {
+                    if (chunkPos == null || !VillagePlacementReadiness.candidateReady(level, chunkPos)) {
                         continue;
                     }
                     Object blockPos = rt.newBlockPos((x << 4) + 8, 64, (z << 4) + 8);
@@ -183,7 +183,8 @@ public final class ReplayController {
         }
 
         Object chunkPos = rt.newChunkPos(cx, cz);
-        if (!rt.hasChunk(level, cx, cz) || chunkPos == null || rt.horizonDrop(level, chunkPos)) {
+        if (!rt.hasChunk(level, cx, cz) || chunkPos == null
+                || !VillagePlacementReadiness.candidateReady(level, chunkPos)) {
             da.remember(data, key, false);
             return false;
         }
@@ -826,7 +827,6 @@ public final class ReplayController {
         final Method blockGetZ;
         final Field chunkX;
         final Field chunkZ;
-        final Method horizonDrop;
         volatile Method serverAverage;
         volatile Method serverPlayerList;
         volatile Method viewDistance;
@@ -837,7 +837,7 @@ public final class ReplayController {
         RuntimeAccess(Object level) {
             Method game = null, server = null, chunk = null, chunksAt = null, playerList = null;
             Constructor<?> bpCtor = null, cpCtor = null;
-            Method bx = null, bz = null, hdrop = null;
+            Method bx = null, bz = null;
             Field cx = null, cz = null;
             boolean ok = false;
             try {
@@ -857,12 +857,9 @@ public final class ReplayController {
                 bz = findAnyMethod(blockPos, 0, "getZ");
                 cx = findField(chunkPos, "x");
                 cz = findField(chunkPos, "z");
-                Class<?> guard = Class.forName("com.kishku7.chunksmith.lod.HorizonGuard", false,
-                        ReplayController.class.getClassLoader());
-                hdrop = findMethod(guard, "drop", 2);
                 ok = game != null && server != null && chunk != null && chunksAt != null
                         && playerList != null && bpCtor != null && cpCtor != null
-                        && bx != null && bz != null && cx != null && cz != null && hdrop != null;
+                        && bx != null && bz != null && cx != null && cz != null;
             } catch (ReflectiveOperationException | LinkageError ignored) {
             }
             getGameTime = game;
@@ -876,7 +873,6 @@ public final class ReplayController {
             blockGetZ = bz;
             chunkX = cx;
             chunkZ = cz;
-            horizonDrop = hdrop;
             usable = ok;
         }
 
@@ -951,11 +947,6 @@ public final class ReplayController {
             } catch (IllegalAccessException | RuntimeException ignored) {
                 return Integer.MIN_VALUE;
             }
-        }
-
-        boolean horizonDrop(Object level, Object chunkPos) {
-            Object value = invoke(horizonDrop, null, level, chunkPos);
-            return value instanceof Boolean && (Boolean) value;
         }
 
         double averageMspt(Object server) {
