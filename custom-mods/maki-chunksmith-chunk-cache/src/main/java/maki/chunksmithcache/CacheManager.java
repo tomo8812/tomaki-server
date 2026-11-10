@@ -272,6 +272,15 @@ public final class CacheManager {
          PipelineMetrics.count("pregen-request-owner-conflict");
          return false;
       }
+      // A retry debt without an admitted NEW target means ownership is still
+      // unproven (normal storage UNKNOWN, an active claim, or an I/O failure).
+      // Chunksmith may request a missing LOD even after generated=true, so do
+      // not let that request create an unguarded FULL chunk.
+      if(PREGEN_RETRY.contains(key) && !PREGEN_NEW_TARGETS.containsKey(key)
+         && PregenBorrowLedger.kind(level,pos)==null) {
+         PipelineMetrics.count("pregen-unproven-full-request-blocked");
+         return false;
+      }
       if(!PREGEN_NEW_TARGETS.containsKey(key))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null) {
@@ -421,17 +430,20 @@ public final class CacheManager {
                return true;
             }
             addRetry(PREGEN_RETRY,key);
-            if(error!=null || normal==NormalChunkStorage.State.UNKNOWN) {
+            if(error!=null || normal==null || normal==NormalChunkStorage.State.UNKNOWN) {
                PipelineMetrics.count("pregen-normal-full-inspection-unknown");
-               // Unknown ownership is not permission to generate a replacement.
-               return true;
+               // generated=true is not a safe way to stop: Chunksmith will
+               // still request a FULL chunk if its LOD is missing. Complete
+               // exceptionally so neither generation nor LOD repair starts.
+               throw new java.util.concurrent.CompletionException(
+                  new IllegalStateException("Normal FULL ownership is unknown at "+pos,error));
             }
             return false;
          });
       } catch(Throwable inspectFailure) {
          addRetry(PREGEN_RETRY,key);
          PipelineMetrics.count("pregen-normal-full-inspection-unknown");
-         return CompletableFuture.completedFuture(true);
+         return CompletableFuture.failedFuture(inspectFailure);
       }
    }
 
