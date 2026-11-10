@@ -24,6 +24,7 @@ import org.millenaire.culture.ModCultures;
 import org.millenaire.village.Village;
 import org.millenaire.village.VillageSavedData;
 import org.millenaire.world.VillageSpawnQueue;
+import org.millenaire.world.sitescore.SiteSurvey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +41,9 @@ public final class Compat {
    }
 
    public static void onChunk(VillageSpawnQueue queue, ChunkPos pos, boolean natural, ServerLevel level) {
+      // SiteSurvey.processQueue clears the native main queue and returns immediately.
+      // Survey owns its own WAITING queue; do not claim an item that can never be polled.
+      if (SiteSurvey.ENABLED) return;
       // Millenaire 9.1.0 resolves the chunk and records SiteSurvey/SiteHunter
       // before this hook. Keep the generation candidate until a real player
       // has a loaded FULL and its normal persistence is safe.
@@ -68,7 +72,8 @@ public final class Compat {
    }
 
    public static void replay(ServerLevel level, VillageSpawnQueue queue) {
-      ReplayController.replay(level, queue);
+      // The native SiteSurvey-only branch never processes replayed main candidates.
+      if (!SiteSurvey.ENABLED) ReplayController.replay(level, queue);
    }
 
    public static boolean beginCandidate(ServerLevel level, BlockPos pos) {
@@ -77,6 +82,12 @@ public final class Compat {
 
    public static void waiting(ServerLevel level, BlockPos pos, boolean queued) {
       DeferredData.get(level).remember(new ChunkPos(pos).toLong(), queued);
+   }
+
+   public static void expiredLone(ServerLevel level, BlockPos pos) {
+      // Millenaire drops the LBCandidate when its native TTL has elapsed.
+      // Drop our replay record too, or an expired lone building returns as a village.
+      DeferredData.get(level).consume(new ChunkPos(pos).toLong());
    }
 
    public static boolean protectedChunk(ServerLevel level, ChunkPos pos) {
