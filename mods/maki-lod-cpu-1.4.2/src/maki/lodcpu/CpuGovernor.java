@@ -156,7 +156,7 @@ public final class CpuGovernor {
             lastCpu = cpu;
             lastGc = gc;
             LOG.info(
-               "Throughput governor 1.4.1 ready: allocated {} cores, ceiling {}..{}; follow dispatch and real-chunk backfill share one pressure-aware time budget, and CPU saturation alone does not reduce idle generation",
+               "Throughput governor 1.4.2 ready: allocated {} cores, ceiling {}..{}; follow dispatch and real-chunk backfill share one pressure-aware time budget, and CPU saturation alone does not reduce idle generation",
                new Object[]{capacity, settings.min, settings.max}
             );
          } else {

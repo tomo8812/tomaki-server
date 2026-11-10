@@ -125,10 +125,10 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "3464fc7284bc684525086648c5c3668d3f1c20c14a2083d48f9686a2dbceca8c"
     },
-    "mods/maki-chunksmith-chunk-cache-1.4.0.jar": {
-      "blob_oid": "e1f884e301daa02abb0206d42c8d94bafe8e774f",
-      "output": "mods/maki-chunksmith-chunk-cache-1.4.0",
-      "sha256": "112a7bb4a640e1eda6c55951e46e2d66ac9e8e1b75b8199bb905132f71b80bec"
+    "mods/maki-chunksmith-chunk-cache-1.4.1.jar": {
+      "blob_oid": "5b0c574760fb2be83c1ac455ff28325725e55421",
+      "output": "mods/maki-chunksmith-chunk-cache-1.4.1",
+      "sha256": "4a1db782e61f6a782863e751a0cc4c1000211e38e3b44e211132adc5116c39f8"
     },
     "mods/maki-diorama-share-1.0.1.jar": {
       "blob_oid": "c5bf0011c7a0f4ac2aa5e415338bb0fe4c67fb64",
@@ -140,10 +140,10 @@
       "output": "mods/maki-idle-pregen-1.1.1",
       "sha256": "85edab9fbce7fd0a643aead86577e269037fc39fe84606c229f1d446441a5f12"
     },
-    "mods/maki-lod-cpu-1.4.1.jar": {
-      "blob_oid": "2e6b92a0df964c44690967d586172436e887d68e",
-      "output": "mods/maki-lod-cpu-1.4.1",
-      "sha256": "f9fa2344c6cc057a86ba933f52fe377e79bf7412f9701e0f0c172731230799ec"
+    "mods/maki-lod-cpu-1.4.2.jar": {
+      "blob_oid": "442fea99dda3e468299679f3fa5a8372cfe43c30",
+      "output": "mods/maki-lod-cpu-1.4.2",
+      "sha256": "ba2424aa058b32db377c504075242a3d006194497203519b38551cff779cf2b9"
     },
     "mods/maki-millenaire-lod-compat-1.0.6.jar": {
       "blob_oid": "2e130091f7b9feef41dce5e8ce3ad025a8cafbbe",
@@ -155,10 +155,10 @@
       "output": "mods/maki-mods-observer-1.0.0",
       "sha256": "b80fa342b8b932843e6ad0cd1d338895b6b4300f7a78dd035ddfc1f71cede362"
     },
-    "mods/maki-ship-anchor-fix-1.1.1.jar": {
-      "blob_oid": "cbffa24f8055635b8e93ec9d4b0a19a84b2f1abf",
-      "output": "mods/maki-ship-anchor-fix-1.1.1",
-      "sha256": "c2f3cc824e85335356289a726c8a16380f7ec8a8e0cdae61fe99e74018b75b41"
+    "mods/maki-ship-anchor-fix-1.1.2.jar": {
+      "blob_oid": "f2700735a6c7144304d06bf058b1cad6c08acc87",
+      "output": "mods/maki-ship-anchor-fix-1.1.2",
+      "sha256": "31741d97c5c0ba3b936481b6adcbe9b84dd7bbd971009c5745026f02ff2b60b1"
     },
     "mods/maki-ship-edge-1.0.0.jar": {
       "blob_oid": "3dc7c5b7bc17096d765f10feac767c342c63008d",
