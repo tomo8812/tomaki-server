@@ -52,10 +52,17 @@ public abstract class SpawnQueueMixin {
         at = @At(value = "INVOKE", target = "Ljava/util/Deque;pollFirst()Ljava/lang/Object;"))
     private Object compat$pollLone(Deque<Object> queue, ServerLevel level, VillageSavedData saved,
                                    VillageManager manager, boolean log, long tick) {
-        for (int i = 0; i < 20; i++) {
+        // Unlike the main queue, this deque carries its own retry/TTL state.
+        // Preserve blocked LBCandidates in place; replaying them through the
+        // main queue would silently turn a lone-building retry into a village.
+        int scans = Math.min(20, queue.size());
+        for (int i = 0; i < scans; i++) {
             Object candidate = queue.pollFirst();
-            if (candidate == null ||
-                Compat.beginCandidate(level, ((LoneCandidateAccessor)candidate).compat$pos())) return candidate;
+            if (candidate == null) return null;
+            BlockPos pos = ((LoneCandidateAccessor)candidate).compat$pos();
+            if (Compat.beginCandidate(level, pos)) return candidate;
+            Compat.waiting(level, pos, true);
+            queue.addLast(candidate);
         }
         return null;
     }
