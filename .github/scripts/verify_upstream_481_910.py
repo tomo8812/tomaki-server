@@ -97,8 +97,8 @@ def main():
     bounds = method(terrain, 'placementBounds(int, int, int, java.util.Collection')
     # The source-level bounds guard uses native radius+5, 16-block alignment
     # and a one-chunk margin from placementAreaLoaded. Detect ABI drift.
-    if 'bipush        16' not in bounds:
-        raise AssertionError('Millenaire placement bounds no longer align to 16-block chunks')
+    if 'ishr' not in bounds or 'ishl' not in bounds or 'iconst_5' not in bounds:
+        raise AssertionError('Millenaire placement bounds no longer use chunk-aligned radius+5')
 
     rehydrator = read(args.millenaire, 'org.millenaire.village.VillageRehydrator')
     check(rehydrator, 'rehydrateAll(net.minecraft.server.level.ServerLevel)', 'Village.rebuildWaypointGraph:', 1)
