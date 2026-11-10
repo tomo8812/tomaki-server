@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.millenairelod'
-version = '1.0.6'
+version = '1.0.7'
 
 base {
     archivesName = 'maki-millenaire-lod-compat'
@@ -18,8 +18,8 @@ neoForge {
 
 
 dependencies {
-    compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
-    compileOnly files('../../mods/millenaire-9.0.3.jar')
+    compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
+    compileOnly files('../../mods/millenaire-9.1.0.jar')
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -55,7 +55,7 @@ def registeredMixins = [
 
 def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
 def javapExecutable = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
-def chunksmithJarPath = file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar').absolutePath
+def chunksmithJarPath = file('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar').absolutePath
 
 tasks.register('verifyMixinAnnotationRetention') {
     dependsOn tasks.named('classes')
