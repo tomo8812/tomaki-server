@@ -1,42 +1,44 @@
-name: Inspect Millenaire 9.1 queue bytecode for PR 90
+name: Verify and publish Millenaire 9.1 review fixes
 on:
   push:
     branches: [compat/chunksmith-4.8.1-millenaire-9.1.0]
     paths: [.github/workflows/inspect-village-queue-once.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  inspect:
+  rebuild:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-      - name: Inspect actual methods and queue lifecycle
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Verify pinned native queue and ABI contracts
         run: |
-          python3 - <<'PY'
-          import subprocess
-          jar='mods/millenaire-9.1.0.jar'
-          classes=['org.millenaire.world.VillageSpawnQueue','org.millenaire.world.sitescore.SiteSurvey','org.millenaire.world.SiteHunter']
-          targets={'VillageSpawnQueue':['trySpawnNext(', 'processLBQueue(', 'isExpired(', 'trySpawnVillage(', 'getStats('],
-                   'SiteSurvey':['processQueue(', 'ENABLED'],
-                   'SiteHunter':['addCandidate(', 'attempt(', 'tick(', 'work', 'ENABLED']}
-          for cls in classes:
-              print('========== '+cls+' ==========',flush=True)
-              name=cls.rsplit('.',1)[-1]
-              desc=subprocess.run(['javap','-p','-classpath',jar,cls],text=True,capture_output=True,check=True).stdout.splitlines()
-              for line in desc:
-                  if any(t in line for t in targets[name]): print('SIG '+line,flush=True)
-              lines=subprocess.run(['javap','-p','-c','-classpath',jar,cls],text=True,capture_output=True,check=True).stdout.splitlines()
-              headers=[i for i,s in enumerate(lines) if s.startswith('  ') and not s.startswith('    ') and '(' in s and (s.strip().endswith(';') or s.strip().endswith(')'))]
-              headers.append(len(lines))
-              for i,begin in enumerate(headers[:-1]):
-                  if any(t in lines[begin] for t in targets[name]) and '(' in lines[begin]:
-                      end=headers[i+1]
-                      chunk=lines[begin:min(end,begin+240)]
-                      print('METHOD '+lines[begin],flush=True)
-                      for line in chunk: print(line,flush=True)
-          PY
+          python3 .github/scripts/verify_upstream_481_910.py \
+            --chunksmith 'mods/chunksmith-4.8.1+1.21.1-neoforge.jar' \
+            --millenaire 'mods/millenaire-9.1.0.jar'
+      - name: Compile and test Millenaire compatibility
+        run: |
+          gradle --no-daemon --build-cache -p custom-mods/maki-millenaire-lod-compat check jar
+          install -m 0644 \
+            custom-mods/maki-millenaire-lod-compat/build/libs/maki-millenaire-lod-compat-1.0.8.jar \
+            mods/maki-millenaire-lod-compat-1.0.8.jar
+      - name: Audit mod interoperability and deployed sources
+        run: |
+          python3 .github/scripts/check_mod_interop.py --mods-dir mods
+          python3 .github/scripts/check_deployment_sources.py
+      - name: Commit tested compatibility JAR to existing PR branch
+        run: |
+          set -euo pipefail
+          git add mods/maki-millenaire-lod-compat-1.0.8.jar
+          if git diff --cached --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'build(millenaire): publish review-corrected compatibility JAR'
+          git push origin "HEAD:refs/heads/${GITHUB_REF_NAME}"
