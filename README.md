@@ -11,7 +11,7 @@ Jade-1.21.1-NeoForge-15.10.6.jar
 QuadHotbar-1.21.1-neoforge-1.1.0-beta1.jar
 ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar
 architectury-13.0.11-neoforge.jar
-chunksmith-4.6.0+1.21.1-neoforge.jar
+chunksmith-4.8.1+1.21.1-neoforge.jar
 clientsort-neoforge-3.89.2+1.21.1.jar
 connector-2.0.0-beta.17+1.21.1-full-keyfix1.jar
 emi-1.1.24+1.21.1+neoforge.jar
@@ -28,7 +28,7 @@ maki-diorama-share-1.0.1.jar
 maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar
 maki-ship-footsteps-1.0.1.jar
-millenaire-9.0.3.jar
+millenaire-9.1.0.jar
 puzzleslib-v21.1.66-mc1.21.1+neoforge.jar
 sound-physics-remastered-neoforge-1.21.1-1.5.2.jar
 terrain_slabs-neoforge-3.1.2.jar
@@ -45,16 +45,16 @@ terrain_slabs-neoforge-3.1.2.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
 maki-assembly-tracking-1.0.0.jar
-maki-chunksmith-chunk-cache-1.4.2.jar
+maki-chunksmith-chunk-cache-1.4.3.jar
 maki-diorama-share-1.0.1.jar
-maki-idle-pregen-1.1.1.jar
-maki-lod-cpu-1.4.2.jar
-maki-millenaire-lod-compat-1.0.6.jar
+maki-idle-pregen-1.1.2.jar
+maki-lod-cpu-1.4.3.jar
+maki-millenaire-lod-compat-1.0.7.jar
 maki-mods-observer-1.0.0.jar
 maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar
 maki-ship-footsteps-1.0.1.jar
-maki-ship-save-1.0.2.jar
+maki-ship-save-1.0.3.jar
 ```
 
 `maki-lod-cpu-online-fix` も廃止されました。旧 `maki-lod-cpu-online-fix-*.jar` は残さないでください。今回更新した `maki-lod-cpu-1.4.1.jar`、`maki-chunksmith-chunk-cache-1.4.0.jar`、`maki-chunksmith-chunk-cache-1.4.1.jar` と `maki-ship-anchor-fix-1.1.1.jar` も、新しいJARと重複して配置しないでください。クライアント側も旧 `maki-ship-anchor-fix-1.1.1.jar` を削除してください。
@@ -62,3 +62,11 @@ maki-ship-save-1.0.2.jar
 `maki-lag-observer` は `maki-mods-observer` に置き換えられ、`maki-status-io` は廃止されています。更新時は旧 `maki-lag-observer-*.jar`、`maki-status-io-*.jar`、`config/maki-lag-observer.properties` を残さないでください。詳細診断が必要な場合だけ `config/maki-mods-observer.properties` でObserverを有効化します。詳細診断は既定で無効で、設定を変更しない1セッションあたり既定30分、各stream 5000イベント、各file 16 MiBに制限されます。
 
 Chunksmithのタスク・キャッシュ・カーソル、LOD、Diorama、ワールド内のMODデータ、移行バックアップ・監査データは運用データなので削除しません。
+
+## Chunksmith 4.8.1 / Millénaire 9.1.0 更新
+
+この組合せでは、サーバーとクライアント双方の Chunksmith / Millénaire を更新してください。サーバー上の自作MODは、上記の版へ **同時に** 更新します。古い同名MODのJARを残すと重複ロードになります。
+
+更新に伴い Millénaire の地形・村生成方式が変わるため、チャンクキャッシュの互換性判定は従来どおり厳格に維持します。既存のワールドとChunksmithのLOD/保存済みデータは削除しないでください。まずワールドをバックアップして、新規生成・村候補の保留と再投入・FULL/LOD保存・船舶保護を確認してください。
+
+再現可能なJAR取得とハッシュ検証は `scripts/sync-upstream-481-910.sh` を使用します。
