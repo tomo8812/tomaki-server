@@ -74,14 +74,17 @@ public abstract class GenerationTaskPairMixin {
         return lod;
     }
 
+    // Chunksmith 4.6.0 compiles the thenCompose branch in run() as a
+    // separate lambda$run$1 method. Its hasLod call is not in run()V.
     @Redirect(
-        method="run()V",
+        method="lambda$run$1(Lcom/kishku7/chunksmith/lod/CsLodPresenceIndex;Lcom/kishku7/chunksmith/util/ChunkCoordinate;ZZ[ZLjava/lang/Boolean;)Ljava/util/concurrent/CompletionStage;",
         at=@At(
             value="INVOKE",
             target="Lcom/kishku7/chunksmith/lod/CsLodPresenceIndex;hasLod(II)Z",
-            ordinal=2
+            ordinal=0
         ),
-        require=1
+        require=1,
+        allow=1
     )
     private boolean maki$observeAsyncLod(CsLodPresenceIndex index,int x,int z) {
         boolean lod=index.hasLod(x,z);
