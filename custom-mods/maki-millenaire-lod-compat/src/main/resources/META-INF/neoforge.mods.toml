@@ -3,7 +3,7 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_millenaire_lod"
-version="1.0.7"
+version="1.0.8"
 displayName="Maki Millenaire Chunksmith Compatibility"
 description="Defers Millenaire natural generation in disposable Chunksmith chunks, preserves village chunks with lifecycle-safe reservations, and moves protected explored-LOD extraction to a safe snapshot worker while retaining Chunksmith admission and presence semantics."
 [[dependencies.maki_millenaire_lod]]
@@ -28,5 +28,10 @@ type="required"
 versionRange="[4.8.1]"
 ordering="AFTER"
 side="BOTH"
+[[dependencies.maki_millenaire_lod]]
+modId="maki_chunksmith_chunk_cache"
+type="optional"
+versionRange="[1.4.3,)"
+side="SERVER"
 [[mixins]]
 config="maki-millenaire-lod.mixins.json"
