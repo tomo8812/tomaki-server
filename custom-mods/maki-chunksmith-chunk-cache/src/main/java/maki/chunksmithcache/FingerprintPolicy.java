@@ -51,6 +51,11 @@ final class FingerprintPolicy {
     private final Set<String> generationSensitiveModIds;
     private final List<String> generationSensitivePaths;
     private final List<String> ignoredPaths;
+    // Exact manually audited MOD ID + JAR SHA-256 pairs. This policy is
+    // intentionally absent from compatibilitySignature(): each approved JAR
+    // is recorded as IGNORED in the manifest, while unapproved bytes remain
+    // RELEVANT. Changing the audit list alone cannot invalidate safe caches.
+    private final Set<String> auditedNeutralArtifacts;
     private final int retentionDays;
     private final int maxGenerations;
     private final long maxBytes;
@@ -60,6 +65,7 @@ final class FingerprintPolicy {
         Set<String> generationSensitiveModIds,
         List<String> generationSensitivePaths,
         List<String> ignoredPaths,
+        Set<String> auditedNeutralArtifacts,
         int retentionDays,
         int maxGenerations,
         long maxBytes,
@@ -68,6 +74,7 @@ final class FingerprintPolicy {
         this.generationSensitiveModIds = Set.copyOf(generationSensitiveModIds);
         this.generationSensitivePaths = List.copyOf(generationSensitivePaths);
         this.ignoredPaths = List.copyOf(ignoredPaths);
+        this.auditedNeutralArtifacts = Set.copyOf(auditedNeutralArtifacts);
         this.retentionDays = retentionDays;
         this.maxGenerations = maxGenerations;
         this.maxBytes = maxBytes;
@@ -87,6 +94,7 @@ final class FingerprintPolicy {
             lowerCsv(properties.getProperty("fingerprint.generation-sensitive-mod-ids", "")),
             new ArrayList<>(csv(properties.getProperty("fingerprint.generation-sensitive-paths", ""))),
             new ArrayList<>(csv(properties.getProperty("fingerprint.ignore-paths", DEFAULT_IGNORED_PATHS))),
+            auditedNeutralPairs(properties.getProperty("fingerprint.audited-neutral-mod-sha256", "")),
             boundedInt(properties, "quarantine.retention-days", 30, 1, 3650),
             boundedInt(properties, "quarantine.max-generations", 8, 1, 1024),
             boundedLong(properties, "quarantine.max-bytes", DEFAULT_MAX_BYTES, 1024L * 1024L, Long.MAX_VALUE),
@@ -95,13 +103,13 @@ final class FingerprintPolicy {
     }
 
     static FingerprintPolicy forTesting(List<String> ignoredPaths) {
-        return new FingerprintPolicy(Set.of(), List.of(), ignoredPaths, 30, 8, DEFAULT_MAX_BYTES, 24);
+        return new FingerprintPolicy(Set.of(), List.of(), ignoredPaths, Set.of(), 30, 8, DEFAULT_MAX_BYTES, 24);
     }
 
     static FingerprintPolicy forTesting(Set<String> sensitiveModIds, List<String> sensitivePaths, List<String> ignoredPaths) {
         LinkedHashSet<String> normalized = new LinkedHashSet<>();
         for (String id : sensitiveModIds) normalized.add(id.toLowerCase(Locale.ROOT));
-        return new FingerprintPolicy(normalized, sensitivePaths, ignoredPaths, 30, 8, DEFAULT_MAX_BYTES, 24);
+        return new FingerprintPolicy(normalized, sensitivePaths, ignoredPaths, Set.of(), 30, 8, DEFAULT_MAX_BYTES, 24);
     }
 
     // Legacy test/source compatibility: the first set is now explicitly generation-sensitive.
@@ -134,6 +142,22 @@ final class FingerprintPolicy {
         // Unknown configuration can drive code-based generation too. Only explicit
         // ignored paths and known semantic generation inputs are classified specially.
         return FingerprintManifest.Impact.RELEVANT;
+    }
+
+    boolean allowsAuditedNeutral(String logicalPath, Path physicalPath, String rawSha256) {
+        String normalized=normalize(logicalPath);
+        if(!normalized.startsWith("mods/") || !normalized.endsWith(".jar")
+           || rawSha256==null || !rawSha256.matches("[a-f0-9]{64}"))return false;
+        Set<String> ids=readTopLevelModIds(physicalPath);
+        if(ids.size()!=1)return false;
+        String id=ids.iterator().next();
+        // Audit approval must not override any known generation-sensitive or
+        // datapack-driven code, nor an indirect generation override.
+        if(isGenerationSensitiveModId(id)
+           || isGenerationSensitiveJarName(physicalPath.getFileName().toString())
+           || containsWorldgenResources(physicalPath)
+           || AuditedModCompatibility.declaresGenerationOverride(physicalPath))return false;
+        return auditedNeutralArtifacts.contains(id+":"+rawSha256);
     }
 
     String reason(String logicalPath, Path physicalPath, FingerprintManifest.Impact impact) {
@@ -291,6 +315,15 @@ final class FingerprintPolicy {
             if (!normalized.isEmpty()) result.add(normalized);
         }
         return result;
+    }
+
+    private static Set<String> auditedNeutralPairs(String value) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        for(String raw:csv(value)) {
+            String entry=raw.toLowerCase(Locale.ROOT);
+            if(entry.matches("[a-z0-9_.-]+:[a-f0-9]{64}"))result.add(entry);
+        }
+        return Set.copyOf(result);
     }
 
     private static Set<String> lowerCsv(String value) {
