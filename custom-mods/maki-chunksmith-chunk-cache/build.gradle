@@ -342,6 +342,13 @@ tasks.register('verifyIssue83UnifiedPregen') {
          'lodDone().isDone()', 'unloaded'].each { token ->
             if (!borrow.contains(token)) throw new GradleException('Issue #83 regression: pregen persistence lifecycle missing ' + token)
         }
+        if (!borrow.contains('GenerationTask owner')
+                || !borrow.contains('existing.owner()==owner')
+                || !borrow.contains('borrow.owner()!=sourceTask')
+                || !cache.contains('PregenBorrowLedger.beginGenerated(level,pos,file,sourceTask)')
+                || !cache.contains('PregenBorrowLedger.cancel(level,pos,sourceTask)')) {
+            throw new GradleException('Issue #83 regression: stale task may reuse or release a newer persistence guard')
+        }
         ['PREGEN_NEW_TARGETS', 'PREGEN_REQUEST_TARGETS', 'preparePregenRequest', 'pregenRequestFinished',
          'PregenBorrowLedger.beginGenerated',
          'PregenBorrowLedger.Kind.GENERATED', 'noteChunksmithGeneratedResult', 'noteChunksmithGeneratedFailure',
