@@ -63,8 +63,14 @@ def audit():
             method = match.group(1)
             if method == name:
                 continue
-            before = raw[path][max(0, match.start() - 350):match.start()]
-            if INJECTOR.search(before):
+            before = raw[path][:match.start()]
+            # A Mixin callback is invoked by bytecode injection rather than Java calls.
+            last_body_end = max(before.rfind("\n    }"), before.rfind("\n   }"), before.rfind("\n}"))
+            annotation_area = before[last_body_end + 1:]
+            if INJECTOR.search(annotation_area):
+                continue
+            # Method references (Thread(...::watchLoop), callbacks) are real callers.
+            if re.search(r"::\s*" + re.escape(method) + r"\b", src):
                 continue
             invocation = re.compile(IDENTIFIER.format(re.escape(method)) + r"\s*\(")
             uses = len(invocation.findall(src))

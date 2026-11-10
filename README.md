@@ -49,7 +49,6 @@ maki-chunksmith-chunk-cache-1.4.0.jar
 maki-diorama-share-1.0.1.jar
 maki-idle-pregen-1.1.1.jar
 maki-lod-cpu-1.4.1.jar
-maki-lod-cpu-online-fix-1.0.3.jar
 maki-millenaire-lod-compat-1.0.6.jar
 maki-mods-observer-1.0.0.jar
 maki-ship-anchor-fix-1.1.1.jar
