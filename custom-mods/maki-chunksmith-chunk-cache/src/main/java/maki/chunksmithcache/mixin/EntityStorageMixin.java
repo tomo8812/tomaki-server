@@ -1,6 +1,7 @@
 package maki.chunksmithcache.mixin;
 
 import maki.chunksmithcache.BackfillGuard;
+import maki.chunksmithcache.CacheManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.chunk.storage.EntityStorage;
@@ -20,7 +21,8 @@ public abstract class EntityStorageMixin {
 
    @Inject(method = "storeEntities(Lnet/minecraft/world/level/entity/ChunkEntities;)V", at = @At("HEAD"), cancellable = true)
    private void maki$backfillEntityVeto(ChunkEntities<Entity> var1, CallbackInfo var2) {
-      if (BackfillGuard.suppress(this.level, var1.getPos())) {
+      if (BackfillGuard.suppress(this.level, var1.getPos())
+         || CacheManager.pregenPersistenceSuppressed(this.level, var1.getPos())) {
          var2.cancel();
       }
    }

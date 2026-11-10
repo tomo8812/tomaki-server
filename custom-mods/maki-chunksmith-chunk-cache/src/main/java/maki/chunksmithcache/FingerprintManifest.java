@@ -182,6 +182,7 @@ final class FingerprintManifest {
         Set<String> excludedKeys,
         Path historicalGeneration
     ) {
+        Set<String> provenExcluded = provenCompatibilityExclusions(oldManifest, newManifest, excludedKeys);
         Entry currentRawZfastnoise = findEntry(
             newManifest.entries(),
             CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
@@ -189,12 +190,12 @@ final class FingerprintManifest {
         Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
         Map<String, Entry> oldEntries = compatibilityByKey(
             oldManifest.entries(),
-            excludedKeys,
+            provenExcluded,
             currentRawZfastnoise,
             currentEffectiveZfastnoise,
             historicalGeneration
         );
-        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
+        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), provenExcluded, null, null, null);
         if (oldEntries == null || newEntries == null || !oldEntries.keySet().equals(newEntries.keySet())) return false;
         for (String key : oldEntries.keySet()) {
             if (!equivalent(oldEntries.get(key), newEntries.get(key))) return false;
@@ -209,15 +210,16 @@ final class FingerprintManifest {
         int limit,
         Path historicalGeneration
     ) {
+        Set<String> provenExcluded = provenCompatibilityExclusions(oldManifest, newManifest, excludedKeys);
         Entry currentRawZfastnoise = findEntry(
             newManifest.entries(),
             CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
         );
         Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
         Map<String, Entry> oldEntries = compatibilityByKey(
-            oldManifest.entries(), excludedKeys, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
+            oldManifest.entries(), provenExcluded, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
         );
-        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
+        Map<String, Entry> newEntries = compatibilityByKey(newManifest.entries(), provenExcluded, null, null, null);
         if (oldEntries == null || newEntries == null) {
             return List.of("manifest normalization conflict; migration proof is ambiguous");
         }
@@ -259,9 +261,15 @@ final class FingerprintManifest {
     ) {
         Map<String, Entry> current = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
         if (current == null) return List.of();
+        Map<String, Entry> newByKey = byKey(newManifest.entries());
         List<String> proofs = new ArrayList<>();
         for (Entry original : oldManifest.entries()) {
             if (excludedKeys.contains(original.key())) continue;
+            if (CompatibilityInput.verifiedNeutralAuditTransition(original, newByKey.get(original.key()))) {
+                proofs.add(original.key() + "(same JAR bytes, now explicitly audited generation-neutral)");
+                if (proofs.size() >= limit) break;
+                continue;
+            }
             Entry normalized = CompatibilityInput.normalizeHistoricalEntry(original, historicalGeneration);
             if (normalized == original || normalized == null || normalized.impact() != Impact.RELEVANT) continue;
             Entry currentEntry = current.get(normalized.key());
@@ -273,6 +281,25 @@ final class FingerprintManifest {
             }
         }
         return List.copyOf(proofs);
+    }
+
+    /**
+     * Only ignore a previously relevant input when the current manifest proves
+     * that the very same unknown MOD binary has gained a generation-neutral audit.
+     * All changed binaries, unknown configurations and known generation inputs
+     * remain relevant when comparing historical generations.
+     */
+    private static Set<String> provenCompatibilityExclusions(
+        Manifest historical, Manifest current, Set<String> excludedKeys
+    ) {
+        Set<String> excluded = new LinkedHashSet<>(excludedKeys);
+        Map<String, Entry> currentEntries = byKey(current.entries());
+        for (Entry old : historical.entries()) {
+            if (CompatibilityInput.verifiedNeutralAuditTransition(old, currentEntries.get(old.key()))) {
+                excluded.add(old.key());
+            }
+        }
+        return excluded;
     }
 
     private static Entry findEntry(List<Entry> entries, String key) {

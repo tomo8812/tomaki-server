@@ -24,19 +24,23 @@ public final class PromotionLedger {
         return true;
     }
 
-    static void adoptLive(ServerLevel level, ChunkPos pos, Path file, CompletableFuture<Boolean> pendingCapture) throws IOException {
+    static boolean adoptLive(ServerLevel level, ChunkPos pos, Path file, CompletableFuture<Boolean> pendingCapture) throws IOException {
         Key key=new Key(level,pos.toLong());
         PromotionClaim claim=ACTIVE.get(key);
         if(claim!=null) {
+            if(PregenBorrowLedger.needsPoiWrite(level,pos)) claim.requirePoiWrite();
             holdUntilCaptureEnds(key,claim,pendingCapture);
-            return;
+            return true;
         }
         claim=PromotionClaim.adoptLive(file,pendingCapture!=null);
         if(claim!=null) {
+            if(PregenBorrowLedger.needsPoiWrite(level,pos)) claim.requirePoiWrite();
             ACTIVE.put(key,claim);
             classify(key,claim);
             holdUntilCaptureEnds(key,claim,pendingCapture);
+            return true;
         }
+        return false;
     }
 
     private static void holdUntilCaptureEnds(Key key, PromotionClaim claim, CompletableFuture<Boolean> pendingCapture) {
@@ -55,6 +59,10 @@ public final class PromotionLedger {
 
     static void blockReplay(ServerLevel level, ChunkPos pos, Path payload) { BLOCKED.put(new Key(level,pos.toLong()),payload); }
     static void normalFullPresent(ServerLevel level, ChunkPos pos) { BLOCKED.remove(new Key(level,pos.toLong())); }
+    static boolean owns(ServerLevel level, ChunkPos pos) {
+        Key key=new Key(level,pos.toLong());
+        return ACTIVE.containsKey(key)||BLOCKED.containsKey(key);
+    }
 
     public static void requireUnambiguousLoad(ServerLevel level, ChunkPos pos) {
         Path payload=BLOCKED.remove(new Key(level,pos.toLong()));
@@ -95,6 +103,21 @@ public final class PromotionLedger {
         written.whenComplete((ignored, error) -> {
             claim.entityWrite(error == null);
             retire(key, claim);
+        });
+    }
+
+    /** Observe the actual normal POI region write, not just dirty restoration. */
+    public static void observePoiWrite(Object poiManager, ChunkPos pos, CompletableFuture<Void> written) {
+        if(poiManager==null||pos==null||written==null)return;
+        // The borrow may have unloaded before the POI Future completes; correlate
+        // against the live promotion claim instead of the transient borrow ledger.
+        ACTIVE.forEach((key,claim) -> {
+            if(key.pos()!=pos.toLong() || key.level().getPoiManager()!=poiManager
+               || !claim.requiresPoiWrite())return;
+            written.whenComplete((ignored,error) -> {
+                claim.poiWrite(error==null);
+                retire(key,claim);
+            });
         });
     }
 

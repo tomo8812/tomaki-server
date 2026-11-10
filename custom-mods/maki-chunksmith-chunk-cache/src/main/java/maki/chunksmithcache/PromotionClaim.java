@@ -16,6 +16,8 @@ final class PromotionClaim {
     private boolean entitiesRestored;
     private boolean chunkWritten;
     private boolean entitiesWritten;
+    private boolean needsPoiWrite;
+    private boolean poiWritten;
     private boolean failed;
     private int pendingPublications;
     private boolean retirementQueued;
@@ -84,6 +86,12 @@ final class PromotionClaim {
         else failed = true;
     }
 
+    synchronized void requirePoiWrite() { needsPoiWrite = true; }
+    synchronized boolean requiresPoiWrite() { return needsPoiWrite && !poiWritten && !failed; }
+    synchronized void poiWrite(boolean success) {
+        if (success) poiWritten = true;
+        else failed = true;
+    }
     synchronized void failed() { failed = true; }
     synchronized void entitiesRestored() { entitiesRestored = true; }
     synchronized void publicationPending() { pendingPublications++; }
@@ -101,7 +109,8 @@ final class PromotionClaim {
         if(explicitlyEmpty) needsEntityWrite=false;
     }
     synchronized boolean canRetire() {
-        return loaded && !failed && chunkWritten && pendingPublications == 0 && (!needsEntityWrite || entitiesWritten);
+        return loaded && !failed && chunkWritten && pendingPublications == 0
+            && (!needsEntityWrite || entitiesWritten) && (!needsPoiWrite || poiWritten);
     }
     synchronized boolean beginRetirement() {
         if (retirementQueued || !canRetire()) return false;

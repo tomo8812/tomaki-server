@@ -14,6 +14,7 @@ final class CompatibilityInput {
     static final String ZFASTNOISE_PATH = "config/zfastnoise.mixin.properties";
     static final String RAW_AUDIT_PREFIX = "audit:raw:";
     static final String HISTORICAL_EVIDENCE_DIR = ".compatibility-evidence";
+    static final String EXPLICIT_NEUTRAL_AUDIT = "explicitly audited generation-neutral MOD ID and exact JAR SHA-256";
 
     private static final List<String> ZFASTNOISE_KEYS = List.of("mixin.perf.biome", "mixin.perf.noise");
     private static final List<LegacyZfastnoiseAttestation> LEGACY_ZFASTNOISE = List.of(
@@ -61,12 +62,53 @@ final class CompatibilityInput {
         }
 
         if (key.startsWith("mods/") && key.endsWith(".jar")) {
+            if (AuditedModCompatibility.declaresGenerationOverride(file)) {
+                return List.of(new FingerprintManifest.Entry(
+                    key, rawSize, rawSha256, FingerprintManifest.Impact.RELEVANT,
+                    "MOD declares an indirect zfastnoise generation override or its metadata cannot be safely inspected; fail-closed relevant"
+                ));
+            }
+            FingerprintManifest.Impact classified = policy.classify(key, file);
+            if (classified == FingerprintManifest.Impact.IGNORED) {
+                return List.of(new FingerprintManifest.Entry(
+                    key, rawSize, rawSha256, FingerprintManifest.Impact.IGNORED,
+                    policy.reason(key, file, classified)
+                ));
+            }
             List<FingerprintManifest.Entry> audited = AuditedModCompatibility.entries(file, rawSize, rawSha256);
             if (audited != null) return audited;
+            // A previously unknown QoL MOD may be declared neutral only after
+            // an explicit, per-binary SHA-256 audit. The audit policy itself
+            // does not become a generation fingerprint input.
+            if (policy.allowsAuditedNeutral(key, file, rawSha256)) {
+                return List.of(new FingerprintManifest.Entry(
+                    key, rawSize, rawSha256, FingerprintManifest.Impact.IGNORED,
+                    EXPLICIT_NEUTRAL_AUDIT
+                ));
+            }
         }
 
         FingerprintManifest.Impact impact = policy.classify(key, file);
         return List.of(new FingerprintManifest.Entry(key, rawSize, rawSha256, impact, policy.reason(key, file, impact)));
+    }
+
+    /**
+     * A newer exact-binary audit can reclassify a formerly unknown MOD as
+     * generation-neutral without invalidating FULLs captured with those same
+     * bytes. The current entry is produced only after the runtime policy has
+     * checked the MOD ID, digest, worldgen resources, and generation overrides.
+     * Other reasons for historical relevance must remain fail-closed.
+     */
+    static boolean verifiedNeutralAuditTransition(FingerprintManifest.Entry historical, FingerprintManifest.Entry current) {
+        return historical != null && current != null
+            && historical.key().startsWith("mods/") && historical.key().endsWith(".jar")
+            && historical.key().equals(current.key())
+            && historical.impact() == FingerprintManifest.Impact.RELEVANT
+            && FingerprintPolicy.UNKNOWN_MOD_REASON.equals(historical.reason())
+            && current.impact() == FingerprintManifest.Impact.IGNORED
+            && EXPLICIT_NEUTRAL_AUDIT.equals(current.reason())
+            && historical.size() == current.size()
+            && historical.sha256().equals(current.sha256());
     }
 
     static String policySignature() {

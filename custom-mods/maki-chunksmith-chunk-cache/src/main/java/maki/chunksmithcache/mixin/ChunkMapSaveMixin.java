@@ -28,6 +28,11 @@ public abstract class ChunkMapSaveMixin {
       if (BackfillGuard.suppress(this.level, var1.getPos())) {
          var1.setUnsaved(false);
          var2.setReturnValue(false);
+         return;
+      }
+      if (CacheManager.pregenPersistenceSuppressed(this.level, var1.getPos())
+         && CacheManager.suppressPregenChunkSave(this.level,var1)) {
+         var2.setReturnValue(false);
       }
    }
 
