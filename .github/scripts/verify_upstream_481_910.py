@@ -62,6 +62,7 @@ def main():
         ('processLBQueue(net.minecraft.server.level.ServerLevel', 'java/util/Deque.addLast:', 3),
         ('processLBQueue(net.minecraft.server.level.ServerLevel', 'isCoverageComplete:', 1),
         ('trySpawnVillage(net.minecraft.server.level.ServerLevel', 'ServerLevel.hasChunksAt:', 0),
+        ('trySpawnVillage(net.minecraft.server.level.ServerLevel', 'VillageSpawner.spawnVillage:', 1),
     ]:
         check(queue, name, target, count)
 
