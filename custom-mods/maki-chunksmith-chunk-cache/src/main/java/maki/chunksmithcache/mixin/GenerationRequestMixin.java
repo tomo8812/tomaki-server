@@ -36,6 +36,22 @@ public abstract class GenerationRequestMixin {
         PipelineMetrics.gauge("native-width-last", dispatchLimit.get());
     }
 
+    @Redirect(method="run()V", at=@At(value="INVOKE",
+        target="Lcom/kishku7/chunksmith/platform/World;isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;"), require=1)
+    private CompletableFuture<Boolean> maki$trackGeneratedDecision(World world, int x, int z) {
+        GenerationTask sourceTask=(GenerationTask)(Object)this;
+        CompletableFuture<Boolean> nativeResult=world.isChunkGenerated(x,z);
+        if(!(world instanceof NeoForgeWorld neoforge))return nativeResult;
+        ChunkPos pos=new ChunkPos(x,z);
+        CompletableFuture<Boolean> result=CacheManager.protectChunksmithGeneratedResult(
+            neoforge.getWorld(),pos,sourceTask,nativeResult);
+        return result.whenComplete((generated,error) -> {
+            if(error==null)
+                CacheManager.noteChunksmithGeneratedResult(neoforge.getWorld(),pos,sourceTask,Boolean.TRUE.equals(generated));
+            else CacheManager.noteChunksmithGeneratedFailure(neoforge.getWorld(),pos,sourceTask);
+        });
+    }
+
     @Redirect(method="lambda$run$1", at=@At(value="INVOKE",
         target="Lcom/kishku7/chunksmith/platform/World;getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;"), require=2)
     private CompletableFuture<Void> maki$measureRequest(World world, int x, int z) {

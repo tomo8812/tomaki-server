@@ -307,6 +307,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !pair.contains('chunksmithWorldStateGenerated')
                 || !pair.contains('unifiedPregenOwns')
                 || !pair.contains('unifiedPairSkipHint')
+                || !pair.contains('chunksmithLodSkipHint')
                 || !pair.contains('return lod;')
                 || !pair.contains('noteObservedNormalFullLod')
                 || !pair.contains('noteObservedLodPresent')) {
@@ -314,9 +315,11 @@ tasks.register('verifyIssue83UnifiedPregen') {
         }
         def pairSkipStart = cache.indexOf('public static boolean unifiedPairSkipHint')
         def pairSkipBody = cache.substring(pairSkipStart, cache.indexOf('\n   }', pairSkipStart))
-        if (!pairSkipBody.contains('CONFIRMED_PREGEN.remove(key,confirmed)')
-                || !pairSkipBody.contains('addRetry(PREGEN_RETRY,key)')) {
-            throw new GradleException('Issue #83 regression: missing confirmed FULL can leave stale WorldState authoritative')
+        if (!pairSkipBody.contains('confirmedPregenMatches(key,expected)')
+                || !pairSkipBody.contains('chunksmithLodSkipHint(level,pos,index)')
+                || !cache.contains('CONFIRMED_PREGEN_STAMP')
+                || !cache.contains('Files.readAttributes(file,BasicFileAttributes.class)')) {
+            throw new GradleException('Issue #83 regression: FULL/LOD fast-skip can bypass current integrity proof')
         }
         if (!disk.contains('15L << 30') || !disk.contains('pregen-combined-capacity') || !disk.contains('resolve("chunksmith").resolve("lod")')) {
             throw new GradleException('Issue #83 regression: combined FULL+LOD capacity guard missing')
@@ -333,14 +336,32 @@ tasks.register('verifyIssue83UnifiedPregen') {
          'pregenRequestFailed'].each { token ->
             if (!cache.contains(token)) throw new GradleException('Issue #83 regression: new FULL target ownership missing ' + token)
         }
-        if (!request.contains('GenerationTask sourceTask=(GenerationTask)(Object)this')
+        if (!request.contains('maki$trackGeneratedDecision')
+                || !request.contains('GenerationTask sourceTask=(GenerationTask)(Object)this')
+                || !request.contains('CacheManager.protectChunksmithGeneratedResult(')
+                || !request.contains('sourceTask,nativeResult')
+                || !request.contains('CacheManager.noteChunksmithGeneratedResult')
+                || !request.contains('sourceTask,Boolean.TRUE.equals(generated)')
+                || !request.contains('CacheManager.noteChunksmithGeneratedFailure')
+                || !request.contains('pos,sourceTask)')
                 || !request.contains('CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)')
                 || !request.contains('CacheManager.pregenRequestFinished(neoforge.getWorld(),new ChunkPos(x,z),sourceTask,error==null)')
                 || !request.contains('CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)')
-                || !world.contains('maki$rememberGeneratedDecision')
-                || !world.contains('CacheManager.noteChunksmithGeneratedResult')
-                || !world.contains('CacheManager.noteChunksmithGeneratedFailure')) {
-            throw new GradleException('Issue #83 regression: target must retain source-task identity and be guarded before getChunkAtAsync')
+                || world.contains('maki$rememberGeneratedDecision')) {
+            throw new GradleException('Issue #83 regression: generated/request state must remain bound to the originating task')
+        }
+        if (!world.contains('unifiedPregenRequestAdmitted')
+                || !world.contains('unifiedPregenRequestActive')
+                || !world.contains('result.ifSuccess')
+                || !world.contains('chunk instanceof LevelChunk')
+                || !world.contains('CompletableFuture.failedFuture')) {
+            throw new GradleException('Issue #83 regression: ChunkResult.Failure can be mistaken for a successful FULL/LOD request')
+        }
+        if (!cache.contains('CsLodRegionStore')
+                || !cache.contains('store.read(pos.x,pos.z)')
+                || !cache.contains('CONFIRMED_LOD')
+                || !cache.contains('pregen-lod-invalid')) {
+            throw new GradleException('Issue #83 regression: LOD payload corruption can remain a header-only completed pair')
         }
         def prepareStart = cache.indexOf('public static boolean preparePregenRequest')
         def prepareEnd = cache.indexOf('public static void pregenRequestFinished', prepareStart)
@@ -395,7 +416,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
         if (!requestFinishBody.contains('PREGEN_REQUEST_TARGETS.remove(key,sourceTask)')
                 || !requestFinishBody.contains('PregenBorrowLedger.cancel(level,pos)')
                 || !requestFinishBody.contains('addRetry(PREGEN_LOD_RETRY,key)')
-                || !requestFinishBody.contains('invalidateChunksmithLodPresence(level)')
+                || !requestFinishBody.contains('invalidateChunksmithLodPresence(level,pos)')
                 || !cache.contains('LodSupport.presenceIndexFor')
                 || !cache.contains('index.invalidate()')) {
             throw new GradleException('Issue #83 regression: failed target request can leave provisional LOD presence authoritative')

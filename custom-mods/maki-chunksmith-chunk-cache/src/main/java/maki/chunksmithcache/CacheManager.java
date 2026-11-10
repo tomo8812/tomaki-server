@@ -2,6 +2,8 @@ package maki.chunksmithcache;
 
 import com.kishku7.chunksmith.ChunksmithProvider;
 import com.kishku7.chunksmith.GenerationTask;
+import com.kishku7.chunksmith.lod.CsLodPresenceIndex;
+import com.kishku7.chunksmith.lod.CsLodRegionStore;
 import com.kishku7.chunksmith.lod.HorizonGuard;
 import com.kishku7.chunksmith.lod.LodSupport;
 import java.io.IOException;
@@ -9,6 +11,8 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Collections;
@@ -68,6 +72,8 @@ public final class CacheManager {
    private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_REQUEST_TARGETS = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,AtomicInteger> LOD_PENDING = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,Path> CONFIRMED_PREGEN = new ConcurrentHashMap<>();
+   private static final ConcurrentHashMap<CaptureKey,FileStamp> CONFIRMED_PREGEN_STAMP = new ConcurrentHashMap<>();
+   private static final ConcurrentHashMap<CaptureKey,LodStamp> CONFIRMED_LOD = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<Path,ConcurrentHashMap<String,Long>> NEXT_LOCAL_RECOVERY_WARNING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
    private static final Map<MinecraftServer, List<Path>> STOPPING_DIMENSIONS = new WeakHashMap<>();
@@ -114,7 +120,7 @@ public final class CacheManager {
          PREGEN_NEW_TARGETS.remove(key);
          lodCommitted.whenComplete((saved,error) -> {
             if(error==null && Boolean.TRUE.equals(saved)) {
-               PREGEN_LOD_RETRY.remove(key);
+               markLodCommitted(level,pos,key);
                PipelineMetrics.count("pregen-lod-repair-complete");
             } else {
                addRetry(PREGEN_LOD_RETRY,key);
@@ -129,7 +135,7 @@ public final class CacheManager {
       boolean generatedTarget=PREGEN_NEW_TARGETS.remove(key)!=null;
       if(!generatedTarget) {
          lodCommitted.whenComplete((lodSaved,lodError) -> {
-            if(lodError==null && Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
+            if(lodError==null && Boolean.TRUE.equals(lodSaved)) markLodCommitted(level,pos,key);
             else addRetry(PREGEN_LOD_RETRY,key);
          });
          return;
@@ -152,7 +158,7 @@ public final class CacheManager {
       }
       if(PregenBorrowLedger.isHandedOff(level,pos)) {
          lodCommitted.whenComplete((lodSaved,lodError) -> {
-            if(lodError==null&&Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
+            if(lodError==null&&Boolean.TRUE.equals(lodSaved)) markLodCommitted(level,pos,key);
             else addRetry(PREGEN_LOD_RETRY,key);
          });
          PipelineMetrics.count("direct-cache-skipped-after-player-handoff");
@@ -160,7 +166,7 @@ public final class CacheManager {
       }
       PregenBorrowLedger.attachLod(level,pos,lodCommitted);
       lodCommitted.whenComplete((lodSaved,lodError) -> {
-         if(lodError==null && Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
+         if(lodError==null && Boolean.TRUE.equals(lodSaved)) markLodCommitted(level,pos,key);
          else addRetry(PREGEN_LOD_RETRY,key);
       });
       CompletableFuture<Boolean> saved=capture(level, chunk, false, lodCommitted);
@@ -168,9 +174,9 @@ public final class CacheManager {
          if(error==null && Boolean.TRUE.equals(ok)) {
             Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
             if(snapshot!=null&&!STOPPING.contains(level.getServer()))
-               CONFIRMED_PREGEN.put(key,path(level,pos,snapshot.fingerprint()));
-            PREGEN_RETRY.remove(key);
-            PREGEN_LOD_RETRY.remove(key);
+               confirmPregenFull(key,path(level,pos,snapshot.fingerprint()));
+            else addRetry(PREGEN_RETRY,key);
+            markLodCommitted(level,pos,key);
             return;
          }
          try {
@@ -181,7 +187,7 @@ public final class CacheManager {
                }
                PREGEN_RETRY.remove(key);
                lodCommitted.whenComplete((lodSaved,lodError) -> {
-                  if(lodError==null && Boolean.TRUE.equals(lodSaved)) PREGEN_LOD_RETRY.remove(key);
+                  if(lodError==null && Boolean.TRUE.equals(lodSaved)) markLodCommitted(level,pos,key);
                   else addRetry(PREGEN_LOD_RETRY,key);
                });
             });
@@ -202,15 +208,17 @@ public final class CacheManager {
       return anyInRange(server,CAPTURE_PENDING.keySet(),centerX,centerZ,radiusSquared);
    }
 
-   public static void noteChunksmithGeneratedResult(ServerLevel level,ChunkPos pos,boolean generated) {
-      if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level))return;
+   public static void noteChunksmithGeneratedResult(ServerLevel level,ChunkPos pos,GenerationTask sourceTask,boolean generated) {
+      if(level==null||pos==null||sourceTask==null||STOPPING.contains(level.getServer())
+         || !FollowCaptureOwnership.active(level,sourceTask))return;
       CaptureKey key=captureKey(level,pos);
       if(generated) PREGEN_NEW_TARGETS.remove(key);
       else PREGEN_NEW_TARGETS.put(key,System.currentTimeMillis());
    }
 
-   public static void noteChunksmithGeneratedFailure(ServerLevel level,ChunkPos pos) {
-      if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level))return;
+   public static void noteChunksmithGeneratedFailure(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
+      if(level==null||pos==null||sourceTask==null||STOPPING.contains(level.getServer())
+         || !FollowCaptureOwnership.active(level,sourceTask))return;
       CaptureKey key=captureKey(level,pos);
       PREGEN_NEW_TARGETS.remove(key);
       addRetry(PREGEN_RETRY,key);
@@ -251,6 +259,16 @@ public final class CacheManager {
       return false;
    }
 
+   public static boolean unifiedPregenRequestAdmitted(ServerLevel level,ChunkPos pos) {
+      return level!=null&&pos!=null&&PREGEN_REQUEST_TARGETS.containsKey(captureKey(level,pos));
+   }
+
+   public static boolean unifiedPregenRequestActive(ServerLevel level,ChunkPos pos) {
+      if(level==null||pos==null)return false;
+      GenerationTask sourceTask=PREGEN_REQUEST_TARGETS.get(captureKey(level,pos));
+      return sourceTask!=null&&FollowCaptureOwnership.active(level,sourceTask);
+   }
+
    public static void pregenRequestFinished(ServerLevel level,ChunkPos pos,GenerationTask sourceTask,boolean success) {
       if(level==null||pos==null||sourceTask==null)return;
       CaptureKey key=captureKey(level,pos);
@@ -272,10 +290,12 @@ public final class CacheManager {
       // If that request fails before LodSupport.offer, the bit is only provisional.
       // Keep LOD debt until a real writer ACK and force the next check back to disk.
       addRetry(PREGEN_LOD_RETRY,key);
-      invalidateChunksmithLodPresence(level);
+      invalidateChunksmithLodPresence(level,pos);
    }
 
-   private static void invalidateChunksmithLodPresence(ServerLevel level) {
+   private static void invalidateChunksmithLodPresence(ServerLevel level,ChunkPos pos) {
+      if(level==null||pos==null)return;
+      CONFIRMED_LOD.remove(captureKey(level,pos));
       try {
          var index=LodSupport.presenceIndexFor(level.getServer(),level.dimension().location().toString());
          if(index!=null)index.invalidate();
@@ -313,40 +333,31 @@ public final class CacheManager {
       return level!=null && FollowCaptureOwnership.owns(level);
    }
 
-   public static boolean unifiedPairSkipHint(ServerLevel level, ChunkPos pos) {
-      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return false;
+   public static boolean unifiedPairSkipHint(ServerLevel level, ChunkPos pos, CsLodPresenceIndex index) {
+      if(level==null||pos==null||index==null||!FollowCaptureOwnership.owns(level))return false;
       CaptureKey key=captureKey(level,pos);
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null)return false;
       Path expected=path(level,pos,snapshot.fingerprint());
-      Path confirmed=CONFIRMED_PREGEN.get(key);
-      if(expected.equals(confirmed)&&Files.isRegularFile(expected)) {
-         PREGEN_RETRY.remove(key);
-         PREGEN_LOD_RETRY.remove(key);
-         return true;
-      }
-      if(confirmed!=null) {
-         CONFIRMED_PREGEN.remove(key,confirmed);
-         // A previously confirmed FULL that can no longer be proven is FULL debt.
-         // Keep the debt visible so a stale Chunksmith WorldState bit cannot turn
-         // a surviving LOD into a false completed pair before async validation.
-         addRetry(PREGEN_RETRY,key);
-      }
-      // Do not let the horizon's cheap LOD-only test skip an unvalidated cache file.
-      // The later isChunkGenerated Future can validate it off-thread.
-      return false;
+      if(!confirmedPregenMatches(key,expected))return false;
+      if(!chunksmithLodSkipHint(level,pos,index))return false;
+      PREGEN_RETRY.remove(key);
+      PREGEN_LOD_RETRY.remove(key);
+      return true;
    }
 
    public static CompletableFuture<Boolean> protectChunksmithGeneratedResult(
-      ServerLevel level, ChunkPos pos, CompletableFuture<Boolean> nativeResult
+      ServerLevel level, ChunkPos pos, GenerationTask sourceTask, CompletableFuture<Boolean> nativeResult
    ) {
-      if(level==null||pos==null||nativeResult==null)return nativeResult;
-      // External Chunksmith tasks retain native generated-state semantics. The
-      // follow-owned task must prove persistent authority because native
-      // isChunkGenerated() also reports an unsaved visible FULL as generated.
-      if(!FollowCaptureOwnership.owns(level))return nativeResult;
+      if(level==null||pos==null||sourceTask==null||nativeResult==null)return nativeResult;
+      if(!FollowCaptureOwnership.owns(sourceTask))return nativeResult;
       CaptureKey key=captureKey(level,pos);
       return nativeResult.thenCompose(generated -> {
+         if(!FollowCaptureOwnership.active(level,sourceTask)) {
+            PipelineMetrics.count("pregen-stale-generated-result-blocked");
+            return CompletableFuture.failedFuture(
+               new IllegalStateException("Unified pregen generated-state result belongs to a stopped or detached task at "+pos));
+         }
          if(Boolean.TRUE.equals(generated))return confirmNativeGenerated(level,pos,key);
          CompletableFuture<Boolean> cacheDecision=chunksmithGeneratedDecision(level,pos);
          return cacheDecision==null?CompletableFuture.completedFuture(false):cacheDecision;
@@ -392,20 +403,11 @@ public final class CacheManager {
       if(PREGEN_RETRY.contains(key) || PREGEN_NEW_TARGETS.containsKey(key)
          || CAPTURE_PENDING.containsKey(key) || PregenBorrowLedger.kind(level,pos)!=null
          || PromotionLedger.owns(level,pos)) return false;
-
-      // A successful pregen may leave Chunksmith's in-memory WorldState bit set
-      // after unload. It is safe only while its confirmed cache still exists.
-      Path confirmed=CONFIRMED_PREGEN.get(key);
-      if(confirmed!=null) {
+      if(CONFIRMED_PREGEN.containsKey(key)) {
          Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
          Path expected=snapshot==null?null:path(level,pos,snapshot.fingerprint());
-         if(confirmed.equals(expected)&&Files.isRegularFile(confirmed))return true;
-         CONFIRMED_PREGEN.remove(key,confirmed);
-         addRetry(PREGEN_RETRY,key);
-         return false;
+         return confirmedPregenMatches(key,expected);
       }
-      // With no unified-pregen ownership/debt, this bit came from Chunksmith's
-      // normal region pre-scan or another native-authoritative observation.
       return true;
    }
 
@@ -421,12 +423,10 @@ public final class CacheManager {
       if(snapshot==null)return null;
       String fingerprint=snapshot.fingerprint();
       Path file=path(level,pos,fingerprint);
-      Path confirmed=CONFIRMED_PREGEN.get(key);
-      if(file.equals(confirmed)&&Files.isRegularFile(file)) {
+      if(confirmedPregenMatches(key,file)) {
          PREGEN_RETRY.remove(key);
          return CompletableFuture.completedFuture(true);
       }
-      if(confirmed!=null)CONFIRMED_PREGEN.remove(key,confirmed);
 
       Path claim=PromotionClaim.claimedPath(file);
       try {
@@ -451,17 +451,17 @@ public final class CacheManager {
                   }
                   CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
                   if(validEnvelope(envelope,level,pos,fingerprint)) {
-                     if(!STOPPING.contains(level.getServer()))CONFIRMED_PREGEN.put(key,file);
-                     PREGEN_RETRY.remove(key);
+                     if(!STOPPING.contains(level.getServer()))confirmPregenFull(key,file);
+                     else addRetry(PREGEN_RETRY,key);
                      PipelineMetrics.count("pregen-full-validated");
                      return true;
                   }
-                  CONFIRMED_PREGEN.remove(key);
+                  clearConfirmedPregen(key);
                   quarantineRejected(file);
                   PipelineMetrics.count("pregen-full-invalid");
                   return false;
                } catch(IOException ownershipOrReadFailure) {
-                  CONFIRMED_PREGEN.remove(key);
+                  clearConfirmedPregen(key);
                   try {
                      if(RecoveryClaims.claimExists(claim)) {
                         addRetry(PREGEN_RETRY,key);
@@ -475,7 +475,7 @@ public final class CacheManager {
                   PipelineMetrics.count("pregen-full-invalid");
                   return false;
                } catch(Throwable invalid) {
-                  CONFIRMED_PREGEN.remove(key);
+                  clearConfirmedPregen(key);
                   quarantineRejected(file);
                   PipelineMetrics.count("pregen-full-invalid");
                   return false;
@@ -509,15 +509,121 @@ public final class CacheManager {
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null)return false;
       Path file=path(level,pos,snapshot.fingerprint());
-      Path confirmed=CONFIRMED_PREGEN.get(key);
-      if(file.equals(confirmed)&&Files.isRegularFile(file))return true;
-      if(confirmed!=null)CONFIRMED_PREGEN.remove(key,confirmed);
+      if(confirmedPregenMatches(key,file))return true;
       try {
          return RecoveryClaims.claimExists(PromotionClaim.claimedPath(file));
       } catch(IOException error) {
          PipelineMetrics.count("promotion-claim-inspection-failed");
          return true;
       }
+   }
+
+   private record FileStamp(long size, FileTime modified) {}
+   private record LodStamp(Path region, FileStamp stamp) {}
+
+   private static FileStamp fileStamp(Path file) {
+      if(file==null)return null;
+      try {
+         BasicFileAttributes attrs=Files.readAttributes(file,BasicFileAttributes.class);
+         return attrs.isRegularFile()?new FileStamp(attrs.size(),attrs.lastModifiedTime()):null;
+      } catch(IOException unavailable) {
+         return null;
+      }
+   }
+
+   private static boolean confirmPregenFull(CaptureKey key,Path file) {
+      FileStamp stamp=fileStamp(file);
+      if(stamp==null) {
+         clearConfirmedPregen(key);
+         addRetry(PREGEN_RETRY,key);
+         return false;
+      }
+      CONFIRMED_PREGEN.put(key,file);
+      CONFIRMED_PREGEN_STAMP.put(key,stamp);
+      PREGEN_RETRY.remove(key);
+      return true;
+   }
+
+   private static void clearConfirmedPregen(CaptureKey key) {
+      if(key==null)return;
+      CONFIRMED_PREGEN.remove(key);
+      CONFIRMED_PREGEN_STAMP.remove(key);
+   }
+
+   private static boolean confirmedPregenMatches(CaptureKey key,Path expected) {
+      Path confirmed=CONFIRMED_PREGEN.get(key);
+      if(confirmed==null)return false;
+      FileStamp recorded=CONFIRMED_PREGEN_STAMP.get(key);
+      FileStamp current=expected==null?null:fileStamp(expected);
+      if(expected!=null&&expected.equals(confirmed)&&recorded!=null&&recorded.equals(current))return true;
+      clearConfirmedPregen(key);
+      addRetry(PREGEN_RETRY,key);
+      PipelineMetrics.count("pregen-full-confirmation-invalidated");
+      return false;
+   }
+
+   private static Path lodRegionPath(CsLodPresenceIndex index,ChunkPos pos) {
+      int rx=Math.floorDiv(pos.x,32);
+      int rz=Math.floorDiv(pos.z,32);
+      return index.getRoot().resolve("r."+rx+"."+rz+".cslod");
+   }
+
+   private static void markLodCommitted(ServerLevel level,ChunkPos pos,CaptureKey key) {
+      try {
+         CsLodPresenceIndex index=LodSupport.presenceIndexFor(level.getServer(),level.dimension().location().toString());
+         if(index==null) {
+            CONFIRMED_LOD.remove(key);
+            addRetry(PREGEN_LOD_RETRY,key);
+            return;
+         }
+         Path region=lodRegionPath(index,pos);
+         FileStamp stamp=fileStamp(region);
+         if(stamp==null) {
+            CONFIRMED_LOD.remove(key);
+            addRetry(PREGEN_LOD_RETRY,key);
+            return;
+         }
+         CONFIRMED_LOD.put(key,new LodStamp(region,stamp));
+         PREGEN_LOD_RETRY.remove(key);
+      } catch(Throwable unavailable) {
+         CONFIRMED_LOD.remove(key);
+         addRetry(PREGEN_LOD_RETRY,key);
+      }
+   }
+
+   public static boolean chunksmithLodSkipHint(ServerLevel level,ChunkPos pos,CsLodPresenceIndex index) {
+      if(level==null||pos==null||index==null||!FollowCaptureOwnership.owns(level))return false;
+      CaptureKey key=captureKey(level,pos);
+      if(PREGEN_LOD_RETRY.contains(key))return false;
+      Path region=lodRegionPath(index,pos);
+      FileStamp current=fileStamp(region);
+      LodStamp confirmed=CONFIRMED_LOD.get(key);
+      if(confirmed!=null&&confirmed.region().equals(region)&&confirmed.stamp().equals(current))return true;
+      if(current==null)return invalidateLodRecord(key,index);
+      CsLodRegionStore store=new CsLodRegionStore(index.getRoot());
+      try {
+         var record=store.read(pos.x,pos.z);
+         if(record==null||record.getChunkX()!=pos.x||record.getChunkZ()!=pos.z)
+            return invalidateLodRecord(key,index);
+         FileStamp validated=fileStamp(region);
+         if(validated==null)return invalidateLodRecord(key,index);
+         CONFIRMED_LOD.put(key,new LodStamp(region,validated));
+         PREGEN_LOD_RETRY.remove(key);
+         PipelineMetrics.count("pregen-lod-validated");
+         return true;
+      } catch(Throwable invalid) {
+         return invalidateLodRecord(key,index);
+      } finally {
+         try { store.close(); } catch(IOException ignored) {}
+      }
+   }
+
+   private static boolean invalidateLodRecord(CaptureKey key,CsLodPresenceIndex index) {
+      CONFIRMED_LOD.remove(key);
+      addRetry(PREGEN_LOD_RETRY,key);
+      try { index.invalidate(); } catch(Throwable ignored) {}
+      PipelineMetrics.count("pregen-lod-invalid");
+      return false;
    }
 
    private record CaptureKey(ServerLevel level, long pos) {}
@@ -808,7 +914,7 @@ public final class CacheManager {
                      return Optional.<CompoundTag>empty();
                   }
                   if(STOPPING.contains(level.getServer()))return Optional.<CompoundTag>empty();
-                  CONFIRMED_PREGEN.put(captureKey(level,pos),file);
+                  if(!confirmPregenFull(captureKey(level,pos),file))return Optional.<CompoundTag>empty();
                   if(!PregenBorrowLedger.beginBorrowed(level,pos,file)) {
                      addRetry(PREGEN_RETRY,captureKey(level,pos));
                      return Optional.<CompoundTag>empty();
@@ -1375,6 +1481,8 @@ public final class CacheManager {
       PREGEN_REQUEST_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
       LOD_PENDING.keySet().removeIf(key -> key.level().getServer()==server);
       CONFIRMED_PREGEN.keySet().removeIf(key -> key.level().getServer()==server);
+      CONFIRMED_PREGEN_STAMP.keySet().removeIf(key -> key.level().getServer()==server);
+      CONFIRMED_LOD.keySet().removeIf(key -> key.level().getServer()==server);
       List<Path> stoppingDimensions;
       synchronized(STOPPING_DIMENSIONS) { stoppingDimensions=STOPPING_DIMENSIONS.remove(server); }
       if(stoppingDimensions==null) {

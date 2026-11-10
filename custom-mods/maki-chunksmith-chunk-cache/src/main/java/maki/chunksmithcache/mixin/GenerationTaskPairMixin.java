@@ -50,7 +50,7 @@ public abstract class GenerationTaskPairMixin {
         if(!lod)return false;
         if(selection.world() instanceof NeoForgeWorld world
             && CacheManager.unifiedPregenOwns(world.getWorld())) {
-            return CacheManager.unifiedPairSkipHint(world.getWorld(),new ChunkPos(x,z));
+            return CacheManager.unifiedPairSkipHint(world.getWorld(),new ChunkPos(x,z),index);
         }
         return lod;
     }
@@ -66,6 +66,9 @@ public abstract class GenerationTaskPairMixin {
     )
     private boolean maki$observeNativeFullPair(CsLodPresenceIndex index,int x,int z) {
         boolean lod=index.hasLod(x,z);
+        if(lod && selection.world() instanceof NeoForgeWorld world
+            && CacheManager.unifiedPregenOwns(world.getWorld()))
+            lod=CacheManager.chunksmithLodSkipHint(world.getWorld(),new ChunkPos(x,z),index);
         if(lod && selection.world() instanceof NeoForgeWorld world)
             CacheManager.noteObservedNormalFullLod(world.getWorld(),new ChunkPos(x,z));
         return lod;
@@ -82,6 +85,9 @@ public abstract class GenerationTaskPairMixin {
     )
     private boolean maki$observeAsyncLod(CsLodPresenceIndex index,int x,int z) {
         boolean lod=index.hasLod(x,z);
+        if(lod && selection.world() instanceof NeoForgeWorld world
+            && CacheManager.unifiedPregenOwns(world.getWorld()))
+            lod=CacheManager.chunksmithLodSkipHint(world.getWorld(),new ChunkPos(x,z),index);
         if(lod && selection.world() instanceof NeoForgeWorld world)
             CacheManager.noteObservedLodPresent(world.getWorld(),new ChunkPos(x,z));
         return lod;

@@ -17,31 +17,10 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(targets="com.kishku7.chunksmith.platform.NeoForgeWorld",remap=false)
 public abstract class NeoForgeWorldMixin {
    @Shadow @Final private ServerLevel world;
-
-   @Inject(
-      method="isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;",
-      at=@At("RETURN"),
-      cancellable=true,
-      require=1
-   )
-   private void maki$rememberGeneratedDecision(
-      int x,int z,CallbackInfoReturnable<CompletableFuture<Boolean>> cir
-   ) {
-      CompletableFuture<Boolean> nativeResult=cir.getReturnValue();
-      if(nativeResult==null)return;
-      ChunkPos pos=new ChunkPos(x,z);
-      CompletableFuture<Boolean> result=CacheManager.protectChunksmithGeneratedResult(this.world,pos,nativeResult);
-      cir.setReturnValue(result.whenComplete((generated,error) -> {
-         if(error==null) CacheManager.noteChunksmithGeneratedResult(this.world,pos,Boolean.TRUE.equals(generated));
-         else CacheManager.noteChunksmithGeneratedFailure(this.world,pos);
-      }));
-   }
 
    @Redirect(method="lambda$getChunkAtAsync$8", at=@At(value="INVOKE",
       target="Lcom/kishku7/chunksmith/lod/LodSupport;offer(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;)V"), require=1)
@@ -57,10 +36,30 @@ public abstract class NeoForgeWorldMixin {
       target="Lcom/kishku7/chunksmith/mixin/ServerChunkCacheMixin;invokeGetChunkFutureMainThread(IILnet/minecraft/world/level/chunk/status/ChunkStatus;Z)Ljava/util/concurrent/CompletableFuture;"), require=1)
    private CompletableFuture<ChunkResult<ChunkAccess>> maki$measureFull(
       ServerChunkCacheMixin source, int x, int z, ChunkStatus status, boolean create) {
+      ChunkPos pos=new ChunkPos(x,z);
+      boolean unified=CacheManager.unifiedPregenRequestAdmitted(this.world,pos);
+      if(unified&&!CacheManager.unifiedPregenRequestActive(this.world,pos)) {
+         PipelineMetrics.count("full-request-owner-stale");
+         return CompletableFuture.failedFuture(
+            new IllegalStateException("Unified pregen request owner is no longer active at "+pos));
+      }
       long started = System.nanoTime();
       CompletableFuture<ChunkResult<ChunkAccess>> future = source.invokeGetChunkFutureMainThread(x,z,status,create);
       future.whenComplete((value,error) -> PipelineMetrics.time("full-future",System.nanoTime()-started));
-      return future;
+      if(!unified)return future;
+      return future.thenCompose(result -> {
+         if(!CacheManager.unifiedPregenRequestActive(this.world,pos)) {
+            PipelineMetrics.count("full-request-owner-stale");
+            return CompletableFuture.failedFuture(
+               new IllegalStateException("Unified pregen request owner detached before FULL completion at "+pos));
+         }
+         java.util.concurrent.atomic.AtomicBoolean full=new java.util.concurrent.atomic.AtomicBoolean();
+         if(result!=null)result.ifSuccess(chunk -> full.set(chunk instanceof LevelChunk));
+         if(full.get())return CompletableFuture.completedFuture(result);
+         PipelineMetrics.count("full-result-failed");
+         return CompletableFuture.failedFuture(
+            new IllegalStateException("Unified pregen FULL request returned no LevelChunk at "+pos));
+      });
    }
 
    @Redirect(method="getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;", at=@At(value="INVOKE",
