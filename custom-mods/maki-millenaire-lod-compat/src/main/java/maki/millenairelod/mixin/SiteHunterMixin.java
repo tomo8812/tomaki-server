@@ -1,8 +1,7 @@
 package maki.millenairelod.mixin;
 
-import com.kishku7.chunksmith.lod.HorizonGuard;
+import maki.millenairelod.VillagePlacementReadiness;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.ChunkPos;
 import org.millenaire.world.SiteHunter;
 import org.millenaire.world.VillageTerrainMap;
 import org.spongepowered.asm.mixin.Mixin;
@@ -14,9 +13,9 @@ import org.spongepowered.asm.mixin.injection.Redirect;
  * bypassing VillageSpawnQueue.trySpawnVillage and its deferred-candidate guard.
  *
  * Keep the upstream terrain scoring and site selection. Treat a placement area
- * as not yet ready while Chunksmith would discard its selected center chunk.
- * SiteHunter's native waitingForLoad state retains the candidate and retries
- * it when the area is both loaded and no longer disposable.
+ * as not ready until a player has acquired the FULL area and every chunk
+ * is permitted to persist normally, including cache promotion/handoff.
+ * SiteHunter's native waitingForLoad retains and retries the candidate.
  */
 @Mixin(value = SiteHunter.class, remap = false)
 public abstract class SiteHunterMixin {
@@ -29,9 +28,6 @@ public abstract class SiteHunterMixin {
         require = 1
     )
     private boolean maki$waitForRetainedArea(ServerLevel level, int centerX, int centerZ, int radius) {
-        if (HorizonGuard.drop(level, new ChunkPos(centerX >> 4, centerZ >> 4))) {
-            return false;
-        }
-        return VillageTerrainMap.placementAreaLoaded(level, centerX, centerZ, radius);
+        return VillagePlacementReadiness.areaReady(level, centerX, centerZ, radius);
     }
 }
