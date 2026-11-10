@@ -492,6 +492,17 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !cache.contains('pregen-borrow-player-handoff')) {
             throw new GradleException('Issue #83 regression: player handoff must claim promotion ownership before persistence')
         }
+        def lodRepairStart = cache.indexOf('private static CompletableFuture<Optional<CompoundTag>> loadForPregenLodRepair')
+        def lodRepairEnd = cache.indexOf('public static CompletableFuture<Optional<CompoundTag>> loadIfPresent', lodRepairStart)
+        def lodRepairBody = cache.substring(lodRepairStart, lodRepairEnd)
+        if (!lodRepairBody.contains('return ownershipForLoad(dimension,pos)')
+                || !lodRepairBody.contains('RecoveryClaims.claimForCoordinate(dimension,pos.x,pos.z)')
+                || !lodRepairBody.contains('PromotionLedger.blockReplay(level,pos,ownership)')
+                || !lodRepairBody.contains('PromotionLedger.blockReplay(level,pos,RecoveryClaims.root(dimension))')
+                || !lodRepairBody.contains('return CompletableFuture.failedFuture(new IOException(')
+                || lodRepairBody.contains('RecoveryClaims.claimExists(claim)')) {
+            throw new GradleException('Issue #83 regression: LOD-only borrow bypasses coordinate-local promotion ownership proof')
+        }
         if (!cache.contains('PREGEN_REQUEST_TARGETS.containsKey(captureKey(level,pos))')) {
             throw new GradleException('Issue #83 regression: dependency reads can borrow target-only pregen FULL')
         }

@@ -946,28 +946,42 @@ public final class CacheManager {
       String fingerprint=snapshot.fingerprint();
       rotateGenerations(level,snapshot,"pregen-lod-repair");
       Path file=path(level,pos,fingerprint);
-      Path claim=PromotionClaim.claimedPath(file);
-      try {
-         if(RecoveryClaims.claimExists(claim)) {
-            PromotionLedger.blockReplay(level,pos,claim);
-            addRetry(PREGEN_RETRY,captureKey(level,pos));
-            return CompletableFuture.failedFuture(new IOException("Promotion ownership is active at "+claim));
-         }
-      } catch(IOException ownershipFailure) {
-         PromotionLedger.blockReplay(level,pos,claim);
-         addRetry(PREGEN_RETRY,captureKey(level,pos));
-         return CompletableFuture.failedFuture(ownershipFailure);
-      }
-      if(!Files.isRegularFile(file))return CompletableFuture.completedFuture(Optional.empty());
+      Path dimension=cacheRoot(level).resolve(dimensionKey(level));
+      // Repair is a cache load too: prove absence of coordinate ownership in
+      // canonical, historical, quarantine, and conflicting promotion paths.
+      return ownershipForLoad(dimension,pos)
+         .whenComplete((claim,error) -> {
+            if(error!=null) {
+               PromotionLedger.blockReplay(level,pos,RecoveryClaims.root(dimension));
+               addRetry(PREGEN_RETRY,captureKey(level,pos));
+            }
+         })
+         .thenCompose(ownership -> {
+            if(ownership!=null) {
+               PromotionLedger.blockReplay(level,pos,ownership);
+               addRetry(PREGEN_RETRY,captureKey(level,pos));
+               return CompletableFuture.failedFuture(new IOException("Promotion ownership is active at "+ownership));
+            }
+            if(!Files.isRegularFile(file))return CompletableFuture.completedFuture(Optional.empty());
 
-      try {
-         return CompletableFuture.supplyAsync(() -> {
+            try {
+               return CompletableFuture.supplyAsync(() -> {
             try(var pathLock=CachePathLocks.lock(file)) {
                try {
-                  if(RecoveryClaims.claimExists(claim)) {
-                     PromotionLedger.blockReplay(level,pos,claim);
+                  // Ownership can change while validation is queued; re-prove it
+                  // immediately before borrowing, without quarantining a valid FULL.
+                  Path currentClaim;
+                  try {
+                     currentClaim=RecoveryClaims.claimForCoordinate(dimension,pos.x,pos.z);
+                  } catch(IOException ownershipFailure) {
+                     PromotionLedger.blockReplay(level,pos,RecoveryClaims.root(dimension));
                      addRetry(PREGEN_RETRY,captureKey(level,pos));
-                     throw new java.io.UncheckedIOException(new IOException("Promotion ownership changed at "+claim));
+                     throw new java.io.UncheckedIOException(ownershipFailure);
+                  }
+                  if(currentClaim!=null) {
+                     PromotionLedger.blockReplay(level,pos,currentClaim);
+                     addRetry(PREGEN_RETRY,captureKey(level,pos));
+                     throw new java.io.UncheckedIOException(new IOException("Promotion ownership changed at "+currentClaim));
                   }
                   CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
                   if(!validEnvelope(envelope,level,pos,fingerprint)) {
@@ -993,10 +1007,11 @@ public final class CacheManager {
                }
             }
          },READ_IO);
-      } catch(RejectedExecutionException full) {
-         addRetry(PREGEN_RETRY,captureKey(level,pos));
-         return CompletableFuture.failedFuture(full);
-      }
+            } catch(RejectedExecutionException full) {
+               addRetry(PREGEN_RETRY,captureKey(level,pos));
+               return CompletableFuture.failedFuture(full);
+            }
+         });
    }
 
    public static CompletableFuture<Optional<CompoundTag>> loadIfPresent(ServerLevel var0, ChunkPos var1) {

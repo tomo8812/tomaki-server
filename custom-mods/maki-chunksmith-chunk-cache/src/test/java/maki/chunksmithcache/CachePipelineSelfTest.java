@@ -114,6 +114,15 @@ public final class CachePipelineSelfTest {
             Files.writeString(old,"interrupted player state");
             Path quarantined=Files.createDirectories(dimension.resolve(".quarantine/older/r.0.0")).resolve("c.3.4.nbt.gz.in-use");
             Files.writeString(quarantined,"quarantined interrupted state");
+            Path conflict=Files.createDirectories(dimension.resolve(".promotions/.conflicts/prior-claim"))
+                .resolve("c.5.6.nbt.gz.in-use");
+            Files.writeString(conflict,"interrupted conflicting promotion");
+            require(RecoveryClaims.claimForCoordinate(dimension,1,2).equals(old),
+                "pre-recovery legacy claim blocks borrowing a newer FULL for LOD");
+            require(RecoveryClaims.claimForCoordinate(dimension,3,4).equals(quarantined),
+                "pre-recovery quarantined claim blocks LOD-only cache borrow");
+            require(RecoveryClaims.claimForCoordinate(dimension,5,6).equals(conflict),
+                "pre-recovery conflict claim blocks LOD-only cache borrow");
             Path newEntry=dimension.resolve("new-generation/r.0.0/c.1.2.nbt.gz");
             Path claim=PromotionClaim.claimedPath(newEntry);
             AtomicInteger submissions=new AtomicInteger();
@@ -123,6 +132,8 @@ public final class CachePipelineSelfTest {
             var concurrent=RecoveryClaims.prepare(dimension,executor);
             require(first==concurrent && !first.isDone() && submissions.get()==1,"startup recovery is single flight without synchronous disk scan");
             queued.removeFirst().run(); first.join();
+            require(RecoveryClaims.claimForCoordinate(dimension,5,6).equals(conflict),
+                "post-recovery indexed conflict still blocks coordinate-local repair");
             require(!Files.exists(old) && Files.readString(claim).equals("interrupted player state"),"legacy payload is the generation-independent tombstone");
             require(Files.isRegularFile(RecoveryClaims.root(dimension).resolve("r.0.0/c.3.4.nbt.gz.in-use")),"recover claims already moved into historical quarantine");
             CacheDirectoryMerge.merge(dimension.resolve("old-generation"),dimension.resolve("merged-generation"));
@@ -154,6 +165,10 @@ public final class CachePipelineSelfTest {
             Files.writeString(promotions,"not-a-directory");
             Path claim=promotions.resolve("r.0.0/c.1.2.nbt.gz.in-use");
             boolean failed=false;
+            try { RecoveryClaims.claimForCoordinate(ambiguous,1,2); }
+            catch(java.io.IOException expected) { failed=true; }
+            require(failed,"LOD repair cannot interpret an uninspectable promotion directory as ownership absence");
+            failed=false;
             try { RecoveryClaims.claimExists(claim); }
             catch(java.io.IOException expected) { failed=true; }
             require(failed,"claim inspection I/O errors cannot be treated as confirmed absence");
