@@ -44,6 +44,7 @@ def registeredMixins = [
     'maki.millenairelod.mixin.MillenaireMixin',
     'maki.millenairelod.mixin.LoneCandidateAccessor',
     'maki.millenairelod.mixin.SpawnQueueMixin',
+    'maki.millenairelod.mixin.SiteHunterMixin',
     'maki.millenairelod.mixin.VillageSpawnerMixin',
     'maki.millenairelod.mixin.VillageManagerMixin',
     'maki.millenairelod.mixin.VillageMixin',
