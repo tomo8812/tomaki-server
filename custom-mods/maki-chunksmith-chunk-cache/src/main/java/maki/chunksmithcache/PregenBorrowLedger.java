@@ -1,5 +1,6 @@
 package maki.chunksmithcache;
 
+import com.kishku7.chunksmith.GenerationTask;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,28 +20,31 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 final class PregenBorrowLedger {
     enum Kind { GENERATED, BORROWED }
     private record Key(ServerLevel level, long pos) {}
-    private record Borrow(Path file, Kind kind, CompletableFuture<Boolean> lodDone, AtomicBoolean handedOff,
+    private record Borrow(Path file, Kind kind, GenerationTask owner, CompletableFuture<Boolean> lodDone, AtomicBoolean handedOff,
                           java.util.concurrent.atomic.AtomicReference<ChunkAccess> suppressedChunk,
                           java.util.Set<Long> suppressedPoiSections, AtomicBoolean poiWriteRequired) {}
     private static final ConcurrentHashMap<Key, Borrow> ACTIVE = new ConcurrentHashMap<>();
 
     private PregenBorrowLedger() {}
 
-    static boolean beginGenerated(ServerLevel level, ChunkPos pos, Path file) {
-        return begin(level,pos,file,Kind.GENERATED);
+    static boolean beginGenerated(ServerLevel level, ChunkPos pos, Path file, GenerationTask sourceTask) {
+        return sourceTask != null && begin(level,pos,file,Kind.GENERATED,sourceTask);
     }
 
     static boolean beginBorrowed(ServerLevel level, ChunkPos pos, Path file) {
-        return begin(level,pos,file,Kind.BORROWED);
+        return begin(level,pos,file,Kind.BORROWED,null);
     }
 
-    private static boolean begin(ServerLevel level, ChunkPos pos, Path file, Kind kind) {
+    private static boolean begin(ServerLevel level, ChunkPos pos, Path file, Kind kind, GenerationTask owner) {
         Key key=new Key(level,pos.toLong());
         Borrow existing=ACTIVE.get(key);
-        if(existing!=null)return existing.kind()==kind && existing.file().equals(file);
+        // Never adopt a guard from an earlier task, even when kind and file match.
+        // Its delayed failure/cancellation can still be queued on the server thread.
+        if(existing!=null)return existing.kind()==kind && existing.file().equals(file)
+            && existing.owner()==owner && !existing.handedOff().get();
         CompletableFuture<Boolean> lodDone=new CompletableFuture<>();
         lodDone.completeOnTimeout(false,30L,TimeUnit.SECONDS);
-        Borrow borrow=new Borrow(file,kind,lodDone,new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>(),new java.util.HashSet<>(),new AtomicBoolean());
+        Borrow borrow=new Borrow(file,kind,owner,lodDone,new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>(),new java.util.HashSet<>(),new AtomicBoolean());
         return ACTIVE.putIfAbsent(key,borrow)==null;
     }
 
@@ -90,10 +94,13 @@ final class PregenBorrowLedger {
      * exact active guard so a later retry can arm a fresh one, and restore any
      * dirty state that was already suppressed by the failed request.
      */
-    static boolean cancel(ServerLevel level, ChunkPos pos) {
+    static boolean cancel(ServerLevel level, ChunkPos pos, GenerationTask sourceTask) {
+        if(sourceTask==null)return false;
         Key key=new Key(level,pos.toLong());
         Borrow borrow=ACTIVE.get(key);
-        if(borrow==null)return false;
+        // Cancellation belongs only to the generated request that armed this guard.
+        // A late callback must not remove a newer task's guard or a LOD-repair borrow.
+        if(borrow==null || borrow.kind()!=Kind.GENERATED || borrow.owner()!=sourceTask)return false;
         return releaseOnServerThread(level,key,borrow,true);
     }
 
