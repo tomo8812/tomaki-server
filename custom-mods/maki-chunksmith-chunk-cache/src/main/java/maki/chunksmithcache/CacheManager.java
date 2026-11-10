@@ -173,7 +173,7 @@ public final class CacheManager {
       // Only a target proven NEW by this follow-owned Chunksmith task is cached.
       // Player arrival does not cancel already-owned work; handoff is claim-before-write.
       if (!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(level)
-         || BackfillGuard.suppress(level, pos)) {
+) {
          addRetry(PREGEN_RETRY,key);
          PipelineMetrics.count("direct-ineligible");
          return;
@@ -197,7 +197,7 @@ public final class CacheManager {
          if(lodError==null && Boolean.TRUE.equals(lodSaved)) markLodCommitted(level,pos,key);
          else addRetry(PREGEN_LOD_RETRY,key);
       });
-      CompletableFuture<Boolean> saved=capture(level, chunk, false, lodCommitted);
+      CompletableFuture<Boolean> saved=capture(level, chunk, lodCommitted);
       saved.whenComplete((ok,error) -> {
          if(error==null && Boolean.TRUE.equals(ok)) {
             Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
@@ -477,7 +477,6 @@ public final class CacheManager {
       if(level==null||pos==null)return null;
       if(STOPPING.contains(level.getServer()))return CompletableFuture.completedFuture(true);
       CaptureKey key=captureKey(level,pos);
-      if(BackfillGuard.active(level,pos))return CompletableFuture.completedFuture(true);
       CaptureFlight pending=CAPTURE_PENDING.get(key);
       if(pending!=null)return pending.result().thenApply(Boolean.TRUE::equals);
 
@@ -567,7 +566,7 @@ public final class CacheManager {
    public static boolean chunksmithGeneratedHint(ServerLevel level, ChunkPos pos) {
       if(level==null||pos==null)return false;
       CaptureKey key=captureKey(level,pos);
-      if(BackfillGuard.active(level,pos)||CAPTURE_PENDING.containsKey(key))return true;
+      if(CAPTURE_PENDING.containsKey(key))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null)return false;
       Path file=path(level,pos,snapshot.fingerprint());
@@ -728,9 +727,9 @@ public final class CacheManager {
       return new CaptureKey(level, pos.toLong());
    }
 
-   static CompletableFuture<Boolean> capture(ServerLevel var0, LevelChunk var1, boolean var2, CompletableFuture<Boolean> lodCommitted) {
+   static CompletableFuture<Boolean> capture(ServerLevel var0, LevelChunk var1, CompletableFuture<Boolean> lodCommitted) {
       if (!var0.getServer().isSameThread()) throw new IllegalStateException("Chunk snapshot requires server thread");
-      String source = var2 ? "backfill" : "direct";
+      String source = "direct";
       CaptureKey key = captureKey(var0, var1.getPos());
       CompletableFuture<Boolean> result = new CompletableFuture<>();
       CaptureFlight flight = new CaptureFlight(result, System.nanoTime());
@@ -1134,7 +1133,7 @@ public final class CacheManager {
       if(borrowed!=null) {
          return borrowed.handle((ignored,error)->null).thenCompose(ignored -> loadReadyCache(var0,var1));
       }
-      if (!BackfillGuard.suppress(var0, var1) && promotionAllowed(var0, var1)) {
+      if (promotionAllowed(var0, var1)) {
          Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
          if (snapshot == null) {
             return CompletableFuture.completedFuture(Optional.empty());
@@ -1295,7 +1294,7 @@ public final class CacheManager {
    /** IOWorker.store's Future completes after RegionFileStorage.write, not just enqueue. */
    public static void prepareNormalWrite(ServerLevel level, ChunkPos pos, CompoundTag tag) {
       if(NormalChunkStorage.fromTag(tag)!=NormalChunkStorage.State.FULL
-         || BackfillGuard.suppress(level,pos) || pregenPersistenceSuppressed(level,pos)) return;
+         || pregenPersistenceSuppressed(level,pos)) return;
       Fingerprint.Snapshot fingerprint=Fingerprint.snapshotForLevel(level);
       if(fingerprint==null) return;
       Path file=path(level,pos,fingerprint.fingerprint());
@@ -1314,7 +1313,7 @@ public final class CacheManager {
 
    public static void onNormalWrite(ServerLevel level, ChunkPos pos, CompoundTag tag, CompletableFuture<Void> written) {
       if (NormalChunkStorage.fromTag(tag) != NormalChunkStorage.State.FULL
-         || BackfillGuard.suppress(level,pos) || pregenPersistenceSuppressed(level,pos)) return;
+         || pregenPersistenceSuppressed(level,pos)) return;
       if (PromotionLedger.observeChunkWrite(level,pos,written)) return;
       Fingerprint.Snapshot fingerprint=Fingerprint.snapshotForLevel(level);
       if (fingerprint==null) return;
@@ -1397,7 +1396,7 @@ public final class CacheManager {
          return CacheState.ABSENT;
       } catch (Throwable error) {
          quarantineRejected(file);
-         LOG.warn("Ignoring invalid chunk cache {}; it remains eligible for backfill", new Object[]{file, error});
+         LOG.warn("Ignoring invalid chunk cache {}; it remains eligible for regeneration", new Object[]{file, error});
          return CacheState.ABSENT;
       }
    }
@@ -1591,14 +1590,6 @@ public final class CacheManager {
          } catch (RejectedExecutionException var5) {
             ROTATED.remove(var2);
          }
-      }
-   }
-
-   private static void moveAtomically(Path var0, Path var1) throws IOException {
-      try {
-         Files.move(var0, var1, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-      } catch (AtomicMoveNotSupportedException var3) {
-         Files.move(var0, var1, StandardCopyOption.REPLACE_EXISTING);
       }
    }
 

@@ -1,27 +1,8 @@
 package maki.chunksmithcache;
 
-import java.util.concurrent.atomic.AtomicInteger;
 
 public final class Issue74SelfTest {
     public static void main(String[] args) throws Exception {
-        AtomicInteger reservations = new AtomicInteger();
-        var rejected = BackfillAdmission.evaluate(false, () -> "dependency-scope-loaded", () -> {
-            reservations.incrementAndGet(); return true;
-        });
-        require(!rejected.ready() && !rejected.afterDrain() && reservations.get()==0, "preflight must not reserve");
-        AtomicInteger checks = new AtomicInteger();
-        var race = BackfillAdmission.evaluate(false,
-            () -> checks.incrementAndGet()==1 ? null : "dependency-scope-loaded", () -> true);
-        require(!race.ready() && race.afterDrain() && checks.get()==2, "race must reject after drain");
-        checks.set(0);
-        var heldRace = BackfillAdmission.evaluate(true, () -> {
-            checks.incrementAndGet(); return "generated-or-pending";
-        }, () -> true);
-        require(!heldRace.ready() && heldRace.afterDrain() && checks.get()==1, "held reservation must recheck");
-        var wait = BackfillAdmission.evaluate(false, () -> null, () -> false);
-        require(!wait.ready() && wait.rejection()==null, "drain wait must not start");
-        var ready = BackfillAdmission.evaluate(false, () -> null, () -> true);
-        require(ready.ready() && ready.afterDrain(), "safe candidate should start");
         LatencyHistogram times = new LatencyHistogram();
         times.record(1_000_000); times.record(4_000_000); times.record(1_000_000_001L);
         require(times.percentile(.5)==4 && times.percentile(.95)==4000, "histogram upper bounds");
@@ -38,7 +19,7 @@ public final class Issue74SelfTest {
         require(section(task, "private void adjustFromChunkLatency(").contains("Field maxChunkMillis:J"), "native slow threshold field");
         String sink=bytecode("com.kishku7.chunksmith.lod.CsLodStoreSink");
         require(section(sink,"private void persist(").contains("CsLodRegionStore.write:"),"native record ACK hook callsite");
-        System.out.println("Issue74SelfTest passed (admission/race/histogram/installed Chunksmith ABI)");
+        System.out.println("Issue74SelfTest passed (histogram/installed Chunksmith ABI)");
     }
     private static String bytecode(String name) throws Exception {
         String javap = java.nio.file.Path.of(System.getProperty("java.home"), "bin", "javap").toString();

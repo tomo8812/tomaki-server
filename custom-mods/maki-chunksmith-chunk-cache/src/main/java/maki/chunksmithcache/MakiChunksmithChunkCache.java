@@ -14,13 +14,11 @@ public final class MakiChunksmithChunkCache {
     public MakiChunksmithChunkCache() {
         LOG.info("Maki Chunksmith Chunk Cache initialized; unified FULL+LOD capture, read-only LOD repair, safe handoff and compatibility quarantine are enabled.");
         NeoForge.EVENT_BUS.addListener((ServerStoppingEvent event) -> {
-            BackfillController.stopping(event.getServer());
             CacheManager.stop(event.getServer());
             LOG.info("Chunk cache stopping: new work closed; incomplete captures remain retryable, in-use entries remain isolated.");
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppedEvent event) -> {
             CacheManager.stopped(event.getServer());
-            BackfillController.stopped(event.getServer());
         });
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> CacheCommands.register(event.getDispatcher()));
         NeoForge.EVENT_BUS.addListener((ServerTickEvent.Post event) -> CacheManager.maintenanceTick(event.getServer()));
