@@ -1,0 +1,79 @@
+name: Build Chunksmith 4.8.1 and Millenaire 9.1.0 compatibility branch
+
+# One-time branch preparation. The bot-created binary commit does not trigger
+# this job, because only changes to this workflow file are watched.
+on:
+  push:
+    branches:
+      - compat/chunksmith-4.8.1-millenaire-9.1.0
+    paths:
+      - .github/workflows/prepare-upstream-481-910.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: compat-upstream-481-910
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Download and verify the exact upstream JARs supplied for review
+        run: bash scripts/sync-upstream-481-910.sh
+
+      - name: Verify new upstream bytecode against Mixin callsite contracts
+        run: |
+          python3 .github/scripts/verify_upstream_481_910.py \
+            --chunksmith 'mods/chunksmith-4.8.1+1.21.1-neoforge.jar' \
+            --millenaire 'mods/millenaire-9.1.0.jar'
+
+      - name: Build changed custom MODs in dependency order
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS='|' read -r project old_jar new_jar; do
+            echo "Building $project"
+            gradle --no-daemon --build-cache -p "custom-mods/$project" check jar
+            test -f "custom-mods/$project/build/libs/$new_jar"
+            rm -f "mods/$old_jar"
+            install -m 0644 "custom-mods/$project/build/libs/$new_jar" "mods/$new_jar"
+          done <<'MODS'
+          maki-idle-pregen|maki-idle-pregen-1.1.1.jar|maki-idle-pregen-1.1.2.jar
+          maki-lod-cpu|maki-lod-cpu-1.4.2.jar|maki-lod-cpu-1.4.3.jar
+          maki-ship-save|maki-ship-save-1.0.2.jar|maki-ship-save-1.0.3.jar
+          maki-chunksmith-chunk-cache|maki-chunksmith-chunk-cache-1.4.2.jar|maki-chunksmith-chunk-cache-1.4.3.jar
+          maki-millenaire-lod-compat|maki-millenaire-lod-compat-1.0.6.jar|maki-millenaire-lod-compat-1.0.7.jar
+          MODS
+
+      - name: Validate shipped Mixin compatibility and MOD IDs
+        run: |
+          python3 .github/scripts/check_mod_interop.py --mods-dir mods
+          python3 .github/scripts/check_deployment_sources.py
+
+      - name: Commit verified binary replacement to the PR branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A mods
+          if git diff --cached --quiet; then
+            echo "No JAR changes to commit"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'build(mods): publish verified upstream and rebuilt compatibility JARs'
+          git push origin "HEAD:refs/heads/${GITHUB_REF_NAME}"
