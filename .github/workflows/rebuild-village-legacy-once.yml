@@ -1,4 +1,5 @@
 name: Verify and publish final Millenaire 9.1 legacy placement gate
+# Re-run for the DEFERRED main-queue ownership release correction.
 
 on:
   push:
