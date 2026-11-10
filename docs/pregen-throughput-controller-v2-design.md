@@ -193,30 +193,44 @@ PR #89の36件のレビューは、同一生成の根拠、重複排除とattemp
 このPRの範囲は改訂した設計仕様に限る。実装・最適性・性能向上を確認したと称さない。
 
 
-## 11. Oracle A1.Flex（2 OCPU・12GB）専用の短時間初期モデル
+## 11. Oracle A1.Flex（2 OCPU・12GB）向け軽量自律最適化モデル
 
-**運用プロファイル**: Oracle VM.Standard.A1.Flex / Ampere Altra aarch64 / 2 OCPU（物理2コア相当）/ RAM 12GB / network 2Gbps。CPU affinityとcgroup、ディスク・マウントの実測も確認する。既存の通常FULL、Entity/POI、Millénaire、VS2、キャッシュ、LOD、安全条件は維持する。
+**設計上の確定方針**: Oracle VM.Standard.A1.Flex（Ampere Altra ARM64、2 OCPU、12GB RAM、最大2Gbps）に合わせて初期条件・測定コスト・探索予算を設計する。だが、設定を一度固定する方式やcapを1～4に永久制限する方式は採らない。初期性能と運用中のFULL＋LOD完成結果から自律的に調整し、同じVMでNEW中心からREPAIR中心になったときやI/O負荷が変わったときにも再収束する。§3のA～Gの比較視点、§4の同一生成PAIR確定、§5の公平なgoodput、安全・所有権条件を維持し、**常時動かす制御器の計算量と探索損失を小さくする**。
 
-**Minecraftを起動しない実機計測**: scripts/a1-pregen-preflight.py をPython3で実行。--dirには実際のワールド／キャッシュと同じファイルシステム上の既存ディレクトリを指定する。CPU affinity/cgroup、空きメモリ、PSI、短いzlibの1/2 worker性能、64MiBの同期書込、4KiB fsync遅延とディスク空きを測る。独立した一時ディレクトリで実施・自動削除。ゲーム、MOD、既存チャンクを読み込まない。実行例:
+### 11.1 Minecraftを起動しない実機preflight
+
+Python3標準ライブラリだけで動く scripts/a1-pregen-preflight.py をSSHで実行する。--dirにはワールド／キャッシュがあるのと同じファイルシステムの既存ディレクトリを指定し、CPU affinity/cgroup、実際の空きメモリ、CPU/メモリ/I/O PSI、合成zlib圧縮1/2 worker比較、64MiB同期書込と小書込fsync遅延、ディスク空きを取得する。
 
     python3 scripts/a1-pregen-preflight.py --dir /path/to/server --output a1-pregen-profile.json
 
-これらは**syntheticなホスト指標**であり、Java NBT、worldgen、PAIR確定速度、長期のクラウドディスク性能そのものを表さない。実測のwriter ACK処理能力はMinecraft稼働後の少量の自然な観測から学習する。試験結果で保存待機秒の初期予算を決めても、固定の最大チャンク/秒は推定しない。
+既存ワールドやキャッシュは変更せず、一時ファイルを削除する。ディスク上限や空き容量が危険ならテストを行わない。合成zlibや短期fsyncはJavaのworldgen・NBT圧縮・クラウドディスク長期速度と一致しないため、**preflightを実際のチャンク/秒へ直接変換しない**。ハードウェア測定を使うのは起動時の安全余裕、write待ち予算の事前分布、観測周期・探索幅の初期化までとする。
 
-**暫定初期preset**:
+### 11.2 最小のオンライン状態・入力
 
-- cpuCapacity=2、startCap=2、cap候補は1,2,3,4。2コアでもI/O待ちの重なりで3/4が有利な可能性を残す。現行設定のmax-concurrent=64の大域探索と常時A/B/AをA1専用presetでは置き換える。
-- 12GB RAMに対するJVM最大heapは一旦8GiB程度を候補とし、OS・ネイティブ・ページキャッシュ分を残す。minimum-system-headroom-mb=1536を暫定初期値とする。実運用のヒープ・使用MODを見て変更可能とする。
-- 保存段階の観測が不十分な間は、native安全制御とcap=2近傍で開始。writerに仕事が無い時のACK率0を「永久に投入禁止」とは解釈しない。既存のhardディスク予約と通常保存の優先を維持する。
+制御入力を **c（次のnative生成同時要求の上限）** と **a（次の座標を投入してよい速度／credit）** に限定する。c=2でwarm startするが、cの可変範囲は実測の改善と安全制約から自律的に拡張・縮小する。固定の4上限は設けない。既存max-concurrentの大きな設定値は緊急のhard guardとして利用しても、そこまで全値を走査しない。CPU2コアという事実を初期値と探索予算に使い、同時要求数=CPU数とは決めつけない。
 
-**自律制御モデル**:
+状態は小さいEWMA・分位点スケッチ・ヒステリシスカウンタと、有限個のin-flight attempt台帳だけ。全座標Map・追加のIO全走査・メインスレッドのブロッキング・複雑なオンラインMPC/多腕banditの常駐は不要。
 
-1. 2〜5秒周期の軽量集計で、PAIR_CONFIRMED_RUNTIME/s、workClass、未確定tail、LOD/FULL writerのACK・queue時間・失敗、native実効幅、MSPT、GC、cgroup PSIを観測する。時間値は候補であって実測に合わせ変更する。
-2. writerの滞留が持続的に増えるstorage-bound時はcapをむやみに増やさず、所有権のあるfollowタスクの次のdispatchだけを制限する。pendingの推定処理秒と各30秒deadlineの余裕を使う。見かけの0 ACKをunknown/idle/故障に区別し、writerを空転させる過剰停止を避ける。
-3. downstreamに空きがありnative生成が律速のときだけ、capを2→3→4のように1段階ずつ評価する。指令値とnative実効幅が一致している場合のみ比較し、完成ペアgoodputが増えなければ元に戻す。同等の速度なら小さいcapを選ぶ。長い強制ABBA試験ではなく、状態が落ち着いた自然な観測窓を使う。carryoverが大きい窓は採否しない。
-4. 正本の完成計測・所有権・失敗情報の整合が取れなければ探索を停止し、既知の安全な設定を維持。CPU使用率が高いだけでは減速しない。メモリ・ディスク・MSPT・プレイヤー入室・通常FULL保存の安全条件は常に優先する。
-5. 未生成NEW→LOD修復、writer ACK率、quota、I/O圧力などが持続変化した場合だけ局所再探索を行う。それ以外は探索時間を費やさず安定した設定で運転する。
+2～5秒程度の軽量観測を起点として、PAIR_CONFIRMED_RUNTIME/s、NEW/REPAIR構成、writer成功ACK率、LOD/FULL writer backlogの件数・bytes・最古年齢、30秒deadlineまでの余裕、native実効幅、MSPT、CPU quota、GC、heap/headroom、PSI、失敗・再試行を取る。実際のPAIR確定は§4の正本で判定し、LOD書込件数だけを成果扱いしない。稼働前preflightではこのオンライン情報を代替できない。
 
-実機の起動前preflightで決められるのは資源条件と初期制約までであり、ゲーム側の律速と完成goodputを知るための稼働時テレメトリは必要。VM上で多数のA/B/Aを毎回実行することは前提にしない。
+### 11.3 軽量な閉ループ制御則（第一実装候補）
 
-**段階導入**: まずホスト測定と固定preset、次に正しいPAIR計測と段階別律速の可視化、実測で後段律速が判明した場合のみ軽量dispatch gate。preflightスクリプトの追加は制御MOD実装済みを意味しない。
+**安全判定**: player復帰・所有権喪失・容量hard guard・OOM兆候・MSPT急悪化・保存異常は即時に新規投入を絞り、既存の安全なdrain/停止へ移行する。CPU使用率が高いことだけでは減速しない。native Chunksmithのbackoffは尊重し、指令cとnative実効幅を分けて記録する。
+
+**速いa制御**: 後段のwriterが律速でbacklogが増加し続けるときだけ、ACK率と進行中仕事の将来流入量から、処理待ち秒数 debtSeconds を概算する。各LOD/FULLの残り30秒期限、byte上限、必要な保存段階のworkClassを反映する。混雑持続ならaを乗法的に小さくし、writerに余力があるときは加法的に回復させる軽量AIMD＋ヒステリシスを第一候補にする。μ=0を無限の待ち時間として永久停止することを避け、idle/観測不足/故障を区別する。投入待機はowning Followタスクの次のnative dispatch前のworker-sideに限定する。
+
+**遅いc最適化**: writerに空きがあり、aの制限がほぼ発動せず、nativeの実効dispatchLimitが指令cへ届いている時にだけ、現在の最良c近傍を試す。2→3→4のように小幅で開始し、明瞭な完成ペアgoodput改善と安全余裕が続くなら**4より上へも自動拡張**する。改善が止まる、writer backlog・CPU秒/完成ペアが悪化する、native自身がbackoffするときは前の良い値へ戻してその方向の探索を抑える。同等のgoodputなら小さいcを選ぶ。常時の長時間A/B/A、全cap総当たり、固定間隔の強制switchbackは行わない。
+
+**観測の信頼性と探索損失**: 短い自然な連続運転窓で比較し、前cap由来の未完了tailや地形/workClass変化が大きい区間は採否しない。短い窓で成功数が少ない場合は現値を保持し、サンプル数が集まるまで判断を延期する。小さな試行でも性能を落とすため、探索時間と推定損失に予算を設け、改善がなければ探索間隔を延長する。因果効果の断定が必要な変更だけ複製ワールドで確認する。
+
+**自動再学習**: NEW→REPAIR構成、writer ACK能力、native幅、PSI・MSPT、quota・heapの持続変化を検知して、周辺探索を再開する。正常な定常運転では値を安定維持する。短いperformance profileにCPU quota・構成hash・workClass・観測鮮度・成功したcとaを保持し、再起動時は条件が近い場合だけwarm startする。性能profileの失効で保存キャッシュを無効にしない。
+
+### 11.4 A1固有の初期値と採用順序
+
+- 2 OCPUをdetectし、初期cap=2。例示の1/2/3/4は**探索の起点**であり固定範囲ではない。
+- 12GB RAMの下でJVM最大heap 8GiB程度、OS・ページキャッシュ・ネイティブ領域の確保、最低system headroom約1.5GiBを**計測前の仮説**として置く。実際のJVM設定・MOD使用量・preflight結果で安全側へ更新する。
+- まずpreflightで安全な初期条件を作り、起動後の短い自然観測からPAIR成果と律速を学ぶ。最初から詳細な全工程実験を回さない。
+- P0の正本PAIR計測と既存コードの明白なO(P)走査・容量走査などの律速解消を優先。writer律速ならa制御を付け、生成側律速ならc最適化を中心に回す。最小構成で十分なら複雑な追加制御は導入しない。
+- 保存安全性・プレイヤー復帰・通常FULL・Entity/POI・Millénaire・VS2の優先事項は§1の通り。
+
+**現状の実装状況**: preflightスクリプトと設計文書を追加した段階であり、専用のオンライン自律制御器とPAIRメトリクスは未実装。実機preflight未取得のため、最適cap、goodput、書込待ち予算を確定したとは主張しない。
