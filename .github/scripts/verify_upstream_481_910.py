@@ -66,6 +66,20 @@ def main():
     ]:
         check(queue, name, target, count)
 
+    # This compatibility layer relies on native queue ownership, not just method existence.
+    check(queue, 'trySpawnNext(net.minecraft.server.level.ServerLevel)',
+          'SiteSurvey.processQueue:', 1)
+    check(queue, 'trySpawnNext(net.minecraft.server.level.ServerLevel)',
+          'SiteHunter.addCandidate:', 1)
+    survey = read(args.millenaire, 'org.millenaire.world.sitescore.SiteSurvey')
+    check(survey, 'processQueue(net.minecraft.server.level.ServerLevel',
+          'java/util/Queue.clear:', 1)
+    lone = method(queue, 'processLBQueue(net.minecraft.server.level.ServerLevel')
+    if 'long 72000l' not in lone or 'isExpired:' not in lone:
+        raise AssertionError('Millenaire native lone-building TTL changed')
+    if 'org.millenaire.world.SiteHunter hunter;' not in queue:
+        raise AssertionError('Millenaire VillageSpawnQueue.hunter field changed')
+
     task = read(args.chunksmith, 'com.kishku7.chunksmith.GenerationTask')
     for name, target, count in [
         ('run()', 'RegionCache$WorldState.isGenerated:', 1),
@@ -91,6 +105,8 @@ def main():
     explored = read(args.chunksmith, 'com.kishku7.chunksmith.lod.ExploredLodGuard')
     check(explored, 'take(net.minecraft.server.level.ServerLevel, net.minecraft.world.level.chunk.LevelChunk, boolean)', 'LodSupport.offer:', 1)
     hunter = read(args.millenaire, 'org.millenaire.world.SiteHunter')
+    if 'LongArrayFIFOQueue work;' not in hunter:
+        raise AssertionError('SiteHunter.work backlog field changed')
     check(hunter, 'attempt(net.minecraft.server.level.ServerLevel', 'VillageTerrainMap.placementAreaLoaded:', 1)
     check(hunter, 'onChunkLoad(net.minecraft.server.level.ServerLevel', 'ServerChunkCache.getChunkNow:', 1)
     terrain = read(args.millenaire, 'org.millenaire.world.VillageTerrainMap')
