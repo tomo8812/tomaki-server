@@ -64,6 +64,52 @@ public final class FingerprintPolicySelfTest {
             withAuditedMod.addAll(audited);
             require(base.equals(CompatibilityFingerprint.compute(withAuditedMod)),
                 "adding a verified generation-neutral MOD must preserve cache compatibility");
+
+            // Regression: a FULL+LOD pair created before the same unknown JAR
+            // was audited must be adopted after the audit without recomputation.
+            List<FingerprintManifest.Entry> previouslyUnaudited = new ArrayList<>(baseline);
+            FingerprintManifest.Entry originalUnknown = CompatibilityInput.entries(
+                "mods/unknown.jar", unknownJar, Files.size(unknownJar), unknownSha, unauditedPolicy).getFirst();
+            require(originalUnknown.impact() == FingerprintManifest.Impact.RELEVANT,
+                "unapproved unknown MOD must initially be relevant");
+            previouslyUnaudited.add(originalUnknown);
+            FingerprintManifest.Manifest oldGeneration = new FingerprintManifest.Manifest(
+                CompatibilityFingerprint.compute(previouslyUnaudited), 1L, Set.of(), previouslyUnaudited);
+            FingerprintManifest.Manifest auditedGeneration = new FingerprintManifest.Manifest(
+                CompatibilityFingerprint.compute(withAuditedMod), 2L, Set.of(), withAuditedMod);
+            require(!oldGeneration.fingerprint().equals(auditedGeneration.fingerprint()),
+                "test must cover a genuine pre-audit to audited fingerprint transition");
+            require(FingerprintManifest.sameCompatibilityInputsExcept(
+                oldGeneration, auditedGeneration, Set.of("policy:compatibility")),
+                "an explicitly audited identical JAR must preserve the pre-audit FULL generation");
+            require(FingerprintManifest.changedCompatibilityInputs(
+                oldGeneration, auditedGeneration, Set.of("policy:compatibility"), 8, null).isEmpty(),
+                "proven neutral audit must not appear as an incompatible generation change");
+            require(FingerprintManifest.compatibilityProofs(
+                oldGeneration, auditedGeneration, Set.of("policy:compatibility"), 8, null)
+                .stream().anyMatch(note -> note.contains("now explicitly audited")),
+                "cache adoption must document why historical relevance is safely disregarded");
+
+            FingerprintManifest.Entry tamperedAudit = new FingerprintManifest.Entry(
+                audited.getFirst().key(), audited.getFirst().size(), CompatibilityFingerprint.sha256("different-binary"),
+                FingerprintManifest.Impact.IGNORED, CompatibilityInput.EXPLICIT_NEUTRAL_AUDIT);
+            List<FingerprintManifest.Entry> modifiedBinary = new ArrayList<>(baseline);
+            modifiedBinary.add(tamperedAudit);
+            require(!FingerprintManifest.sameCompatibilityInputsExcept(
+                oldGeneration, manifestFor(modifiedBinary), Set.of("policy:compatibility")),
+                "an audit for different bytes must not adopt the earlier generation");
+            List<FingerprintManifest.Entry> formerlySensitive = new ArrayList<>(baseline);
+            formerlySensitive.add(new FingerprintManifest.Entry(
+                originalUnknown.key(), originalUnknown.size(), originalUnknown.sha256(),
+                FingerprintManifest.Impact.RELEVANT, "generation-sensitive MOD id=epicterrain"));
+            require(!FingerprintManifest.sameCompatibilityInputsExcept(
+                manifestFor(formerlySensitive), auditedGeneration, Set.of("policy:compatibility")),
+                "audits must not override a previously known generation-sensitive input");
+            require(!FingerprintManifest.sameCompatibilityInputsExcept(
+                oldGeneration, manifestFor(replace(withAuditedMod, "mods/worldgen.jar", "wg-b")),
+                Set.of("policy:compatibility")),
+                "a matching neutral audit must not mask unrelated worldgen changes");
+
             writeModJar(unknownJar,"diagnostic_probe","payload-b");
             String updatedSha=sha256(unknownJar);
             require(CompatibilityInput.entries("mods/unknown.jar",unknownJar,Files.size(unknownJar),
@@ -129,6 +175,11 @@ public final class FingerprintPolicySelfTest {
         } finally {
             deleteTree(temp);
         }
+    }
+
+    private static FingerprintManifest.Manifest manifestFor(List<FingerprintManifest.Entry> entries) {
+        String fingerprint = CompatibilityFingerprint.compute(entries);
+        return new FingerprintManifest.Manifest(fingerprint, 1L, Set.of(fingerprint), entries);
     }
 
     private static FingerprintManifest.Entry entry(String key, String value, FingerprintManifest.Impact impact) {
