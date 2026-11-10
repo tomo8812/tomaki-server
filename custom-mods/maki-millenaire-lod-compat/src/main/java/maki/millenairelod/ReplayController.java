@@ -213,7 +213,7 @@ public final class ReplayController {
     }
 
     /** Called in place of Compat.waiting for an actual DEFERRED result. */
-    public static void deferred(Object level, Object pos, boolean queued) {
+    public static void deferred(Object level, Object pos, boolean mainCandidate, boolean nativeRequeued) {
         if (level == null || pos == null) {
             return;
         }
@@ -232,16 +232,19 @@ public final class ReplayController {
             return;
         }
         long key = packChunk(bx >> 4, bz >> 4);
-        // DEFERRED means the candidate was consumed by Millenaire's poll.
-        // A main-queue candidate is not re-enqueued by processMainQueue, so
-        // retaining its stale queued flag would suppress replay forever.
-        // The lone-building path reclaims its queued flag via addLast below.
-        da.release(data, key);
-        da.remember(data, key, false);
+        // Native trySpawnVillage enqueues a non-lone candidate itself before returning
+        // DEFERRED. Keep that queue's claim until its next poll. Only our construction
+        // veto synthesizes DEFERRED without an upstream re-enqueue.
+        if (nativeRequeued) {
+            da.remember(data, key, true);
+        } else {
+            da.release(data, key);
+            da.remember(data, key, false);
+        }
 
         // Millenaire's lone-building queue already carries its own retryAfterTick=+200 logic.
         // Only main-queue DEFERRED candidates need an additional controller here.
-        if (!queued) {
+        if (!mainCandidate) {
             return;
         }
         long tick = rt.gameTime(level);
@@ -838,6 +841,9 @@ public final class ReplayController {
         volatile Method playerChunkPosition;
         volatile Method queueGetStats;
         volatile Method queueEnqueue;
+        volatile Field queueHunter;
+        volatile Field hunterWork;
+        volatile Method hunterWorkSize;
 
         RuntimeAccess(Object level) {
             Method game = null, server = null, chunk = null, chunksAt = null, playerList = null;
@@ -1011,7 +1017,42 @@ public final class ReplayController {
             if (!(value instanceof Map<?, ?> map)) {
                 return null;
             }
-            return new QueueSnapshot(number(map.get("mainQueueSize")), number(map.get("lbQueueSize")));
+            // Native mainQueueSize excludes candidates transferred to SiteHunter.work.
+            // Those retained candidates still consume downstream processing capacity.
+            int waitingInHunter = hunterBacklog(queue);
+            int main = waitingInHunter < 0 ? MAIN_HARD_STOP
+                    : number(map.get("mainQueueSize")) + waitingInHunter;
+            return new QueueSnapshot(main, number(map.get("lbQueueSize")));
+        }
+
+        private int hunterBacklog(Object queue) {
+            try {
+                Field h = queueHunter;
+                if (h == null || !h.getDeclaringClass().isAssignableFrom(queue.getClass())) {
+                    h = findField(queue.getClass(), "hunter");
+                    queueHunter = h;
+                }
+                if (h == null) return -1;
+                Object hunter = h.get(queue);
+                if (hunter == null) return 0;
+                Field w = hunterWork;
+                if (w == null || !w.getDeclaringClass().isAssignableFrom(hunter.getClass())) {
+                    w = findField(hunter.getClass(), "work");
+                    hunterWork = w;
+                }
+                if (w == null) return -1;
+                Object work = w.get(hunter);
+                if (work == null) return -1;
+                Method size = hunterWorkSize;
+                if (size == null || !size.getDeclaringClass().isAssignableFrom(work.getClass())) {
+                    size = findAnyMethod(work.getClass(), 0, "size");
+                    hunterWorkSize = size;
+                }
+                Object count = invoke(size, work);
+                return count instanceof Number ? Math.max(0, ((Number) count).intValue()) : -1;
+            } catch (IllegalAccessException | RuntimeException ignored) {
+                return -1;
+            }
         }
 
         boolean enqueue(Object queue, Object blockPos) {
