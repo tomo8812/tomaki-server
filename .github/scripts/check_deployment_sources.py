@@ -17,7 +17,6 @@ expected_projects = {
     "maki-diorama-share",
     "maki-idle-pregen",
     "maki-lod-cpu",
-    "maki-lod-cpu-online-fix",
     "maki-millenaire-lod-compat",
     "maki-mods-observer",
     "maki-ship-anchor-fix",
@@ -30,7 +29,7 @@ assert project_names == expected_projects, (
     f"extra={sorted(project_names-expected_projects)}"
 )
 
-for forbidden in ("maki-status-io", "maki-lag-observer"):
+for forbidden in ("maki-status-io", "maki-lag-observer", "maki-lod-cpu-online-fix"):
     assert not (projects_dir / forbidden).exists(), f"Retired source project present: {forbidden}"
     assert not list(mods_dir.glob(forbidden + "-*.jar")), f"Retired deployable JAR present: {forbidden}"
 

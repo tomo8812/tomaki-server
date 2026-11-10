@@ -1,0 +1,52 @@
+name: Refresh cache JAR for cleanup PR
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cleanup-jar
+  cancel-in-progress: true
+
+jobs:
+  rebuild:
+    if: github.head_ref == 'cleanup/remove-dead-code-and-online-fix' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cleanup/remove-dead-code-and-online-fix
+          persist-credentials: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Build and verify changed cache MOD
+        run: gradle --build-cache -p custom-mods/maki-chunksmith-chunk-cache clean check jar
+      - name: Refresh shipped archive from source
+        run: |
+          cp custom-mods/maki-chunksmith-chunk-cache/build/libs/maki-chunksmith-chunk-cache-1.4.0.jar mods/
+          python3 .github/scripts/check_deployment_sources.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: refreshed-chunk-cache-mod
+          path: mods/maki-chunksmith-chunk-cache-1.4.0.jar
+          retention-days: 14
+      - name: Commit refreshed JAR on cleanup branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mods/maki-chunksmith-chunk-cache-1.4.0.jar
+          if git diff --cached --quiet; then
+            echo 'JAR already matches source.'
+          else
+            git commit -m 'build: refresh chunk cache JAR after dead-code cleanup'
+            git push origin HEAD:refs/heads/cleanup/remove-dead-code-and-online-fix
+          fi

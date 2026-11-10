@@ -1,0 +1,32 @@
+name: Custom MOD unreachable-code candidates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            .github
+            custom-mods
+            config
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Audit source references for every custom MOD
+        run: python3 .github/scripts/audit_unused_custom_mod_code.py --output reports/unused-custom-mod-code.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unused-custom-mod-code
+          path: reports/unused-custom-mod-code.json
+          retention-days: 14
