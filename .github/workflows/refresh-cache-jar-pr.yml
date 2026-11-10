@@ -1,0 +1,56 @@
+name: Refresh Chunksmith cache JAR for PR 88
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'custom-mods/maki-chunksmith-chunk-cache/**'
+      - '.github/workflows/refresh-cache-jar-pr.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-cache-jar-pr-88
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/chunksmith-lambda-mixin-and-crossmod-ci'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/chunksmith-lambda-mixin-and-crossmod-ci
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build and check patched cache MOD
+        run: gradle --build-cache -p custom-mods/maki-chunksmith-chunk-cache check jar
+
+      - name: Commit built JAR on this PR branch
+        run: |
+          set -euo pipefail
+          src="custom-mods/maki-chunksmith-chunk-cache/build/libs/maki-chunksmith-chunk-cache-1.4.2.jar"
+          dst="mods/maki-chunksmith-chunk-cache-1.4.2.jar"
+          test -s "$src"
+          cp "$src" "$dst"
+          git rm -f --ignore-unmatch mods/maki-chunksmith-chunk-cache-1.4.1.jar
+          git add "$dst"
+          if git diff --cached --quiet; then
+            echo "Deployable JAR already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build(chunksmith-cache): update deployable 1.4.2 JAR"
+          git push origin HEAD:fix/chunksmith-lambda-mixin-and-crossmod-ci
