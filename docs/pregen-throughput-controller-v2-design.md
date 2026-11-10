@@ -191,3 +191,32 @@ observe():
 PR #89の36件のレビューは、同一生成の根拠、重複排除とattempt、分母バイアス、作業種別重み、carryover、writer律速、工程別credit、期限予測、native制御の干渉、root cause計測、容量、O(P)のACK、スナップショット、圧縮、学習profile、ablationなどを相互に整合させて本仕様へ取り込んだ。**基本採用とは設計条件として採用すること。性能改善を実測していない候補は比較対象として保留する。**
 
 このPRの範囲は改訂した設計仕様に限る。実装・最適性・性能向上を確認したと称さない。
+
+
+## 11. Oracle A1.Flex（2 OCPU・12GB）専用の短時間初期モデル
+
+**運用プロファイル**: Oracle VM.Standard.A1.Flex / Ampere Altra aarch64 / 2 OCPU（物理2コア相当）/ RAM 12GB / network 2Gbps。CPU affinityとcgroup、ディスク・マウントの実測も確認する。既存の通常FULL、Entity/POI、Millénaire、VS2、キャッシュ、LOD、安全条件は維持する。
+
+**Minecraftを起動しない実機計測**: scripts/a1-pregen-preflight.py をPython3で実行。--dirには実際のワールド／キャッシュと同じファイルシステム上の既存ディレクトリを指定する。CPU affinity/cgroup、空きメモリ、PSI、短いzlibの1/2 worker性能、64MiBの同期書込、4KiB fsync遅延とディスク空きを測る。独立した一時ディレクトリで実施・自動削除。ゲーム、MOD、既存チャンクを読み込まない。実行例:
+
+    python3 scripts/a1-pregen-preflight.py --dir /path/to/server --output a1-pregen-profile.json
+
+これらは**syntheticなホスト指標**であり、Java NBT、worldgen、PAIR確定速度、長期のクラウドディスク性能そのものを表さない。実測のwriter ACK処理能力はMinecraft稼働後の少量の自然な観測から学習する。試験結果で保存待機秒の初期予算を決めても、固定の最大チャンク/秒は推定しない。
+
+**暫定初期preset**:
+
+- cpuCapacity=2、startCap=2、cap候補は1,2,3,4。2コアでもI/O待ちの重なりで3/4が有利な可能性を残す。現行設定のmax-concurrent=64の大域探索と常時A/B/AをA1専用presetでは置き換える。
+- 12GB RAMに対するJVM最大heapは一旦8GiB程度を候補とし、OS・ネイティブ・ページキャッシュ分を残す。minimum-system-headroom-mb=1536を暫定初期値とする。実運用のヒープ・使用MODを見て変更可能とする。
+- 保存段階の観測が不十分な間は、native安全制御とcap=2近傍で開始。writerに仕事が無い時のACK率0を「永久に投入禁止」とは解釈しない。既存のhardディスク予約と通常保存の優先を維持する。
+
+**自律制御モデル**:
+
+1. 2〜5秒周期の軽量集計で、PAIR_CONFIRMED_RUNTIME/s、workClass、未確定tail、LOD/FULL writerのACK・queue時間・失敗、native実効幅、MSPT、GC、cgroup PSIを観測する。時間値は候補であって実測に合わせ変更する。
+2. writerの滞留が持続的に増えるstorage-bound時はcapをむやみに増やさず、所有権のあるfollowタスクの次のdispatchだけを制限する。pendingの推定処理秒と各30秒deadlineの余裕を使う。見かけの0 ACKをunknown/idle/故障に区別し、writerを空転させる過剰停止を避ける。
+3. downstreamに空きがありnative生成が律速のときだけ、capを2→3→4のように1段階ずつ評価する。指令値とnative実効幅が一致している場合のみ比較し、完成ペアgoodputが増えなければ元に戻す。同等の速度なら小さいcapを選ぶ。長い強制ABBA試験ではなく、状態が落ち着いた自然な観測窓を使う。carryoverが大きい窓は採否しない。
+4. 正本の完成計測・所有権・失敗情報の整合が取れなければ探索を停止し、既知の安全な設定を維持。CPU使用率が高いだけでは減速しない。メモリ・ディスク・MSPT・プレイヤー入室・通常FULL保存の安全条件は常に優先する。
+5. 未生成NEW→LOD修復、writer ACK率、quota、I/O圧力などが持続変化した場合だけ局所再探索を行う。それ以外は探索時間を費やさず安定した設定で運転する。
+
+実機の起動前preflightで決められるのは資源条件と初期制約までであり、ゲーム側の律速と完成goodputを知るための稼働時テレメトリは必要。VM上で多数のA/B/Aを毎回実行することは前提にしない。
+
+**段階導入**: まずホスト測定と固定preset、次に正しいPAIR計測と段階別律速の可視化、実測で後段律速が判明した場合のみ軽量dispatch gate。preflightスクリプトの追加は制御MOD実装済みを意味しない。
