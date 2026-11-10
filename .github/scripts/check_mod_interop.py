@@ -73,7 +73,7 @@ def class_bytecode(raw: bytes):
     while index < len(cp):
         tag = r.u1()
         if tag == 1:
-            cp[index] = r.read(r.u2()).decode("utf-8", "surrogatepass")
+            cp[index] = r.read(r.u2()).replace(b"\xc0\x80", b"\0").decode("utf-8", "surrogatepass")
         elif tag in (3, 4):
             r.read(4)
         elif tag in (5, 6):
