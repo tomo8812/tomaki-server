@@ -91,6 +91,15 @@ def main():
     check(explored, 'take(net.minecraft.server.level.ServerLevel, net.minecraft.world.level.chunk.LevelChunk, boolean)', 'LodSupport.offer:', 1)
     hunter = read(args.millenaire, 'org.millenaire.world.SiteHunter')
     check(hunter, 'attempt(net.minecraft.server.level.ServerLevel', 'VillageTerrainMap.placementAreaLoaded:', 1)
+    check(hunter, 'onChunkLoad(net.minecraft.server.level.ServerLevel', 'ServerChunkCache.getChunkNow:', 1)
+    terrain = read(args.millenaire, 'org.millenaire.world.VillageTerrainMap')
+    check(terrain, 'placementAreaLoaded(net.minecraft.server.level.ServerLevel', 'ServerLevel.hasChunksAt:', 1)
+    bounds = method(terrain, 'placementBounds(int, int, int, java.util.Collection')
+    # The source-level bounds guard uses native radius+5, 16-block alignment
+    # and a one-chunk margin from placementAreaLoaded. Detect ABI drift.
+    if 'bipush        16' not in bounds:
+        raise AssertionError('Millenaire placement bounds no longer align to 16-block chunks')
+
     rehydrator = read(args.millenaire, 'org.millenaire.village.VillageRehydrator')
     check(rehydrator, 'rehydrateAll(net.minecraft.server.level.ServerLevel)', 'Village.rebuildWaypointGraph:', 1)
     print('Upstream Mixin target bytecode: PASS (Chunksmith 4.8.1 / Millenaire 9.1.0)')
