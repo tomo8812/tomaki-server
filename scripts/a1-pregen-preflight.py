@@ -16,6 +16,10 @@ import time
 import zlib
 
 MIB = 1024 * 1024
+DISK_RESERVE_BYTES = 2 * 1024**3
+DISK_BENCH_BYTES = 64 * MIB + 16 * 4096
+DISK_SAFETY_MARGIN_BYTES = 128 * MIB  # Covers small additional writes and concurrent disk noise
+
 
 
 def read_text(path):
@@ -72,13 +76,23 @@ def benchmark_cpu():
 
 
 def benchmark_disk(workdir):
+    # Reserve space for normal-world saves for the entire test, not just at start.
+    # This remains advisory in the presence of unrelated concurrent writers.
+    required = DISK_RESERVE_BYTES + DISK_BENCH_BYTES + DISK_SAFETY_MARGIN_BYTES
+    if shutil.disk_usage(workdir).free < required:
+        return {"status": "skipped", "reason": "insufficient-free-space-preserving-2gib-reserve",
+                "required_free_gib": round(required / 1024**3, 3)}
     with tempfile.TemporaryDirectory(prefix='.pregen-preflight-', dir=workdir) as temp:
+        def ensure_headroom(next_bytes):
+            if shutil.disk_usage(temp).free < DISK_RESERVE_BYTES + DISK_SAFETY_MARGIN_BYTES + next_bytes:
+                raise RuntimeError("free-space-headroom-changed-during-benchmark")
         path = os.path.join(temp, 'temp.bin')
         block = os.urandom(MIB)
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         try:
             t0 = time.perf_counter()
             for _ in range(64):
+                ensure_headroom(MIB)
                 view = memoryview(block)
                 while view:
                     view = view[os.write(fd, view):]
@@ -86,6 +100,7 @@ def benchmark_disk(workdir):
             large = time.perf_counter() - t0
             small = []
             for _ in range(16):
+                ensure_headroom(4096)
                 t0 = time.perf_counter()
                 os.write(fd, block[:4096])
                 os.fsync(fd)
@@ -93,6 +108,7 @@ def benchmark_disk(workdir):
         finally:
             os.close(fd)
     return {
+        'status': 'completed',
         'sync_write_64mib_mib_s': round(64 / max(large, 1e-9), 1),
         'sync_4k_p50_ms': round(statistics.median(small), 2),
         'sync_4k_p95_ms': round(sorted(small)[-2], 2),
@@ -109,8 +125,7 @@ def main():
     if not os.path.isdir(workdir):
         parser.error('--dir must be an existing directory')
     du = shutil.disk_usage(workdir)
-    if du.free < 2 * 1024**3:
-        parser.error('Refusing disk test: less than 2 GiB free')
+    # A low-space VM still gets a useful read-only host report.
     report = {
         'profile_version': 1,
         'target': 'Oracle VM.Standard.A1.Flex 2 OCPU / 12 GB (expected; verify below)',
@@ -132,13 +147,30 @@ def main():
     dt = total1 - total0
     report['system_cpu_utilization_1s_pct'] = round(100 * (1 - (idle1-idle0)/dt), 1) if dt > 0 else None
     report['cpu_microbenchmark'] = benchmark_cpu()
-    report['disk_microbenchmark'] = benchmark_disk(workdir)
+    try:
+        report['disk_microbenchmark'] = benchmark_disk(workdir)
+    except (OSError, RuntimeError) as exc:
+        report['disk_microbenchmark'] = {'status': 'skipped', 'reason': str(exc)}
+    report['benchmark_filesystem_device'] = os.stat(workdir).st_dev
+    report['benchmark_filesystem_path'] = workdir
+    report['disk_reserve_gib'] = DISK_RESERVE_BYTES / 1024**3
+    report['disk_benchmark_max_mib'] = round(DISK_BENCH_BYTES / MIB, 3)
+    report['disk_safety_margin_mib'] = DISK_SAFETY_MARGIN_BYTES / MIB
     report['warning'] = 'Synthetic CPU and sync I/O tests only; no Minecraft goodput measured. Calibrate online.'
-    content = json.dumps(report, ensure_ascii=False, indent=2) + '\n'
+    # A JSON output file must not consume the same 2 GiB disk reserve either.
     if args.output:
-        with open(args.output, 'w', encoding='utf-8') as f:
-            f.write(content)
-    print(content, end='')
+        try:
+            parent = os.path.realpath(os.path.dirname(os.path.abspath(args.output)))
+            available = shutil.disk_usage(parent).free
+            if available < DISK_RESERVE_BYTES + DISK_SAFETY_MARGIN_BYTES + 64 * 1024:
+                report['output_skipped_reason'] = 'insufficient-free-space-for-json-preserving-reserve'
+            else:
+                with open(args.output, 'w', encoding='utf-8') as f:
+                    f.write(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+                report['output_written'] = args.output
+        except OSError as exc:
+            report['output_skipped_reason'] = str(exc)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
 
 
 if __name__ == '__main__':
