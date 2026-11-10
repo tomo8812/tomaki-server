@@ -63,7 +63,8 @@ public abstract class GenerationRequestMixin {
             return CompletableFuture.failedFuture(
                 new IllegalStateException("Unified pregen could not acquire normal-persistence guard for "+x+","+z));
         }
-        CompletableFuture<Void> future = world.getChunkAtAsync(x,z);
+        CompletableFuture<Void> future = CacheManager.withChunksmithRequestTask(
+            sourceTask, () -> world.getChunkAtAsync(x,z));
         future.whenComplete((value,error) -> {
             PipelineMetrics.time("adapter-request",System.nanoTime()-started);
             if(world instanceof NeoForgeWorld neoforge)

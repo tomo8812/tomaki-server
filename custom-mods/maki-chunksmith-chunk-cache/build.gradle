@@ -342,6 +342,8 @@ tasks.register('verifyIssue83UnifiedPregen') {
         }
         if (!request.contains('maki$trackGeneratedDecision')
                 || !request.contains('GenerationTask sourceTask=(GenerationTask)(Object)this')
+                || !request.contains('CacheManager.withChunksmithRequestTask(')
+                || !request.contains('sourceTask, () -> world.getChunkAtAsync(x,z)')
                 || !request.contains('CacheManager.protectChunksmithGeneratedResult(')
                 || !request.contains('sourceTask,nativeResult')
                 || !request.contains('CacheManager.noteChunksmithGeneratedResult')
@@ -354,8 +356,11 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || world.contains('maki$rememberGeneratedDecision')) {
             throw new GradleException('Issue #83 regression: generated/request state must remain bound to the originating task')
         }
-        if (!world.contains('unifiedPregenRequestAdmitted')
-                || !world.contains('unifiedPregenRequestActive')
+        if (!world.contains('GenerationTask sourceTask=CacheManager.currentChunksmithRequestTask()')
+                || !world.contains('unifiedPregenRequestAdmitted(this.world,pos,sourceTask)')
+                || !world.contains('unifiedPregenRequestActive(this.world,pos,sourceTask)')
+                || !world.contains('runWithChunksmithRequestTask(sourceTask')
+                || !world.contains('captureFromChunksmith(level, chunk, lodWritten, CacheManager.currentChunksmithRequestTask())')
                 || !world.contains('result.ifSuccess')
                 || !world.contains('chunk instanceof LevelChunk')
                 || !world.contains('CompletableFuture.failedFuture')) {
@@ -409,10 +414,12 @@ tasks.register('verifyIssue83UnifiedPregen') {
             throw new GradleException('Issue #83 regression: normal-FULL/failed-request guard release must restore suppressed chunk and POI dirty state')
         }
         def captureStart = cache.indexOf('public static void captureFromChunksmith')
-        def captureOwnershipGate = cache.indexOf('PREGEN_REQUEST_TARGETS.containsKey(key)', captureStart)
+        def captureOwnershipGate = cache.indexOf('PREGEN_REQUEST_TARGETS.get(key)', captureStart)
+        def captureTaskGate = cache.indexOf('admitted!=sourceTask', captureStart)
         def capturePendingMutation = cache.indexOf('LOD_PENDING.compute', captureStart)
-        if (captureOwnershipGate < 0 || capturePendingMutation < 0 || captureOwnershipGate > capturePendingMutation) {
-            throw new GradleException('Issue #83 regression: external Chunksmith LOD callbacks can enter unified pending/retry state')
+        if (captureOwnershipGate < 0 || captureTaskGate < 0 || capturePendingMutation < 0
+                || captureOwnershipGate > captureTaskGate || captureTaskGate > capturePendingMutation) {
+            throw new GradleException('Issue #83 regression: external/stale Chunksmith LOD callbacks can enter unified pending/retry state')
         }
         def requestFinishStart = cache.indexOf('public static void pregenRequestFinished')
         def requestFinishEnd = cache.indexOf('public static void pregenRequestFailed', requestFinishStart)

@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ThreadPoolExecutor.AbortPolicy;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
@@ -70,6 +71,7 @@ public final class CacheManager {
    private static final Set<CaptureKey> PREGEN_LOD_RETRY = ConcurrentHashMap.newKeySet();
    private static final ConcurrentHashMap<CaptureKey,Long> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_REQUEST_TARGETS = new ConcurrentHashMap<>();
+   private static final ThreadLocal<GenerationTask> CHUNKSMITH_REQUEST_TASK = new ThreadLocal<>();
    private static final ConcurrentHashMap<CaptureKey,AtomicInteger> LOD_PENDING = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,Path> CONFIRMED_PREGEN = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,FileStamp> CONFIRMED_PREGEN_STAMP = new ConcurrentHashMap<>();
@@ -94,14 +96,40 @@ public final class CacheManager {
    private CacheManager() {
    }
 
-   public static void captureFromChunksmith(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> lodCommitted) {
+   public static GenerationTask currentChunksmithRequestTask() {
+      return CHUNKSMITH_REQUEST_TASK.get();
+   }
+
+   public static <T> T withChunksmithRequestTask(GenerationTask sourceTask, Supplier<T> action) {
+      GenerationTask previous=CHUNKSMITH_REQUEST_TASK.get();
+      if(sourceTask==null)CHUNKSMITH_REQUEST_TASK.remove();
+      else CHUNKSMITH_REQUEST_TASK.set(sourceTask);
+      try {
+         return action.get();
+      } finally {
+         if(previous==null)CHUNKSMITH_REQUEST_TASK.remove();
+         else CHUNKSMITH_REQUEST_TASK.set(previous);
+      }
+   }
+
+   public static void runWithChunksmithRequestTask(GenerationTask sourceTask, Runnable action) {
+      withChunksmithRequestTask(sourceTask,() -> {
+         action.run();
+         return null;
+      });
+   }
+
+   public static void captureFromChunksmith(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> lodCommitted, GenerationTask sourceTask) {
       PipelineMetrics.count("direct-full-candidates");
       if (level == null || chunk == null) return;
       ChunkPos pos=chunk.getPos();
       CaptureKey key=captureKey(level,pos);
       // The NeoForgeWorld hook also observes third-party Chunksmith tasks. Only
-      // a coordinate admitted by preparePregenRequest belongs to this unified flow.
-      if(!PREGEN_REQUEST_TARGETS.containsKey(key)) {
+      // the exact GenerationTask admitted by preparePregenRequest belongs to this
+      // unified flow; a delayed external/stale callback for the same coordinate
+      // must keep native LOD behavior without mutating unified ownership state.
+      GenerationTask admitted=PREGEN_REQUEST_TARGETS.get(key);
+      if(sourceTask==null || admitted!=sourceTask) {
          PipelineMetrics.count("direct-external-observed");
          return;
       }
@@ -263,10 +291,20 @@ public final class CacheManager {
       return level!=null&&pos!=null&&PREGEN_REQUEST_TARGETS.containsKey(captureKey(level,pos));
    }
 
+   public static boolean unifiedPregenRequestAdmitted(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
+      return level!=null&&pos!=null&&sourceTask!=null
+         && PREGEN_REQUEST_TARGETS.get(captureKey(level,pos))==sourceTask;
+   }
+
    public static boolean unifiedPregenRequestActive(ServerLevel level,ChunkPos pos) {
       if(level==null||pos==null)return false;
       GenerationTask sourceTask=PREGEN_REQUEST_TARGETS.get(captureKey(level,pos));
       return sourceTask!=null&&FollowCaptureOwnership.active(level,sourceTask);
+   }
+
+   public static boolean unifiedPregenRequestActive(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
+      return unifiedPregenRequestAdmitted(level,pos,sourceTask)
+         && FollowCaptureOwnership.active(level,sourceTask);
    }
 
    public static void pregenRequestFinished(ServerLevel level,ChunkPos pos,GenerationTask sourceTask,boolean success) {
