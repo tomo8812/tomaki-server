@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -27,6 +29,26 @@ public final class FingerprintPolicySelfTest {
             require(policy.classify("mods/unknown.jar", unknownJar) == FingerprintManifest.Impact.RELEVANT,
                 "unknown code-only MOD must fail closed even without recognizable worldgen resources");
             require(policy.classify("mods/worldgen.jar", worldgenJar) == FingerprintManifest.Impact.RELEVANT, "known worldgen mod must remain relevant");
+
+            // An independently audited non-worldgen binary is neutral only for
+            // its exact ID+digest. Updating the audit policy must not rotate
+            // generations; updating the JAR without auditing its new digest must.
+            FingerprintPolicy unauditedPolicy=FingerprintPolicy.load(temp);
+            String unknownSha=sha256(unknownJar);
+            Path config=temp.resolve(FingerprintPolicy.CONFIG_RELATIVE);
+            Files.createDirectories(config.getParent());
+            Files.writeString(config,"fingerprint.audited-neutral-mod-sha256=diagnostic_probe:"+unknownSha+"\n");
+            FingerprintPolicy auditedPolicy=FingerprintPolicy.load(temp);
+            require(auditedPolicy.compatibilitySignature().equals(unauditedPolicy.compatibilitySignature()),
+                "audit allowlist changes must not invalidate unrelated generations");
+            List<FingerprintManifest.Entry> audited=CompatibilityInput.entries(
+                "mods/unknown.jar",unknownJar,Files.size(unknownJar),unknownSha,auditedPolicy);
+            require(audited.size()==1 && audited.getFirst().impact()==FingerprintManifest.Impact.IGNORED,
+                "exact SHA/ID audited non-worldgen JAR should be neutral");
+            require(CompatibilityInput.entries(
+                "mods/worldgen.jar",worldgenJar,Files.size(worldgenJar),sha256(worldgenJar),auditedPolicy)
+                .getFirst().impact()==FingerprintManifest.Impact.RELEVANT,
+                "known worldgen MOD cannot be masked by a neutral audit");
             require(FingerprintPolicy.isAlwaysExcluded("config/chunksmith/tasks/minecraft/overworld.properties"), "Chunksmith task progress regression");
 
             List<FingerprintManifest.Entry> baseline = new ArrayList<>();
@@ -38,6 +60,25 @@ public final class FingerprintPolicySelfTest {
             baseline.add(entry("level:seed", "123", FingerprintManifest.Impact.RELEVANT));
 
             String base = CompatibilityFingerprint.compute(baseline);
+            List<FingerprintManifest.Entry> withAuditedMod=new ArrayList<>(baseline);
+            withAuditedMod.addAll(audited);
+            require(base.equals(CompatibilityFingerprint.compute(withAuditedMod)),
+                "adding a verified generation-neutral MOD must preserve cache compatibility");
+            writeModJar(unknownJar,"diagnostic_probe","payload-b");
+            String updatedSha=sha256(unknownJar);
+            require(CompatibilityInput.entries("mods/unknown.jar",unknownJar,Files.size(unknownJar),
+                updatedSha,auditedPolicy).getFirst().impact()==FingerprintManifest.Impact.RELEVANT,
+                "modified unknown JAR without a fresh audit must fail closed");
+            Files.writeString(config,"fingerprint.audited-neutral-mod-sha256=diagnostic_probe:"+updatedSha+"\n");
+            FingerprintPolicy updatedAuditPolicy=FingerprintPolicy.load(temp);
+            List<FingerprintManifest.Entry> newlyAudited=CompatibilityInput.entries(
+                "mods/unknown.jar",unknownJar,Files.size(unknownJar),updatedSha,updatedAuditPolicy);
+            require(newlyAudited.getFirst().impact()==FingerprintManifest.Impact.IGNORED
+                && updatedAuditPolicy.compatibilitySignature().equals(auditedPolicy.compatibilitySignature()),
+                "newly audited neutral update must remain generation-compatible");
+            require(base.equals(CompatibilityFingerprint.compute(
+                new ArrayList<FingerprintManifest.Entry>() {{ addAll(baseline); addAll(newlyAudited); }})),
+                "audited update must not rotate the known-good FULL cache");
             require(base.equals(CompatibilityFingerprint.compute(replace(baseline, "mods/diagnostic-probe.jar", "diag-b"))), "observation-only JAR change must not invalidate");
             require(base.equals(CompatibilityFingerprint.compute(replace(baseline, "config/diagnostic-probe.properties", "cfg-b"))), "explicit non-worldgen config change must not invalidate");
             require(!base.equals(CompatibilityFingerprint.compute(replace(baseline, "mods/worldgen.jar", "wg-b"))), "worldgen mod change must invalidate");
@@ -99,6 +140,10 @@ public final class FingerprintPolicySelfTest {
             result.add(entry.key().equals(key) ? entry(key, value, entry.impact()) : entry);
         }
         return result;
+    }
+
+    private static String sha256(Path path) throws Exception {
+        return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path)));
     }
 
     private static void writeModJar(Path path, String modId, String payload) throws IOException {
