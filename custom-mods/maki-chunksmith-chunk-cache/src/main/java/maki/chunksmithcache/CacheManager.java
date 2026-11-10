@@ -7,10 +7,8 @@ import com.kishku7.chunksmith.lod.CsLodRegionStore;
 import com.kishku7.chunksmith.lod.HorizonGuard;
 import com.kishku7.chunksmith.lod.LodSupport;
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
@@ -173,7 +171,7 @@ public final class CacheManager {
       // Only a target proven NEW by this follow-owned Chunksmith task is cached.
       // Player arrival does not cancel already-owned work; handoff is claim-before-write.
       if (!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(level)
-         || BackfillGuard.suppress(level, pos)) {
+         ) {
          addRetry(PREGEN_RETRY,key);
          PipelineMetrics.count("direct-ineligible");
          return;
@@ -477,7 +475,6 @@ public final class CacheManager {
       if(level==null||pos==null)return null;
       if(STOPPING.contains(level.getServer()))return CompletableFuture.completedFuture(true);
       CaptureKey key=captureKey(level,pos);
-      if(BackfillGuard.active(level,pos))return CompletableFuture.completedFuture(true);
       CaptureFlight pending=CAPTURE_PENDING.get(key);
       if(pending!=null)return pending.result().thenApply(Boolean.TRUE::equals);
 
@@ -567,7 +564,7 @@ public final class CacheManager {
    public static boolean chunksmithGeneratedHint(ServerLevel level, ChunkPos pos) {
       if(level==null||pos==null)return false;
       CaptureKey key=captureKey(level,pos);
-      if(BackfillGuard.active(level,pos)||CAPTURE_PENDING.containsKey(key))return true;
+      if(CAPTURE_PENDING.containsKey(key))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null)return false;
       Path file=path(level,pos,snapshot.fingerprint());
@@ -1134,7 +1131,7 @@ public final class CacheManager {
       if(borrowed!=null) {
          return borrowed.handle((ignored,error)->null).thenCompose(ignored -> loadReadyCache(var0,var1));
       }
-      if (!BackfillGuard.suppress(var0, var1) && promotionAllowed(var0, var1)) {
+      if (promotionAllowed(var0, var1)) {
          Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
          if (snapshot == null) {
             return CompletableFuture.completedFuture(Optional.empty());
@@ -1295,7 +1292,7 @@ public final class CacheManager {
    /** IOWorker.store's Future completes after RegionFileStorage.write, not just enqueue. */
    public static void prepareNormalWrite(ServerLevel level, ChunkPos pos, CompoundTag tag) {
       if(NormalChunkStorage.fromTag(tag)!=NormalChunkStorage.State.FULL
-         || BackfillGuard.suppress(level,pos) || pregenPersistenceSuppressed(level,pos)) return;
+         || pregenPersistenceSuppressed(level,pos)) return;
       Fingerprint.Snapshot fingerprint=Fingerprint.snapshotForLevel(level);
       if(fingerprint==null) return;
       Path file=path(level,pos,fingerprint.fingerprint());
@@ -1314,7 +1311,7 @@ public final class CacheManager {
 
    public static void onNormalWrite(ServerLevel level, ChunkPos pos, CompoundTag tag, CompletableFuture<Void> written) {
       if (NormalChunkStorage.fromTag(tag) != NormalChunkStorage.State.FULL
-         || BackfillGuard.suppress(level,pos) || pregenPersistenceSuppressed(level,pos)) return;
+         || pregenPersistenceSuppressed(level,pos)) return;
       if (PromotionLedger.observeChunkWrite(level,pos,written)) return;
       Fingerprint.Snapshot fingerprint=Fingerprint.snapshotForLevel(level);
       if (fingerprint==null) return;
@@ -1591,14 +1588,6 @@ public final class CacheManager {
          } catch (RejectedExecutionException var5) {
             ROTATED.remove(var2);
          }
-      }
-   }
-
-   private static void moveAtomically(Path var0, Path var1) throws IOException {
-      try {
-         Files.move(var0, var1, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-      } catch (AtomicMoveNotSupportedException var3) {
-         Files.move(var0, var1, StandardCopyOption.REPLACE_EXISTING);
       }
    }
 

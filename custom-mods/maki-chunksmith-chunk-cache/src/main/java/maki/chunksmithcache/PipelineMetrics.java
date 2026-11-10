@@ -24,8 +24,8 @@ public final class PipelineMetrics {
             "Chunksmith effective config: ioThrottle={}, maxChunkMillis={}, dispatchMaxConcurrent={}",
             config.isIoThrottleEnabled(), config.getThrottleMaxChunkMillis(), config.getDispatchMaxConcurrent());
         LoggerFactory.getLogger("MakiChunkCache").info(
-            "Generation pipeline intervalMs={}, counts={}, latencyMs=[{}], gauges={}, cacheIo=[{}], worldgen-internal=unknown, sharedBudget=[{}]",
-            (now-lastReport)/1_000_000, COUNTS, TIMES, GAUGES, CacheManager.ioSummary(now), LodResourceBudgetBridge.status());
+            "Generation pipeline intervalMs={}, counts={}, latencyMs=[{}], gauges={}, cacheIo=[{}], worldgen-internal=unknown",
+            (now-lastReport)/1_000_000, COUNTS, TIMES, GAUGES, CacheManager.ioSummary(now));
         COUNTS.clear(); TIMES.clear(); GAUGES.clear(); lastReport = now;
     }
 }

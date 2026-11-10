@@ -56,31 +56,6 @@ def registeredMixins = [
     'maki.chunksmithcache.mixin.LevelChunkPostLoadMixin'
 ]
 
-def issue47ControllerSource = file('src/main/java/maki/chunksmithcache/BackfillController.java')
-def issue47GuardSource = file('src/main/java/maki/chunksmithcache/BackfillGuard.java')
-def issue47StorageSource = file('src/main/java/maki/chunksmithcache/NormalChunkStorage.java')
-
-tasks.register('verifyIssue47BackfillOwnership') {
-    inputs.files(issue47ControllerSource, issue47GuardSource, issue47StorageSource)
-    doLast {
-        def controller = issue47ControllerSource.getText('UTF-8')
-        def guard = issue47GuardSource.getText('UTF-8')
-        def storage = issue47StorageSource.getText('UTF-8')
-        if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('waiting-dependency-scope-loaded')
-                || !controller.contains('candidateDeferredUntil') || !controller.contains('continueScope')
-                || !controller.contains('releaseIdlePregenClaim')) {
-            throw new GradleException('Issue #47 regression: status-aware scan / deferred candidate visibility / drain claim release is missing')
-        }
-        if (!guard.contains('scopeAvailable') || !guard.contains('scopeDrained')
-                || !guard.contains('releasePlayerOwnedDependencies') || !guard.contains('ChunkMapLifecycleAccessor')) {
-            throw new GradleException('Issue #47 regression: dependency ownership / player handoff / holder drain guard is missing')
-        }
-        if (!storage.contains('ChunkPyramid.GENERATION_PYRAMID') || !storage.contains('State.PROTO')) {
-            throw new GradleException('Issue #47 regression: vanilla dependency radius / ProtoChunk classification is missing')
-        }
-    }
-}
-
 def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
 def javapExecutable = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
 
@@ -113,57 +88,6 @@ tasks.register('verifyMixinAnnotationRetention') {
     }
 }
 
-tasks.register('verifyIssue41BackfillTicketLifecycle') {
-    inputs.file(layout.projectDirectory.file('src/main/java/maki/chunksmithcache/BackfillController.java'))
-    doLast {
-        def source = inputs.files.singleFile.getText('UTF-8')
-        if (source =~ /getChunkFuture\([^;]*ChunkStatus\.FULL,\s*true\)/) {
-            throw new GradleException('Issue #41 regression: backfill must not create vanilla UNKNOWN tickets via getChunkFuture(..., FULL, true)')
-        }
-        if (!source.contains('invokeGetChunkFutureMainThread(pos.x, pos.z, ChunkStatus.FULL, createMissingChunk)') || !source.contains('boolean createMissingChunk = false;')) {
-            throw new GradleException('Issue #41 regression: owned BACKFILL_TICKET lookup is missing')
-        }
-        ['backfillTicketHeld', 'ticketRemovedAt', 'retiredGuards', 'MAX_RETIRED_GUARDS', 'fullLoadTimeoutReached', 'pre-full-timeout-awaiting-future'].each { field ->
-            if (!source.contains(field)) {
-                throw new GradleException('Issue #41 regression: lifecycle diagnostic ' + field + ' is missing')
-            }
-        }
-        if (!source.contains('Chunk-cache backfill state: phase={}') ||
-            !source.contains('waitReason={}') ||
-            !source.contains('retiredGuards.size()')) {
-            throw new GradleException('Issue #62 regression: backfill lifecycle must remain visible in standard logs')
-        }
-        if (source.contains('maki-chunk-cache-backfill-status.json') || source.contains('StatusIo')) {
-            throw new GradleException('Issue #62 regression: retired backfill status-file output returned')
-        }
-    }
-}
-
-def issue66ControllerSource = file('src/main/java/maki/chunksmithcache/BackfillController.java')
-def issue66BridgeSource = file('src/main/java/maki/chunksmithcache/LodResourceBudgetBridge.java')
-
-tasks.register('verifyIssue66SharedBudget') {
-    inputs.files(issue66ControllerSource, issue66BridgeSource)
-    doLast {
-        def controller = issue66ControllerSource.getText('UTF-8')
-        def bridge = issue66BridgeSource.getText('UTF-8')
-        if (controller.contains('chunksmithTaskActive()')) {
-            throw new GradleException('Issue #66 regression: unconditional Chunksmith-task backfill blocking returned')
-        }
-        ['pendingCandidate', 'tryStartPending', 'reserveResourceBudget', 'waiting-shared-budget-',
-         'generated-or-pending', 'BackfillAdmission.evaluate', 'LodResourceBudgetBridge.started()', 'releaseResourceBudget', 'budgetReason'].each { token ->
-            if (!controller.contains(token)) {
-                throw new GradleException('Issue #66 regression: shared backfill budget lifecycle is missing ' + token)
-            }
-        }
-        ['reserveBackfill', 'backfillReservationHeld', 'backfillStarted', 'releaseBackfill'].each { token ->
-            if (!bridge.contains(token)) {
-                throw new GradleException('Issue #66 regression: maki-lod-cpu budget bridge is missing ' + token)
-            }
-        }
-    }
-}
-
 def issue66CacheManagerSource = file('src/main/java/maki/chunksmithcache/CacheManager.java')
 def issue66WorldMixinSource = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldMixin.java')
 def issue66RequestMixinSource = file('src/main/java/maki/chunksmithcache/mixin/GenerationRequestMixin.java')
@@ -175,7 +99,7 @@ tasks.register('verifyIssue66CacheVisibility') {
         def cache = issue66CacheManagerSource.getText('UTF-8')
         def mixin = issue66WorldMixinSource.getText('UTF-8')
         def requestMixin = issue66RequestMixinSource.getText('UTF-8')
-        ['CAPTURE_PENDING', 'BackfillGuard.suppress', 'chunksmithGeneratedHint'].each { token ->
+        ['CAPTURE_PENDING', 'chunksmithGeneratedHint'].each { token ->
             if (!cache.contains(token)) throw new GradleException('Issue #66 regression: cache overlap protection missing ' + token)
         }
         if (!requestMixin.contains('isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;')
@@ -205,12 +129,6 @@ tasks.register('issue40RegressionTest', JavaExec) {
     mainClass = 'maki.chunksmithcache.FingerprintPolicySelfTest'
 }
 
-tasks.register('backfillScopesTest', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'maki.chunksmithcache.BackfillScopesSelfTest'
-}
-
 tasks.register('issue68CompatibilityTest', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
@@ -228,12 +146,8 @@ tasks.named('check') {
     dependsOn tasks.named('issue70CompatibilityTest')
     dependsOn tasks.named('issue68CompatibilityTest')
     dependsOn tasks.named('verifyIssue66CacheVisibility')
-    dependsOn tasks.named('backfillScopesTest')
     dependsOn tasks.named('verifyMixinAnnotationRetention')
-    dependsOn tasks.named('verifyIssue47BackfillOwnership')
     dependsOn tasks.named('issue40RegressionTest')
-    dependsOn tasks.named('verifyIssue41BackfillTicketLifecycle')
-    dependsOn tasks.named('verifyIssue66SharedBudget')
 }
 
 tasks.register('issue74Test', JavaExec) {
@@ -243,13 +157,6 @@ tasks.register('issue74Test', JavaExec) {
     systemProperty 'issue74.chunksmithJar', file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar').absolutePath
 }
 tasks.named('check') { dependsOn tasks.named('issue74Test') }
-
-tasks.register('backfillRetriesTest', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'maki.chunksmithcache.BackfillRetriesSelfTest'
-}
-tasks.named('check') { dependsOn tasks.named('backfillRetriesTest') }
 
 tasks.register('cachePipelineTest', JavaExec) {
     dependsOn tasks.named('testClasses')

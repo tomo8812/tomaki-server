@@ -1,6 +1,5 @@
 package maki.chunksmithcache.mixin;
 
-import maki.chunksmithcache.BackfillController;
 import maki.chunksmithcache.CacheManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.LevelChunk;
@@ -14,7 +13,6 @@ public abstract class ServerLevelUnloadMixin {
    @Inject(method = "unload(Lnet/minecraft/world/level/chunk/LevelChunk;)V", at = @At("TAIL"))
    private void maki$backfillUnloaded(LevelChunk var1, CallbackInfo var2) {
       ServerLevel level=(ServerLevel)(Object)this;
-      BackfillController.onUnload(level, var1);
       CacheManager.pregenBorrowUnloaded(level,var1.getPos());
    }
 }
