@@ -1,15 +1,12 @@
 package maki.lodcpu.mixin;
 
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.LockSupport;
 import maki.lodcpu.CpuGovernor;
-import maki.lodcpu.ResourceBudgetApi;
 import maki.lodcpu.TaskOwnership;
 import maki.lodcpu.PlayerCenter;
 import maki.lodcpu.WorkTelemetry;
 import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.Selection;
-import com.kishku7.chunksmith.iterator.ChunkIterator;
 import com.kishku7.chunksmith.util.ChunkResidency;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.*;
@@ -37,28 +34,6 @@ public abstract class GenerationTaskMixin {
     @Inject(method="stop(Z)V",at=@At("HEAD"),require=1)
     private void maki$taskStopping(boolean cancelled,CallbackInfo ci){
         if(maki$owned())PlayerCenter.nativeTaskStopping((GenerationTask)(Object)this,cancelled);
-    }
-
-    /**
-     * Establishes a safe boundary without calling GenerationTask.stop().
-     * One iterator coordinate may already have been selected before the
-     * reservation; waiting here until inFlight reaches zero drains that work.
-     * The selected coordinate is retained and dispatch continues unchanged
-     * after the backfill slice releases the shared budget.
-     */
-    @Redirect(
-        method="run()V",
-        at=@At(value="INVOKE",target="Lcom/kishku7/chunksmith/iterator/ChunkIterator;next()Ljava/lang/Object;"),
-        require=1
-    )
-    private Object maki$sharedBackfillBarrier(ChunkIterator iterator) {
-        Object next=iterator.next();
-        if(!maki$owned())return next;
-        while(!stopped&&ResourceBudgetApi.blockFollowDispatch()) {
-            ResourceBudgetApi.noteFollowInFlight(inFlight.get());
-            LockSupport.parkNanos(1_000_000L);
-        }
-        return next;
     }
 
     @Unique
