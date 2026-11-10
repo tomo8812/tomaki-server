@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.4.1'
+version = '1.4.2'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -314,7 +314,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
          'chunksmithWorldStateGenerated', 'unifiedPairSkipHint'].each { token ->
             if (!cache.contains(token)) throw new GradleException('Issue #83 regression: unified cache/LOD state missing ' + token)
         }
-        if (!pair.contains('ordinal=0') || !pair.contains('ordinal=1') || !pair.contains('ordinal=2')
+        if (!pair.contains('ordinal=0') || !pair.contains('ordinal=1') || !pair.contains('lambda$run$1(')
                 || !pair.contains('RegionCache$WorldState;isGenerated(II)Z')
                 || !pair.contains('chunksmithWorldStateGenerated')
                 || !pair.contains('unifiedPregenOwns')
