@@ -85,7 +85,7 @@ public final class CompatibilityInputSelfTest {
         if (configured == null || configured.isBlank()) return;
         Path mods = Path.of(configured);
 
-        assertAudited(mods.resolve("maki-lod-cpu-1.4.1.jar"), "maki_lod_cpu");
+        assertAudited(mods.resolve("maki-lod-cpu-1.4.2.jar"), "maki_lod_cpu");
         assertAudited(mods.resolve("maki-diorama-share-1.0.1.jar"), "maki_diorama_share");
         assertAudited(mods.resolve("maki-mods-observer-1.0.0.jar"), "maki_mods_observer");
         Path jade = mods.resolve("Jade-1.21.1-NeoForge-15.10.6.jar");

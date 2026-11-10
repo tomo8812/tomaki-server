@@ -121,3 +121,7 @@ Version 1.3.0 checks live candidate/dependency eligibility before reserving Foll
 ## Generation/storage stages (1.4.0)
 
 Schema 2 includes generated entity roots/passengers and uses native chunk/entity write receipts for promotion retirement. Backfill releases generation exclusion after its safe snapshot, then awaits record-correlated LOD/cache publication separately. Snapshot memory, disk admission, resumable scans and per-coordinate retry debt are bounded. Interrupted `.in-use` entries are recovery artifacts, never automatic rollback candidates. See the [pipeline protocol and validation boundary](../../docs/issue-74-generation-pipeline.md).
+
+## Maintenance release (1.4.1)
+
+Updates the released version after PR #86 removed three unused BackfillController methods, one unused CacheManager field and an unused atomic-move helper, and retired the separate online-fix MOD. No new cache schema or generation behavior was introduced.

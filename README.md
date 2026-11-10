@@ -25,7 +25,7 @@ letsdo-herbalbrews-neoforge-1.1.4.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
 maki-diorama-share-1.0.1.jar
-maki-ship-anchor-fix-1.1.1.jar
+maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar
 maki-ship-footsteps-1.0.1.jar
 millenaire-9.0.3.jar
@@ -45,19 +45,19 @@ terrain_slabs-neoforge-3.1.2.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
 maki-assembly-tracking-1.0.0.jar
-maki-chunksmith-chunk-cache-1.4.0.jar
+maki-chunksmith-chunk-cache-1.4.1.jar
 maki-diorama-share-1.0.1.jar
 maki-idle-pregen-1.1.1.jar
-maki-lod-cpu-1.4.1.jar
+maki-lod-cpu-1.4.2.jar
 maki-millenaire-lod-compat-1.0.6.jar
 maki-mods-observer-1.0.0.jar
-maki-ship-anchor-fix-1.1.1.jar
+maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar
 maki-ship-footsteps-1.0.1.jar
 maki-ship-save-1.0.2.jar
 ```
 
-`maki-lod-cpu-online-fix` も廃止されました。旧 `maki-lod-cpu-online-fix-*.jar` は残さないでください。
+`maki-lod-cpu-online-fix` も廃止されました。旧 `maki-lod-cpu-online-fix-*.jar` は残さないでください。今回更新した `maki-lod-cpu-1.4.1.jar`、`maki-chunksmith-chunk-cache-1.4.0.jar` と `maki-ship-anchor-fix-1.1.1.jar` も、新しいJARと重複して配置しないでください。クライアント側も旧 `maki-ship-anchor-fix-1.1.1.jar` を削除してください。
 
 `maki-lag-observer` は `maki-mods-observer` に置き換えられ、`maki-status-io` は廃止されています。更新時は旧 `maki-lag-observer-*.jar`、`maki-status-io-*.jar`、`config/maki-lag-observer.properties` を残さないでください。詳細診断が必要な場合だけ `config/maki-mods-observer.properties` でObserverを有効化します。詳細診断は既定で無効で、設定を変更しない1セッションあたり既定30分、各stream 5000イベント、各file 16 MiBに制限されます。
 
