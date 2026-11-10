@@ -1,4 +1,4 @@
-# 設計再検討 V3: FULL＋LOD先行生成の最適化を、前提から検証する
+# 設計再検討 V4: A1.Flex向け軽量自律最適化とFULL＋LOD完了パイプライン
 
 > **PR #89 設計レビュー版。ソースコード、MOD jar、設定、キャッシュ形式は未変更。** 2026-11-10のレビュー36スレッドと現行実装を踏まえる。本書の方式や3段階構造を「実装済みの最適解」とはみなさず、複数方式を同じ目的・同じ条件で比較して選定する。
 >
@@ -48,7 +48,7 @@
 | F. パイプライン自体を改修 | O(P) ACK追跡、スナップショット負荷、writer、容量走査を改善 | 制御の工夫では越えられない物理的律速の解消 | CPU競合、正本保証の回帰、保守コスト |
 | G. 生成・保存方式の再設計 | FULL/LOD生成・キャッシュ構成・責務境界を再配置する | 根本の二重処理や転送待ちが大きい場合 | Issue #83との適合性、第三者MOD ABI、安全性に高リスク |
 
-**Eを最初から勝者にしない。** A～Dをベースラインとし、まず律速の実測で不要な機能を削る。Fは制御方式とは独立に優位性を測定できる。Gが本当に高速ならIssue #83の方式を再議論できるが、既存世界と将来のチャンク内容の正確性が最優先。Aが最速なら自作の並列最適化を削除することも正しい設計成果である。提案目的は「最も複雑な制御」を作ることではない。
+**A1.Flex向けの第一実装候補は、capと投入量を自律調整する軽量なE-lite（§11）。** 後段律速が観測されなければ投入ゲートをほぼ透過させ、C相当のcap-onlyまたはA相当のnative-onlyとして働く。A～Dを比較基準とし、律速計測に基づき不要な機能を削る。Fは制御方式と独立に評価し、GはIssue #83の正本保証を満たす場合のみ検討する。E-liteが常に最速とは前提しない。
 
 現時点の**最も価値が高い設計仮説**は、capだけではFULL snapshotとLOD/FULL writersの未完了仕事が見えないため、成功ACKに基づく軽量な投入ゲートD/Eが効果を出す可能性。ただし採用は実機比較後とする。最初の実装対象は**正確な計測と低コストな明白な無駄の削減**であり、3層制御の採用を前提にしない。
 
@@ -172,7 +172,7 @@ observe():
 
 **P1（個別の有利さを確認）**: LodCommitTracker O(P)、容量walk、FULL writer圧縮CPU、main-thread snapshotの律速を検証し、効果がある改善だけ切り出して採用する。コントローラの複雑化よりこの改善の方が速ければ優先する。
 
-**P2（方式選定）**: 少なくとも (A) native-only、(B) 現行1.4.2、(C) confirmed-pair cap-only、(D) cap固定＋admission gate、(E) cap学習＋admission gate を複製ワールドで同条件比較する。D/E内部も(AIMD, simple gate, PI等)は最初から勝者を決めず、律速が後段にある場合だけ比較する。試験ごとに同じseed・未生成状態・MOD構成・CPU quota・同心円範囲・キャッシュ/LOD/writer初期条件を揃え、試験順を交互化して複数回実施する。実験での生成結果の再利用によるバイアスを避ける。
+**P2（A1向け短時間自己調整）**: §11のE-liteを初期cap=2で有効化し、通常生成中の正本PAIR実測を利用して小幅に局所調整する。下流のwriterが詰まらない限りaゲートはほぼ透過させ、nativeの実効幅とPAIR goodputからcを調整する。固定A/B/A反復は通常運転の前提としない。厳密な優劣や構造変更F/Gの因果評価が必要な場合だけ、複製ワールドで同じseed・未生成状態・MOD/config・CPU quota・対象座標・保存初期条件を揃え、試験順を交互化して反復する。性能優位が不明なら既存の単純な方式を維持する。
 
 **P3（必要な場合のみ）**: 単一FULL writer、main-thread snapshot、LOD writer/nativeインターフェース自体が高い構造的上限なら、制御方式とは独立にボトルネックの処理構成を再設計し、P2と組み合わせず単独の差で評価する。第三者MODの直接改変は必要性を証明してからに限定。
 
@@ -192,45 +192,63 @@ PR #89の36件のレビューは、同一生成の根拠、重複排除とattemp
 
 このPRの範囲は改訂した設計仕様に限る。実装・最適性・性能向上を確認したと称さない。
 
+## 11. Oracle A1.Flex（2 OCPU・12GB）専用の軽量自律最適化
 
-## 11. Oracle A1.Flex（2 OCPU・12GB）向け軽量自律最適化モデル
+**第一実装候補は E-lite**。Oracle VM.Standard.A1.FlexのAmpere Altra / ARM64 / 2 OCPU / RAM 12GB / 最大2Gbpsをターゲットにする。初期条件を実機測定で絞り、Minecraft実運転では正本FULL＋LODの完成速度を見て自律最適化する。学習のための長時間のA/B/Aや全cap値総当たりに生成時間を費やさず、普段は生成そのものを進める。CPU2コアは初期値を決めるために使い、並列数を2や4に永久固定しない。
 
-**設計上の確定方針**: Oracle VM.Standard.A1.Flex（Ampere Altra ARM64、2 OCPU、12GB RAM、最大2Gbps）に合わせて初期条件・測定コスト・探索予算を設計する。だが、設定を一度固定する方式やcapを1～4に永久制限する方式は採らない。初期性能と運用中のFULL＋LOD完成結果から自律的に調整し、同じVMでNEW中心からREPAIR中心になったときやI/O負荷が変わったときにも再収束する。§3のA～Gの比較視点、§4の同一生成PAIR確定、§5の公平なgoodput、安全・所有権条件を維持し、**常時動かす制御器の計算量と探索損失を小さくする**。
+### 11.1 Minecraft未起動の事前計測
 
-### 11.1 Minecraftを起動しない実機preflight
+Python3の scripts/a1-pregen-preflight.py をSSHで実行。worldとキャッシュと同じファイルシステム上の既存ディレクトリを --dir へ指定する。
 
-Python3標準ライブラリだけで動く scripts/a1-pregen-preflight.py をSSHで実行する。--dirにはワールド／キャッシュがあるのと同じファイルシステムの既存ディレクトリを指定し、CPU affinity/cgroup、実際の空きメモリ、CPU/メモリ/I/O PSI、合成zlib圧縮1/2 worker比較、64MiB同期書込と小書込fsync遅延、ディスク空きを取得する。
+    python3 scripts/a1-pregen-preflight.py --dir /path/to/server --output /tmp/a1-pregen-profile.json
 
-    python3 scripts/a1-pregen-preflight.py --dir /path/to/server --output a1-pregen-profile.json
+一時領域への約64MiBの同期書込、短い合成圧縮比較、CPU affinity・cgroup、空きメモリ、CPU/メモリ/I/O PSI、空き容量を測る。既存ワールドを読み書きしない。事前測定は一度だけ実施し、通常起動ごとの重いベンチは強制しない。CPU quotaや実際のファイルシステムが想定と違えば検出値を優先する。
 
-既存ワールドやキャッシュは変更せず、一時ファイルを削除する。ディスク上限や空き容量が危険ならテストを行わない。合成zlibや短期fsyncはJavaのworldgen・NBT圧縮・クラウドディスク長期速度と一致しないため、**preflightを実際のチャンク/秒へ直接変換しない**。ハードウェア測定を使うのは起動時の安全余裕、write待ち予算の事前分布、観測周期・探索幅の初期化までとする。
+合成zlibと短期fsyncはMinecraftのJava NBT・worldgen・LOD writerやクラウドストレージの長期処理能力そのものではない。**preflightからチャンク/秒・最適cap・保存ACK期限の余裕を直接計算しない。** 実際のwriter能力と完成ペア速度はMinecraftの通常運転中に少量のイベントから学習する。
 
-### 11.2 最小のオンライン状態・入力
+### 11.2 二つの制御入力と既存安全機構
 
-制御入力を **c（次のnative生成同時要求の上限）** と **a（次の座標を投入してよい速度／credit）** に限定する。c=2でwarm startするが、cの可変範囲は実測の改善と安全制約から自律的に拡張・縮小する。固定の4上限は設けない。既存max-concurrentの大きな設定値は緊急のhard guardとして利用しても、そこまで全値を走査しない。CPU2コアという事実を初期値と探索予算に使い、同時要求数=CPU数とは決めつけない。
+- **c：生成並列数**。初期2、1ずつ局所探索。改善が続けば4より上も探索する。上限は既存のhard safety guardを維持し、値を総当たりしない。
+- **a：新規投入ペース／stage credit**。下流保存が空いているときは原則透過し、writerの未完了量・ACK到着速度・残りdeadlineから必要時だけ制限する。設定上のaと実際のdispatch/sは別記録とする。
 
-状態は小さいEWMA・分位点スケッチ・ヒステリシスカウンタと、有限個のin-flight attempt台帳だけ。全座標Map・追加のIO全走査・メインスレッドのブロッキング・複雑なオンラインMPC/多腕banditの常駐は不要。
+実効並列数は、指令c・Chunksmith native dispatchLimit・既存hard guardの最小値になる。現在のMixinはnative側のcapを上へ強制できない。nativeに制限されているときは「cを増やしたら遅くなった」と誤学習せず、上方向探索を凍結する。
 
-2～5秒程度の軽量観測を起点として、PAIR_CONFIRMED_RUNTIME/s、NEW/REPAIR構成、writer成功ACK率、LOD/FULL writer backlogの件数・bytes・最古年齢、30秒deadlineまでの余裕、native実効幅、MSPT、CPU quota、GC、heap/headroom、PSI、失敗・再試行を取る。実際のPAIR確定は§4の正本で判定し、LOD書込件数だけを成果扱いしない。稼働前preflightではこのオンライン情報を代替できない。
+作業クラスはNEW（FULL生成＋LOD＋FULL保存）、既存通常FULLのLOD修復、既存キャッシュFULLのLOD修復、UNKNOWNを区別する。UNKNOWNには保守的な予測creditを割り当て、分類後に調整。creditは制御器の軽量見積もりでありCacheDiskBudget/CaptureBudgetのhard leaseを代替しない。失敗・timeout・handoff・PAIR完成で各段階のcreditを**一度だけ**解放する。正本の所有権・同一生成の証明は引き続きcache側の責務とする。
 
-### 11.3 軽量な閉ループ制御則（第一実装候補）
+### 11.3 通常運転中の軽量閉ループ
 
-**安全判定**: player復帰・所有権喪失・容量hard guard・OOM兆候・MSPT急悪化・保存異常は即時に新規投入を絞り、既存の安全なdrain/停止へ移行する。CPU使用率が高いことだけでは減速しない。native Chunksmithのbackoffは尊重し、指令cとnative実効幅を分けて記録する。
+**WARMUP**：c=2から開始。aは基本透過で、nativeの安全制御と既存保存上限を利用する。writerのACK率が未知の時点で0件/sとみなして停止しない。正本PAIRイベントがまだ足りなければ固定的に安全運転し、自然に集まる計測を待つ。
 
-**速いa制御**: 後段のwriterが律速でbacklogが増加し続けるときだけ、ACK率と進行中仕事の将来流入量から、処理待ち秒数 debtSeconds を概算する。各LOD/FULLの残り30秒期限、byte上限、必要な保存段階のworkClassを反映する。混雑持続ならaを乗法的に小さくし、writerに余力があるときは加法的に回復させる軽量AIMD＋ヒステリシスを第一候補にする。μ=0を無限の待ち時間として永久停止することを避け、idle/観測不足/故障を区別する。投入待機はowning Followタスクの次のnative dispatch前のworker-sideに限定する。
+**FAST：下流の混雑調整**（数秒ごとの低コスト集計）。LOD/FULL writerについて、現在のqueueと進行中チャンクから将来流入する需要を、NEW/REPAIR別に件数と予測bytesで計上する。writerの成功ACK/sのEWMAと不確実性から保守的なサービス率を推定し、未処理仕事の概算処理秒数（debtSeconds）を出す。LOD offerとcache captureでは30秒期限の起点が異なるため、各attemptの実際の残期限と予測待ち・サービス時間を照合する。観測不足・idle・停止を区別し、writerに仕事がないのに恒久的に投入を絞らない。
 
-**遅いc最適化**: writerに空きがあり、aの制限がほぼ発動せず、nativeの実効dispatchLimitが指令cへ届いている時にだけ、現在の最良c近傍を試す。2→3→4のように小幅で開始し、明瞭な完成ペアgoodput改善と安全余裕が続くなら**4より上へも自動拡張**する。改善が止まる、writer backlog・CPU秒/完成ペアが悪化する、native自身がbackoffするときは前の良い値へ戻してその方向の探索を抑える。同等のgoodputなら小さいcを選ぶ。常時の長時間A/B/A、全cap総当たり、固定間隔の強制switchbackは行わない。
+持続的なqueue増加・期限超過リスクではaを乗法減少させ、余力が戻ったら加法増加させる **AIMD＋ヒステリシス**を第一候補にする。tokenの蓄積やバーストを有界にして、1tickあたりsnapshot負荷・GCを急増させない。単純なON/OFFヒステリシスで同等ならAIMDを省く。状態と設定は少数のEWMA・有界分位点集計・有限attempt台帳に限定する。
 
-**観測の信頼性と探索損失**: 短い自然な連続運転窓で比較し、前cap由来の未完了tailや地形/workClass変化が大きい区間は採否しない。短い窓で成功数が少ない場合は現値を保持し、サンプル数が集まるまで判断を延期する。小さな試行でも性能を落とすため、探索時間と推定損失に予算を設け、改善がなければ探索間隔を延長する。因果効果の断定が必要な変更だけ複製ワールドで確認する。
+**SLOW：生成並列数の近傍学習**。writerに余裕がありaゲートがほぼ非制限、native実効幅がcへ届き、作業構成・地形帯・安全状態が安定している区間だけcを1段試す。比較は新しく確定した同一生成FULL＋LODペア/総経過時間で行い、旧cap由来のcarryover、未完了tail、探索時間、失敗・再試行を加味する。短い窓で成功件数が不足なら判断を保留し、無理な待機やドレインを行わない。改善が確かなら上へ探索を続け、改善が止まる・native抑制・writer混雑なら元へ戻す。同等goodputならCPU秒/PAIRとbacklogの少ないcを選ぶ。成果がない探索は間隔を延長する。
 
-**自動再学習**: NEW→REPAIR構成、writer ACK能力、native幅、PSI・MSPT、quota・heapの持続変化を検知して、周辺探索を再開する。正常な定常運転では値を安定維持する。短いperformance profileにCPU quota・構成hash・workClass・観測鮮度・成功したcとaを保持し、再起動時は条件が近い場合だけwarm startする。性能profileの失効で保存キャッシュを無効にしない。
+**STABLE：低負荷で長時間運転**。有効なcとaを維持し、常時A/B/Aを回さない。NEW→REPAIRへの移行、writer ACKサービス率、quota、MSPT/GC/PSI、native backoffの持続的な変化を検知した場合だけ小さく再探索。性能profileはCPU quota/affinity、heap、config hash、workClass帯、観測鮮度を照合してwarm startし、古いprofileの失効で生成キャッシュを失効させない。
 
-### 11.4 A1固有の初期値と採用順序
+**SAFETY／PAUSE**。プレイヤー入室、所有権／fingerprint不明、ディスクhard limit、OOM、MSPT急悪化、writer失敗、native抑制、測定欠損には安全な新規投入停止・cap制限・既存drainに従う。通常FULLロード、Entity/POI、Millénaire、VS2、プレイ中のLOD更新を妨害しない。CPU使用率95%だけでは減速しない。センサーが不確かなら積極探索を凍結し安全な以前の方式へ戻す。
 
-- 2 OCPUをdetectし、初期cap=2。例示の1/2/3/4は**探索の起点**であり固定範囲ではない。
-- 12GB RAMの下でJVM最大heap 8GiB程度、OS・ページキャッシュ・ネイティブ領域の確保、最低system headroom約1.5GiBを**計測前の仮説**として置く。実際のJVM設定・MOD使用量・preflight結果で安全側へ更新する。
-- まずpreflightで安全な初期条件を作り、起動後の短い自然観測からPAIR成果と律速を学ぶ。最初から詳細な全工程実験を回さない。
-- P0の正本PAIR計測と既存コードの明白なO(P)走査・容量走査などの律速解消を優先。writer律速ならa制御を付け、生成側律速ならc最適化を中心に回す。最小構成で十分なら複雑な追加制御は導入しない。
-- 保存安全性・プレイヤー復帰・通常FULL・Entity/POI・Millénaire・VS2の優先事項は§1の通り。
+### 11.4 軽量実装の作用点と責務
 
-**現状の実装状況**: preflightスクリプトと設計文書を追加した段階であり、専用のオンライン自律制御器とPAIRメトリクスは未実装。実機preflight未取得のため、最適cap、goodput、書込待ち予算を確定したとは主張しない。
+計測はcache正本からの同一source tokenに結び付くLOD writer ACK／FULL publish receipt／PAIR_CONFIRMED_RUNTIMEを使う。attemptIdとcompletionIdentityを分け、再試行や再起動で同じ完成座標を再計上しない。全座標Map・追加のディスク全走査・高頻度INFOは導入しない。台帳が溢れても保存成功を失敗扱いにせず、計測unknownとして学習だけ停止する。
+
+aの投入ゲートは、同心円iteratorから選んだ座標を保持したままnative要求開始前のFollow-owner workerでだけ使う。server thread、native writer、外部Chunksmithのタスクを待たせない。既存SharedWorkBudgetの予約、player stop、キャンセルを最優先し、gate待機をnative slow-chunk時間に混入させない。実装前に現行Chunksmith版のMixin ABIと選択〜dispatch境界を検証する。maki-lod-cpuは観測・制御を担当し、maki-chunksmith-chunk-cacheは保存・同一生成の完成判定を担当する。
+
+### 11.5 A1用初期値と検証の進め方
+
+| 項目 | 初期仮説 | 実行時の扱い |
+| --- | --- | --- |
+| CPU | 2 OCPU | quota/affinityを検出。CPU高稼働単独で減速しない |
+| RAM | 12GB、JVM最大heap約8GiBを候補 | OS・ページキャッシュ・ネイティブメモリ・GCの余裕を確認 |
+| システム余力 | 最低約1.5GiBを初期目安 | 実機のメモリ圧力とOOMを優先 |
+| c | 開始2、近傍±1 | 伸びるなら4以上も探索、hard guard維持 |
+| a | WARMUPではほぼ透過 | writer ACK／debt／期限とbytes予算で調整 |
+| 観測 | 数秒単位の軽量集計 | INFOは約60秒、座標ごとのINFO連発を避ける |
+| 探索 | 自然な生成中の少数比較 | 成果不足なら保留。失敗続きなら頻度を減らす |
+
+**導入順**：①preflightで環境条件を把握、②正本PAIRイベントと段階別律速の最小計測、③安全cap＋自然観測、④writer律速時だけaを調整、⑤cの低頻度局所学習、⑥必要ならLOD ACK O(P)走査・容量走査・圧縮writer等の構造的律速を個別改善。各段階で性能改善がない複雑な仕組みは残さない。
+
+テストはnative幅がcに届かない状態、LOD/FULL writerの30秒deadline、queue過負荷・writer停止、NEW/REPAIR構成変化、player復帰と選択済み座標のキャンセル、同一生成世代・restart・通常FULL競合、ディスク15GiB/空き2GiB、Entity/POI・Millénaire・VS2を含む。正本保護に回帰0が必須。対照にはnative-only／現行A/B/A／cap-onlyを用い、厳密な因果比較が必要な時だけ複製ワールドで反復する。**SSH事前計測と通常運転の小さな学習で成立させる方針であり、VMで多数の独立長時間実験を強制しない。**
+
+**PR #89の実装状況**：本章とpreflightスクリプトは設計・事前計測の準備であり、PAIRイベントやE-lite制御器のコード実装・A1 VMでの性能測定を完了した意味ではない。
