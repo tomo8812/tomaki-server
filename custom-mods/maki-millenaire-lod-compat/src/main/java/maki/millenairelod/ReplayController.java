@@ -232,7 +232,12 @@ public final class ReplayController {
             return;
         }
         long key = packChunk(bx >> 4, bz >> 4);
-        da.remember(data, key, queued);
+        // DEFERRED means the candidate was consumed by Millenaire's poll.
+        // A main-queue candidate is not re-enqueued by processMainQueue, so
+        // retaining its stale queued flag would suppress replay forever.
+        // The lone-building path reclaims its queued flag via addLast below.
+        da.release(data, key);
+        da.remember(data, key, false);
 
         // Millenaire's lone-building queue already carries its own retryAfterTick=+200 logic.
         // Only main-queue DEFERRED candidates need an additional controller here.
