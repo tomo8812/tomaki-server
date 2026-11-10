@@ -28,11 +28,13 @@ public final class PromotionLedger {
         Key key=new Key(level,pos.toLong());
         PromotionClaim claim=ACTIVE.get(key);
         if(claim!=null) {
+            if(PregenBorrowLedger.needsPoiWrite(level,pos)) claim.requirePoiWrite();
             holdUntilCaptureEnds(key,claim,pendingCapture);
             return true;
         }
         claim=PromotionClaim.adoptLive(file,pendingCapture!=null);
         if(claim!=null) {
+            if(PregenBorrowLedger.needsPoiWrite(level,pos)) claim.requirePoiWrite();
             ACTIVE.put(key,claim);
             classify(key,claim);
             holdUntilCaptureEnds(key,claim,pendingCapture);
@@ -101,6 +103,19 @@ public final class PromotionLedger {
         written.whenComplete((ignored, error) -> {
             claim.entityWrite(error == null);
             retire(key, claim);
+        });
+    }
+
+    /** Observe the actual normal POI region write, not just dirty restoration. */
+    static void observePoiWrite(ServerLevel level, ChunkPos pos, CompletableFuture<Void> written) {
+        Key key = new Key(level,pos.toLong());
+        PromotionClaim claim = ACTIVE.get(key);
+        // A pre-handoff POI write must never acknowledge sections suppressed
+        // during pregen. The invoke-site hook runs after the veto has released.
+        if(claim==null || !claim.requiresPoiWrite()) return;
+        written.whenComplete((ignored,error) -> {
+            claim.poiWrite(error==null);
+            retire(key,claim);
         });
     }
 
