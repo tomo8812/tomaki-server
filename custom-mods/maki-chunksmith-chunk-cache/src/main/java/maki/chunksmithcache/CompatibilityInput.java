@@ -76,6 +76,15 @@ final class CompatibilityInput {
             }
             List<FingerprintManifest.Entry> audited = AuditedModCompatibility.entries(file, rawSize, rawSha256);
             if (audited != null) return audited;
+            // A previously unknown QoL MOD may be declared neutral only after
+            // an explicit, per-binary SHA-256 audit. The audit policy itself
+            // does not become a generation fingerprint input.
+            if (policy.allowsAuditedNeutral(key, file, rawSha256)) {
+                return List.of(new FingerprintManifest.Entry(
+                    key, rawSize, rawSha256, FingerprintManifest.Impact.IGNORED,
+                    "explicitly audited generation-neutral MOD ID and exact JAR SHA-256"
+                ));
+            }
         }
 
         FingerprintManifest.Impact impact = policy.classify(key, file);
