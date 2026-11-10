@@ -76,8 +76,9 @@ public final class FingerprintPolicySelfTest {
             require(newlyAudited.getFirst().impact()==FingerprintManifest.Impact.IGNORED
                 && updatedAuditPolicy.compatibilitySignature().equals(auditedPolicy.compatibilitySignature()),
                 "newly audited neutral update must remain generation-compatible");
-            require(base.equals(CompatibilityFingerprint.compute(
-                new ArrayList<FingerprintManifest.Entry>() {{ addAll(baseline); addAll(newlyAudited); }})),
+            List<FingerprintManifest.Entry> withUpdatedAuditedMod=new ArrayList<>(baseline);
+            withUpdatedAuditedMod.addAll(newlyAudited);
+            require(base.equals(CompatibilityFingerprint.compute(withUpdatedAuditedMod)),
                 "audited update must not rotate the known-good FULL cache");
             require(base.equals(CompatibilityFingerprint.compute(replace(baseline, "mods/diagnostic-probe.jar", "diag-b"))), "observation-only JAR change must not invalidate");
             require(base.equals(CompatibilityFingerprint.compute(replace(baseline, "config/diagnostic-probe.properties", "cfg-b"))), "explicit non-worldgen config change must not invalidate");
