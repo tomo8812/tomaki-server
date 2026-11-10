@@ -17,7 +17,6 @@ expected_projects = {
     "maki-diorama-share",
     "maki-idle-pregen",
     "maki-lod-cpu",
-    "maki-lod-cpu-online-fix",
     "maki-millenaire-lod-compat",
     "maki-mods-observer",
     "maki-ship-anchor-fix",
