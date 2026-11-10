@@ -113,7 +113,7 @@ final class AuditedModCompatibility {
 
       String modId = ids.iterator().next();
       List<AuditedModCompatibility.Attestation> candidates = ATTESTATIONS.stream().filter(value -> value.modId().equals(modId)).toList();
-      if (!candidates.isEmpty() && !declaresZfastnoiseOverride(jarPath)) {
+      if (!candidates.isEmpty() && !declaresGenerationOverride(jarPath)) {
          AuditedModCompatibility.Attestation match = candidates.stream().filter(value -> value.rawSha256().equals(rawSha256)).findFirst().orElse(null);
          if (match == null) {
             String canonical;
@@ -201,7 +201,7 @@ final class AuditedModCompatibility {
       );
    }
 
-   private static boolean declaresZfastnoiseOverride(Path jarPath) {
+   static boolean declaresGenerationOverride(Path jarPath) {
       try (JarFile jar = new JarFile(jarPath.toFile())) {
          JarEntry metadata = jar.getJarEntry("META-INF/neoforge.mods.toml");
          if (metadata == null) {

@@ -15,6 +15,8 @@ final class PromotionClaim {
    private boolean entitiesRestored;
    private boolean chunkWritten;
    private boolean entitiesWritten;
+   private boolean needsPoiWrite;
+   private boolean poiWritten;
    private boolean failed;
    private int pendingPublications;
    private boolean retirementQueued;
@@ -111,6 +113,22 @@ final class PromotionClaim {
       }
    }
 
+   synchronized void requirePoiWrite() {
+      this.needsPoiWrite = true;
+   }
+
+   synchronized boolean requiresPoiWrite() {
+      return this.needsPoiWrite && !this.poiWritten && !this.failed;
+   }
+
+   synchronized void poiWrite(boolean success) {
+      if (success) {
+         this.poiWritten = true;
+      } else {
+         this.failed = true;
+      }
+   }
+
    synchronized void failed() {
       this.failed = true;
    }
@@ -155,7 +173,12 @@ final class PromotionClaim {
    }
 
    synchronized boolean canRetire() {
-      return this.loaded && !this.failed && this.chunkWritten && this.pendingPublications == 0 && (!this.needsEntityWrite || this.entitiesWritten);
+      return this.loaded
+         && !this.failed
+         && this.chunkWritten
+         && this.pendingPublications == 0
+         && (!this.needsEntityWrite || this.entitiesWritten)
+         && (!this.needsPoiWrite || this.poiWritten);
    }
 
    synchronized boolean beginRetirement() {

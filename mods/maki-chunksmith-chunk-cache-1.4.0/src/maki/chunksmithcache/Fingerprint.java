@@ -69,7 +69,6 @@ final class Fingerprint {
             }
 
             List<FingerprintManifest.Entry> entries = new ArrayList<>(shared.entries());
-            addValue(entries, "cache:envelope-schema", Integer.toString(3), "cache persistence protocol");
             addValue(entries, "level:seed", Long.toString(level.getSeed()), "world seed");
             addValue(entries, "level:dimension", level.dimension().location().toString(), "dimension identity");
             addValue(entries, "level:generator-class", level.getChunkSource().getGenerator().getClass().getName(), "chunk generator implementation");

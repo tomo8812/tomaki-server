@@ -14,6 +14,7 @@ public final class MakiLodCpu {
 
    public MakiLodCpu() {
       LOG.info("Maki LOD CPU initialized; follow ownership, CPU governor and task migration commands are enabled.");
+      NeoForge.EVENT_BUS.addListener(e -> UnifiedPregenReset.prepareBeforeLod(e.getServer()));
       NeoForge.EVENT_BUS.addListener(this::tick);
       NeoForge.EVENT_BUS.addListener(e -> {
          if (e.getEntity() instanceof ServerPlayer p) {
@@ -27,7 +28,8 @@ public final class MakiLodCpu {
       });
       NeoForge.EVENT_BUS.addListener(e -> {
          PlayerCenter.shutdown(e.getServer());
-         LOG.info("Maki LOD CPU stopped; authoritative Chunksmith task progress and migration backups remain in their durable stores.");
+         UnifiedPregenReset.stopped(e.getServer());
+         LOG.info("Maki LOD CPU stopped; authoritative normal-world data remains untouched and unified pregen state stays resumable.");
       });
       NeoForge.EVENT_BUS.addListener(e -> PlayerCenter.register(e.getDispatcher()));
    }

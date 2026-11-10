@@ -208,12 +208,13 @@ final class FingerprintManifest {
    static boolean sameCompatibilityInputsExcept(
       FingerprintManifest.Manifest oldManifest, FingerprintManifest.Manifest newManifest, Set<String> excludedKeys, Path historicalGeneration
    ) {
+      Set<String> provenExcluded = provenCompatibilityExclusions(oldManifest, newManifest, excludedKeys);
       FingerprintManifest.Entry currentRawZfastnoise = findEntry(newManifest.entries(), "audit:raw:config/zfastnoise.mixin.properties");
       FingerprintManifest.Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), "config/zfastnoise.mixin.properties");
       Map<String, FingerprintManifest.Entry> oldEntries = compatibilityByKey(
-         oldManifest.entries(), excludedKeys, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
+         oldManifest.entries(), provenExcluded, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
       );
-      Map<String, FingerprintManifest.Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
+      Map<String, FingerprintManifest.Entry> newEntries = compatibilityByKey(newManifest.entries(), provenExcluded, null, null, null);
       if (oldEntries != null && newEntries != null && oldEntries.keySet().equals(newEntries.keySet())) {
          for (String key : oldEntries.keySet()) {
             if (!equivalent(oldEntries.get(key), newEntries.get(key))) {
@@ -230,12 +231,13 @@ final class FingerprintManifest {
    static List<String> changedCompatibilityInputs(
       FingerprintManifest.Manifest oldManifest, FingerprintManifest.Manifest newManifest, Set<String> excludedKeys, int limit, Path historicalGeneration
    ) {
+      Set<String> provenExcluded = provenCompatibilityExclusions(oldManifest, newManifest, excludedKeys);
       FingerprintManifest.Entry currentRawZfastnoise = findEntry(newManifest.entries(), "audit:raw:config/zfastnoise.mixin.properties");
       FingerprintManifest.Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), "config/zfastnoise.mixin.properties");
       Map<String, FingerprintManifest.Entry> oldEntries = compatibilityByKey(
-         oldManifest.entries(), excludedKeys, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
+         oldManifest.entries(), provenExcluded, currentRawZfastnoise, currentEffectiveZfastnoise, historicalGeneration
       );
-      Map<String, FingerprintManifest.Entry> newEntries = compatibilityByKey(newManifest.entries(), excludedKeys, null, null, null);
+      Map<String, FingerprintManifest.Entry> newEntries = compatibilityByKey(newManifest.entries(), provenExcluded, null, null, null);
       if (oldEntries != null && newEntries != null) {
          Set<String> keys = new LinkedHashSet<>();
          keys.addAll(oldEntries.keySet());
@@ -279,19 +281,27 @@ final class FingerprintManifest {
          return List.of();
       }
 
+      Map<String, FingerprintManifest.Entry> newByKey = byKey(newManifest.entries());
       List<String> proofs = new ArrayList<>();
 
       for (FingerprintManifest.Entry original : oldManifest.entries()) {
          if (!excludedKeys.contains(original.key())) {
-            FingerprintManifest.Entry normalized = CompatibilityInput.normalizeHistoricalEntry(original, historicalGeneration);
-            if (normalized != original && normalized != null && normalized.impact() == FingerprintManifest.Impact.RELEVANT) {
-               FingerprintManifest.Entry currentEntry = current.get(normalized.key());
-               if (equivalent(normalized, currentEntry)) {
-                  String note = CompatibilityInput.historicalNormalizationNote(original, historicalGeneration);
-                  if (note != null) {
-                     proofs.add(note);
-                     if (proofs.size() >= limit) {
-                        break;
+            if (CompatibilityInput.verifiedNeutralAuditTransition(original, newByKey.get(original.key()))) {
+               proofs.add(original.key() + "(same JAR bytes, now explicitly audited generation-neutral)");
+               if (proofs.size() >= limit) {
+                  break;
+               }
+            } else {
+               FingerprintManifest.Entry normalized = CompatibilityInput.normalizeHistoricalEntry(original, historicalGeneration);
+               if (normalized != original && normalized != null && normalized.impact() == FingerprintManifest.Impact.RELEVANT) {
+                  FingerprintManifest.Entry currentEntry = current.get(normalized.key());
+                  if (equivalent(normalized, currentEntry)) {
+                     String note = CompatibilityInput.historicalNormalizationNote(original, historicalGeneration);
+                     if (note != null) {
+                        proofs.add(note);
+                        if (proofs.size() >= limit) {
+                           break;
+                        }
                      }
                   }
                }
@@ -300,6 +310,21 @@ final class FingerprintManifest {
       }
 
       return List.copyOf(proofs);
+   }
+
+   private static Set<String> provenCompatibilityExclusions(
+      FingerprintManifest.Manifest historical, FingerprintManifest.Manifest current, Set<String> excludedKeys
+   ) {
+      Set<String> excluded = new LinkedHashSet<>(excludedKeys);
+      Map<String, FingerprintManifest.Entry> currentEntries = byKey(current.entries());
+
+      for (FingerprintManifest.Entry old : historical.entries()) {
+         if (CompatibilityInput.verifiedNeutralAuditTransition(old, currentEntries.get(old.key()))) {
+            excluded.add(old.key());
+         }
+      }
+
+      return excluded;
    }
 
    private static FingerprintManifest.Entry findEntry(List<FingerprintManifest.Entry> entries, String key) {

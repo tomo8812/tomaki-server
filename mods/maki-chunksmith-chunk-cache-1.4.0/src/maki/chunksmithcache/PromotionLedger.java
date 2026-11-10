@@ -30,17 +30,29 @@ public final class PromotionLedger {
       return true;
    }
 
-   static void adoptLive(ServerLevel level, ChunkPos pos, Path file, CompletableFuture<Boolean> pendingCapture) throws IOException {
+   static boolean adoptLive(ServerLevel level, ChunkPos pos, Path file, CompletableFuture<Boolean> pendingCapture) throws IOException {
       PromotionLedger.Key key = new PromotionLedger.Key(level, pos.toLong());
       PromotionClaim claim = ACTIVE.get(key);
       if (claim != null) {
+         if (PregenBorrowLedger.needsPoiWrite(level, pos)) {
+            claim.requirePoiWrite();
+         }
+
          holdUntilCaptureEnds(key, claim, pendingCapture);
+         return true;
       } else {
          claim = PromotionClaim.adoptLive(file, pendingCapture != null);
          if (claim != null) {
+            if (PregenBorrowLedger.needsPoiWrite(level, pos)) {
+               claim.requirePoiWrite();
+            }
+
             ACTIVE.put(key, claim);
             classify(key, claim);
             holdUntilCaptureEnds(key, claim, pendingCapture);
+            return true;
+         } else {
+            return false;
          }
       }
    }
@@ -66,6 +78,11 @@ public final class PromotionLedger {
 
    static void normalFullPresent(ServerLevel level, ChunkPos pos) {
       BLOCKED.remove(new PromotionLedger.Key(level, pos.toLong()));
+   }
+
+   static boolean owns(ServerLevel level, ChunkPos pos) {
+      PromotionLedger.Key key = new PromotionLedger.Key(level, pos.toLong());
+      return ACTIVE.containsKey(key) || BLOCKED.containsKey(key);
    }
 
    public static void requireUnambiguousLoad(ServerLevel level, ChunkPos pos) {
@@ -118,6 +135,19 @@ public final class PromotionLedger {
          written.whenComplete((ignored, error) -> {
             claim.entityWrite(error == null);
             retire(key, claim);
+         });
+      }
+   }
+
+   public static void observePoiWrite(Object poiManager, ChunkPos pos, CompletableFuture<Void> written) {
+      if (poiManager != null && pos != null && written != null) {
+         ACTIVE.forEach((key, claim) -> {
+            if (key.pos() == pos.toLong() && key.level().getPoiManager() == poiManager && claim.requiresPoiWrite()) {
+               written.whenComplete((ignored, error) -> {
+                  claim.poiWrite(error == null);
+                  retire(key, claim);
+               });
+            }
          });
       }
    }

@@ -16,17 +16,54 @@ import java.util.jar.JarFile;
 
 final class FingerprintPolicy {
    static final String CONFIG_RELATIVE = "config/maki-chunksmith-chunk-cache.properties";
+   static final String UNKNOWN_MOD_REASON = "unknown code-driven generation impact; fail-closed until audited";
    private static final String OWN_MOD_ID = "maki_chunksmith_chunk_cache";
-   private static final String DEFAULT_IGNORED_PATHS = "config/maki-mods-observer.properties";
+   private static final Set<String> BUILTIN_GENERATION_NEUTRAL_MOD_IDS = Set.of(
+      "maki_chunksmith_chunk_cache", "maki_lod_cpu", "maki_lod_cpu_online_fix", "maki_mods_observer", "maki_diorama_share"
+   );
+   private static final String DEFAULT_IGNORED_PATHS = "config/maki-mods-observer.properties,config/maki-lod-cpu.properties,config/maki-diorama-share-client.toml,config/chunksmith/config.json,config/millenaire-common.toml";
    private static final long DEFAULT_MAX_BYTES = 53687091200L;
+   private static final Set<String> BUILTIN_GENERATION_SENSITIVE_MOD_IDS = Set.of(
+      "chunksmith", "zfastnoise", "epicterrain", "millenaire", "worldgenfeaturefix", "maki_millenaire_lod", "terrain_slabs", "disabler"
+   );
+   private static final List<String> BUILTIN_GENERATION_SENSITIVE_JAR_PREFIXES = List.of(
+      "chunksmith-", "zfastnoise-", "epicterrain-", "millenaire-", "worldgenfeaturefix-", "maki-millenaire-lod-compat-", "terrain_slabs-", "disabler-"
+   );
+   private static final List<String> BUILTIN_GENERATION_SENSITIVE_PATHS = List.of(
+      "config/zfastnoise.mixin.properties",
+      "config/disabler-server.json",
+      "serverconfig/millenaire-*.toml",
+      "world/serverconfig/millenaire-*.toml",
+      "config/epicterrain*",
+      "serverconfig/epicterrain*",
+      "world/serverconfig/epicterrain*",
+      "config/terrain_slabs*",
+      "serverconfig/terrain_slabs*",
+      "world/serverconfig/terrain_slabs*"
+   );
+   private final Set<String> generationSensitiveModIds;
+   private final List<String> generationSensitivePaths;
    private final List<String> ignoredPaths;
+   private final Set<String> auditedNeutralArtifacts;
    private final int retentionDays;
    private final int maxGenerations;
    private final long maxBytes;
    private final int minProtectionHours;
 
-   private FingerprintPolicy(List<String> ignoredPaths, int retentionDays, int maxGenerations, long maxBytes, int minProtectionHours) {
+   private FingerprintPolicy(
+      Set<String> generationSensitiveModIds,
+      List<String> generationSensitivePaths,
+      List<String> ignoredPaths,
+      Set<String> auditedNeutralArtifacts,
+      int retentionDays,
+      int maxGenerations,
+      long maxBytes,
+      int minProtectionHours
+   ) {
+      this.generationSensitiveModIds = Set.copyOf(generationSensitiveModIds);
+      this.generationSensitivePaths = List.copyOf(generationSensitivePaths);
       this.ignoredPaths = List.copyOf(ignoredPaths);
+      this.auditedNeutralArtifacts = Set.copyOf(auditedNeutralArtifacts);
       this.retentionDays = retentionDays;
       this.maxGenerations = maxGenerations;
       this.maxBytes = maxBytes;
@@ -43,9 +80,18 @@ final class FingerprintPolicy {
          }
       }
 
-      List<String> paths = new ArrayList<>(csv(properties.getProperty("fingerprint.ignore-paths", "config/maki-mods-observer.properties")));
       return new FingerprintPolicy(
-         paths,
+         lowerCsv(properties.getProperty("fingerprint.generation-sensitive-mod-ids", "")),
+         new ArrayList<>(csv(properties.getProperty("fingerprint.generation-sensitive-paths", ""))),
+         new ArrayList<>(
+            csv(
+               properties.getProperty(
+                  "fingerprint.ignore-paths",
+                  "config/maki-mods-observer.properties,config/maki-lod-cpu.properties,config/maki-diorama-share-client.toml,config/chunksmith/config.json,config/millenaire-common.toml"
+               )
+            )
+         ),
+         auditedNeutralPairs(properties.getProperty("fingerprint.audited-neutral-mod-sha256", "")),
          boundedInt(properties, "quarantine.retention-days", 30, 1, 3650),
          boundedInt(properties, "quarantine.max-generations", 8, 1, 1024),
          boundedLong(properties, "quarantine.max-bytes", 53687091200L, 1048576L, Long.MAX_VALUE),
@@ -54,11 +100,21 @@ final class FingerprintPolicy {
    }
 
    static FingerprintPolicy forTesting(List<String> ignoredPaths) {
-      return new FingerprintPolicy(ignoredPaths, 30, 8, 53687091200L, 24);
+      return new FingerprintPolicy(Set.of(), List.of(), ignoredPaths, Set.of(), 30, 8, 53687091200L, 24);
    }
 
-   static FingerprintPolicy forTesting(Set<String> ignoredModIds, List<String> ignoredPaths) {
-      return forTesting(ignoredPaths);
+   static FingerprintPolicy forTesting(Set<String> sensitiveModIds, List<String> sensitivePaths, List<String> ignoredPaths) {
+      LinkedHashSet<String> normalized = new LinkedHashSet<>();
+
+      for (String id : sensitiveModIds) {
+         normalized.add(id.toLowerCase(Locale.ROOT));
+      }
+
+      return new FingerprintPolicy(normalized, sensitivePaths, ignoredPaths, Set.of(), 30, 8, 53687091200L, 24);
+   }
+
+   static FingerprintPolicy forTesting(Set<String> sensitiveModIds, List<String> ignoredPaths) {
+      return forTesting(sensitiveModIds, List.of(), ignoredPaths);
    }
 
    FingerprintManifest.Impact classify(String logicalPath, Path physicalPath) {
@@ -67,18 +123,48 @@ final class FingerprintPolicy {
          return FingerprintManifest.Impact.IGNORED;
       }
 
+      if (this.isGenerationSensitivePath(normalized)) {
+         return FingerprintManifest.Impact.RELEVANT;
+      }
+
       if (this.matchesIgnoredPath(normalized)) {
          return FingerprintManifest.Impact.IGNORED;
       }
 
       if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
          Set<String> ids = readTopLevelModIds(physicalPath);
-         if (ids.size() == 1 && ids.contains("maki_chunksmith_chunk_cache")) {
-            return FingerprintManifest.Impact.IGNORED;
+         if (!ids.stream().anyMatch(this::isGenerationSensitiveModId)
+            && !isGenerationSensitiveJarName(physicalPath.getFileName().toString())
+            && !containsWorldgenResources(physicalPath)) {
+            return ids.size() == 1 && BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())
+               ? FingerprintManifest.Impact.IGNORED
+               : FingerprintManifest.Impact.RELEVANT;
+         } else {
+            return FingerprintManifest.Impact.RELEVANT;
          }
+      } else {
+         return FingerprintManifest.Impact.RELEVANT;
       }
+   }
 
-      return FingerprintManifest.Impact.RELEVANT;
+   boolean allowsAuditedNeutral(String logicalPath, Path physicalPath, String rawSha256) {
+      String normalized = normalize(logicalPath);
+      if (normalized.startsWith("mods/") && normalized.endsWith(".jar") && rawSha256 != null && rawSha256.matches("[a-f0-9]{64}")) {
+         Set<String> ids = readTopLevelModIds(physicalPath);
+         if (ids.size() != 1) {
+            return false;
+         }
+
+         String id = ids.iterator().next();
+         return !this.isGenerationSensitiveModId(id)
+               && !isGenerationSensitiveJarName(physicalPath.getFileName().toString())
+               && !containsWorldgenResources(physicalPath)
+               && !AuditedModCompatibility.declaresGenerationOverride(physicalPath)
+            ? this.auditedNeutralArtifacts.contains(id + ":" + rawSha256)
+            : false;
+      } else {
+         return false;
+      }
    }
 
    String reason(String logicalPath, Path physicalPath, FingerprintManifest.Impact impact) {
@@ -88,30 +174,55 @@ final class FingerprintPolicy {
       }
 
       if (normalized.equals("config/maki-chunksmith-chunk-cache.properties")) {
-         return "cache management policy; compatibility fields are hashed separately";
+         return "cache management policy; generated-result inputs are hashed separately";
+      }
+
+      if (this.isGenerationSensitivePath(normalized)) {
+         return "declared/effective world-generation configuration input";
       }
 
       if (this.matchesIgnoredPath(normalized)) {
-         return "explicit non-worldgen path policy";
+         return "explicit generation-neutral path policy";
       }
 
       if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
          Set<String> ids = readTopLevelModIds(physicalPath);
-         if (impact == FingerprintManifest.Impact.IGNORED && ids.contains("maki_chunksmith_chunk_cache")) {
-            return "chunk-cache implementation itself; compatibility schema/policy is hashed separately";
+         if (impact == FingerprintManifest.Impact.RELEVANT) {
+            if (ids.stream().anyMatch(this::isGenerationSensitiveModId)) {
+               return "generation-sensitive MOD id=" + String.join(",", ids);
+            } else if (isGenerationSensitiveJarName(physicalPath.getFileName().toString())) {
+               return "known generation-sensitive MOD artifact";
+            } else {
+               return containsWorldgenResources(physicalPath)
+                  ? "JAR contains worldgen/structure/dimension datapack resources"
+                  : "unknown code-driven generation impact; fail-closed until audited";
+            }
          } else {
-            return ids.isEmpty()
-               ? "unknown mod metadata; fail-closed relevant"
-               : "mod ids=" + String.join(",", ids) + "; not an exact audited generation-neutral artifact; fail-closed relevant";
+            return ids.size() == 1 && BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())
+               ? "owned scheduling/UI/diagnostic MOD role is generation-neutral"
+               : "explicit generation-neutral MOD input";
          }
+      } else if (isConfigurationPath(normalized)) {
+         return "unknown configuration impact; fail-closed until explicitly classified";
       } else {
-         return "worldgen/serialization input by default";
+         return impact == FingerprintManifest.Impact.RELEVANT ? "generation compatibility input" : "generation-neutral input";
       }
    }
 
    String compatibilitySignature() {
-      List<String> paths = this.ignoredPaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
-      return "policy-v4|self-mod-id=maki_chunksmith_chunk_cache|ignored-paths=" + String.join(",", paths) + "|" + CompatibilityInput.policySignature();
+      List<String> ignored = this.ignoredPaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
+      List<String> sensitivePaths = this.generationSensitivePaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
+      List<String> sensitiveMods = this.generationSensitiveModIds.stream().sorted().toList();
+      return "policy-v9|self-mod-id=maki_chunksmith_chunk_cache|ignored-paths="
+         + String.join(",", ignored)
+         + "|generation-sensitive-mod-ids="
+         + String.join(",", sensitiveMods)
+         + "|generation-sensitive-paths="
+         + String.join(",", sensitivePaths)
+         + "|generation-neutral-owned-mod-ids="
+         + BUILTIN_GENERATION_NEUTRAL_MOD_IDS.stream().sorted().toList()
+         + "|default-mod-policy=unknown-fail-closed-v1|default-config-policy=unknown-fail-closed-v1|worldgen-resource-detection=v1|"
+         + CompatibilityInput.policySignature();
    }
 
    int retentionDays() {
@@ -135,25 +246,96 @@ final class FingerprintPolicy {
       return normalized.startsWith("config/chunksmith/tasks/") || normalized.equals("config/maki-chunksmith-chunk-cache.properties");
    }
 
-   private boolean matchesIgnoredPath(String logicalPath) {
-      for (String rule : this.ignoredPaths) {
-         String normalizedRule = normalize(rule);
-         if (normalizedRule.endsWith("/**")) {
-            String prefix = normalizedRule.substring(0, normalizedRule.length() - 3);
-            if (logicalPath.equals(prefix) || logicalPath.startsWith(prefix + "/")) {
-               return true;
-            }
-         } else if (normalizedRule.contains("*")) {
-            String regex = normalizedRule.replace(".", "\\.").replace("*", "[^/]*");
-            if (logicalPath.matches(regex)) {
-               return true;
-            }
-         } else if (logicalPath.equals(normalizedRule)) {
+   private boolean isGenerationSensitiveModId(String id) {
+      String normalized = id.toLowerCase(Locale.ROOT);
+      return BUILTIN_GENERATION_SENSITIVE_MOD_IDS.contains(normalized) || this.generationSensitiveModIds.contains(normalized);
+   }
+
+   private boolean isGenerationSensitivePath(String logicalPath) {
+      if (logicalPath.startsWith("world/datapacks/")) {
+         return true;
+      }
+
+      for (String rule : BUILTIN_GENERATION_SENSITIVE_PATHS) {
+         if (matchesRule(logicalPath, rule)) {
+            return true;
+         }
+      }
+
+      for (String rule : this.generationSensitivePaths) {
+         if (matchesRule(logicalPath, rule)) {
             return true;
          }
       }
 
       return false;
+   }
+
+   private static boolean isConfigurationPath(String logicalPath) {
+      return logicalPath.startsWith("config/") || logicalPath.startsWith("serverconfig/") || logicalPath.startsWith("world/serverconfig/");
+   }
+
+   private static boolean isGenerationSensitiveJarName(String fileName) {
+      String lower = fileName.toLowerCase(Locale.ROOT);
+
+      for (String prefix : BUILTIN_GENERATION_SENSITIVE_JAR_PREFIXES) {
+         if (lower.startsWith(prefix)) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
+   private static boolean containsWorldgenResources(Path jarPath) {
+      try (JarFile jar = new JarFile(jarPath.toFile())) {
+         return jar.stream()
+            .anyMatch(
+               entry -> {
+                  if (entry.isDirectory()) {
+                     return false;
+                  }
+
+                  String name = entry.getName().toLowerCase(Locale.ROOT);
+                  return !name.startsWith("data/")
+                     ? false
+                     : name.contains("/worldgen/")
+                        || name.contains("/structure/")
+                        || name.contains("/structures/")
+                        || name.contains("/dimension/")
+                        || name.contains("/dimension_type/")
+                        || name.contains("/biome_modifier/")
+                        || name.contains("/structure_modifier/");
+               }
+            );
+      } catch (Throwable unreadable) {
+         return true;
+      }
+   }
+
+   private boolean matchesIgnoredPath(String logicalPath) {
+      for (String rule : this.ignoredPaths) {
+         if (matchesRule(logicalPath, rule)) {
+            return true;
+         }
+      }
+
+      return false;
+   }
+
+   private static boolean matchesRule(String logicalPath, String rule) {
+      String normalizedRule = normalize(rule);
+      if (!normalizedRule.endsWith("/**")) {
+         if (normalizedRule.contains("*")) {
+            String regex = normalizedRule.replace(".", "\\.").replace("*", "[^/]*");
+            return logicalPath.matches(regex);
+         } else {
+            return logicalPath.equals(normalizedRule);
+         }
+      } else {
+         String prefix = normalizedRule.substring(0, normalizedRule.length() - 3);
+         return logicalPath.equals(prefix) || logicalPath.startsWith(prefix + "/");
+      }
    }
 
    static Set<String> readTopLevelModIds(Path jarPath) {
@@ -209,6 +391,29 @@ final class FingerprintPolicy {
       }
 
       return result;
+   }
+
+   private static Set<String> auditedNeutralPairs(String value) {
+      LinkedHashSet<String> result = new LinkedHashSet<>();
+
+      for (String raw : csv(value)) {
+         String entry = raw.toLowerCase(Locale.ROOT);
+         if (entry.matches("[a-z0-9_.-]+:[a-f0-9]{64}")) {
+            result.add(entry);
+         }
+      }
+
+      return Set.copyOf(result);
+   }
+
+   private static Set<String> lowerCsv(String value) {
+      LinkedHashSet<String> result = new LinkedHashSet<>();
+
+      for (String item : csv(value)) {
+         result.add(item.toLowerCase(Locale.ROOT));
+      }
+
+      return Set.copyOf(result);
    }
 
    private static int boundedInt(Properties properties, String key, int fallback, int min, int max) {

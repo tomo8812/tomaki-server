@@ -128,18 +128,17 @@ public final class PlayerCenter {
          LOG.warn("Could not load latest follow position; waiting for the named player when necessary", e);
       }
 
+      if (saved.x == null || saved.z == null) {
+         saved.x = 0;
+         saved.z = 0;
+         LOG.info("No saved tracking coordinate is available; unified pregen starts from world center 0,0.");
+      }
+
       wasEnabled = enabled();
       LOG.info(
-         "Following {} ({}), online {} slots, radius {}, recenter at most every {}s, idle grace {}s; saved center {},{}",
+         "Following {} ({}), empty-server pregen only, radius {}, recenter at most every {}s, idle grace {}s; saved center {},{}",
          new Object[]{
-            settings().followPlayer,
-            settings().followUuid,
-            settings().generateWhileOnline ? settings().onlineMax : 0,
-            settings().followRadius,
-            settings().recenterSeconds,
-            settings().emptyGraceSeconds,
-            saved.x,
-            saved.z
+            settings().followPlayer, settings().followUuid, settings().followRadius, settings().recenterSeconds, settings().emptyGraceSeconds, saved.x, saved.z
          }
       );
    }
@@ -208,7 +207,7 @@ public final class PlayerCenter {
    }
 
    public static void login(ServerPlayer player) {
-      if (owner == player.getServer() && saved != null && enabled() && !settings().generateWhileOnline) {
+      if (owner == player.getServer() && saved != null && enabled()) {
          capture(player);
          boolean followPaused = true;
          if (ChunksmithProvider.isLoaded()) {
@@ -394,39 +393,53 @@ public final class PlayerCenter {
                   if (manualPause) {
                      reason = "manual-pause";
                      report(server, chunky, now);
-                  } else if (online && !settings().generateWhileOnline) {
+                  } else if (online) {
                      pause(chunky);
                      requested = true;
                      loadPause = false;
                      healthySince = 0L;
                      reason = "players-online-paused";
                      report(server, chunky, now);
-                  } else if (now - boot >= 10000L && (online || now - emptySince >= settings().emptyGraceSeconds * 1000L)) {
-                     if (online && CpuGovernor.onlineOverload()) {
-                        loadPause = true;
-                        healthySince = 0L;
+                  } else if (!UnifiedPregenReset.ensure(server)) {
+                     reason = "waiting-unified-pregen-reset";
+                     report(server, chunky, now);
+                  } else if (!CpuGovernor.pregenReady(server)) {
+                     reason = "waiting-pregen-fingerprint";
+                     report(server, chunky, now);
+                  } else {
+                     String pipelinePressure = CpuGovernor.pipelinePressure();
+                     if (pipelinePressure != null) {
                         pause(chunky);
-                        reason = "online-overload";
+                        requested = true;
+                        loadPause = false;
+                        healthySince = 0L;
+                        reason = "pipeline-pressure:" + pipelinePressure;
                         report(server, chunky, now);
-                     } else {
-                        if (loadPause) {
-                           if (!CpuGovernor.recovered()) {
-                              healthySince = 0L;
-                           } else if (healthySince == 0L) {
-                              healthySince = now;
+                     } else if (now - boot >= 10000L && (online || now - emptySince >= settings().emptyGraceSeconds * 1000L)) {
+                        if (online && CpuGovernor.onlineOverload()) {
+                           loadPause = true;
+                           healthySince = 0L;
+                           pause(chunky);
+                           reason = "online-overload";
+                           report(server, chunky, now);
+                        } else {
+                           if (loadPause) {
+                              if (!CpuGovernor.recovered()) {
+                                 healthySince = 0L;
+                              } else if (healthySince == 0L) {
+                                 healthySince = now;
+                              }
+
+                              if (healthySince == 0L || now - healthySince < 30000L) {
+                                 reason = "load-recovery-wait";
+                                 report(server, chunky, now);
+                                 return;
+                              }
+
+                              loadPause = false;
+                              requested = true;
                            }
 
-                           if (healthySince == 0L || now - healthySince < 30000L) {
-                              reason = "load-recovery-wait";
-                              report(server, chunky, now);
-                              return;
-                           }
-
-                           loadPause = false;
-                           requested = true;
-                        }
-
-                        if (saved.x != null && saved.z != null) {
                            GenerationTask current = (GenerationTask)chunky.getGenerationTasks().get("minecraft:overworld");
                            TaskOwnership.PersistedOwner persistedOwner = current == null
                               ? TaskOwnership.persistedOwner(chunky, "minecraft:overworld")
@@ -443,6 +456,15 @@ public final class PlayerCenter {
                                  reason = "native-safety-pause";
                                  report(server, chunky, now);
                               } else {
+                                 if (current == null
+                                    && !requested
+                                    && lastTask != null
+                                    && lastTask.getCount() >= lastTask.getChunkIterator().total()
+                                    && CpuGovernor.pregenRetryPending(server, saved.x, saved.z, settings().followRadius)) {
+                                    requested = true;
+                                    reason = "retrying-incomplete-pairs";
+                                 }
+
                                  if (current == null
                                     && !requested
                                     && appliedX != null
@@ -475,8 +497,17 @@ public final class PlayerCenter {
                                                 if (!FollowPolicy.moved(saved.x, saved.z, (int)selection.centerX(), (int)selection.centerZ())
                                                    && selection.radiusX() == settings().followRadius
                                                    && selection.horizon() == 1.0) {
-                                                   task = prior.get();
-                                                   TaskOwnership.claim(task, "PlayerCenter-persisted");
+                                                   if (persistedOwner == TaskOwnership.PersistedOwner.PREVIOUS_SESSION
+                                                      && chunky.getConfig().getContinueOnRestart()) {
+                                                      task = new GenerationTask(chunky, selection);
+                                                      TaskOwnership.claim(task, "PlayerCenter-persisted-rewind");
+                                                      LOG.info(
+                                                         "Previous-session follow task will rescan from the selection start so incomplete FULL+LOD pairs can be retried; confirmed pairs remain skippable."
+                                                      );
+                                                   } else {
+                                                      task = prior.get();
+                                                      TaskOwnership.claim(task, "PlayerCenter-persisted");
+                                                   }
                                                 }
                                              }
                                           } else if (persistedOwner == TaskOwnership.PersistedOwner.PREVIOUS_SESSION) {
@@ -515,8 +546,8 @@ public final class PlayerCenter {
                                              requested = false;
                                              reason = "generating";
                                              LOG.info(
-                                                "LOD task follows {} at {},{}; radius {}, LOD-only, {} online slots; previous LOD retained",
-                                                new Object[]{settings().followPlayer, saved.x, saved.z, settings().followRadius, settings().onlineMax}
+                                                "Unified pregen follows {} at {},{}; radius {}, concentric FULL+LOD completion flow; previous confirmed data retained",
+                                                new Object[]{settings().followPlayer, saved.x, saved.z, settings().followRadius}
                                              );
                                           }
                                        } catch (Exception | LinkageError e) {
@@ -535,15 +566,12 @@ public final class PlayerCenter {
                                  report(server, chunky, now);
                               }
                            }
-                        } else {
-                           reason = "waiting-for-tomo-position";
-                           report(server, chunky, now);
                         }
+                     } else {
+                        pause(chunky);
+                        reason = "grace-period";
+                        report(server, chunky, now);
                      }
-                  } else {
-                     pause(chunky);
-                     reason = "grace-period";
-                     report(server, chunky, now);
                   }
                }
             }
@@ -559,7 +587,7 @@ public final class PlayerCenter {
             GenerationTask current = (GenerationTask)chunky.getGenerationTasks().get("minecraft:overworld");
             TaskOwnership.PersistedOwner persistedOwner = TaskOwnership.persistedOwner(chunky, "minecraft:overworld");
             int players = server.getPlayerCount();
-            boolean onlineBlocked = players > 0 && !settings().generateWhileOnline;
+            boolean onlineBlocked = players > 0;
             boolean graceBlocked = now - boot < 10000L || players == 0 && now - emptySince < settings().emptyGraceSeconds * 1000L;
             boolean policyReady = enabled() && !manualPause && !loadPause && !onlineBlocked && !graceBlocked && saved.x != null && saved.z != null;
             boolean canRun = policyReady

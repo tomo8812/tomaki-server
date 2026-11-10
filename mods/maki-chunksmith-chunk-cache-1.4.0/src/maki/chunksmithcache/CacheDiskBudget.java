@@ -1,5 +1,6 @@
 package maki.chunksmithcache;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,18 +12,19 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 final class CacheDiskBudget {
-   private static final long DEFAULT_MAX = 21474836480L;
+   private static final long DEFAULT_MAX = 16106127360L;
    private static final long DEFAULT_RESERVE = 2147483648L;
    private static final Map<Path, CacheDiskBudget> ROOTS = new ConcurrentHashMap<>();
    private final Path root;
    private long observedAt;
    private long inventoriedAt;
    private long activeBytes;
+   private long lodBytes;
    private long usableBytes;
    private long reservedBytes;
    private long additions;
    private long inventoryEpoch;
-   private long maxBytes = 21474836480L;
+   private long maxBytes = 16106127360L;
    private long minimumFree = 2147483648L;
    private String observationFailure = "cache-disk-warming-up";
 
@@ -43,7 +45,7 @@ final class CacheDiskBudget {
             }
          }
 
-         long max = positive(properties, "cache.max-active-bytes", 21474836480L);
+         long max = positive(properties, "cache.max-active-bytes", 16106127360L);
          long reserve = positive(properties, "cache.minimum-free-bytes", 2147483648L);
          Files.createDirectories(this.root);
          long free = Files.getFileStore(this.root).getUsableSpace();
@@ -80,6 +82,7 @@ final class CacheDiskBudget {
             }
          }
 
+         long observedLodBytes = treeBytes(this.root.getParent().resolve("chunksmith").resolve("lod"));
          synchronized (this) {
             this.maxBytes = max;
             this.minimumFree = reserve;
@@ -89,6 +92,7 @@ final class CacheDiskBudget {
                this.inventoriedAt = this.inventoryEpoch == epoch ? now : 0L;
             }
 
+            this.lodBytes = observedLodBytes;
             this.observedAt = now;
             this.observationFailure = null;
          }
@@ -97,6 +101,24 @@ final class CacheDiskBudget {
             this.observationFailure = "cache-disk-unavailable";
          }
       }
+   }
+
+   private static long treeBytes(Path tree) throws IOException {
+      if (!Files.isDirectory(tree)) {
+         return 0L;
+      }
+
+      long total = 0L;
+
+      try (Stream<Path> walk = Files.walk(tree)) {
+         Iterator<Path> files = walk.filter(x$0 -> Files.isRegularFile(x$0)).iterator();
+
+         while (files.hasNext()) {
+            total = Math.addExact(total, Files.size(files.next()));
+         }
+      }
+
+      return total;
    }
 
    private static long positive(Properties properties, String key, long fallback) {
@@ -118,8 +140,8 @@ final class CacheDiskBudget {
          return this.observationFailure;
       } else if (System.nanoTime() - this.observedAt > 60000000000L) {
          return "cache-disk-measurement-stale";
-      } else if (additional > this.maxBytes - this.activeBytes - this.reservedBytes) {
-         return "cache-active-capacity";
+      } else if (additional > this.maxBytes - this.activeBytes - this.lodBytes - this.reservedBytes) {
+         return "pregen-combined-capacity";
       } else {
          return additional > this.usableBytes - this.minimumFree - this.reservedBytes ? "cache-disk-reserve" : null;
       }
@@ -160,7 +182,7 @@ final class CacheDiskBudget {
    }
 
    synchronized long activeBytes() {
-      return this.activeBytes;
+      return Math.max(0L, this.activeBytes + this.lodBytes);
    }
 
    synchronized long usableBytes() {

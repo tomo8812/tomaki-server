@@ -1,10 +1,12 @@
 package maki.chunksmithcache.mixin;
 
+import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.ducks.MinecraftServerExtension;
 import com.kishku7.chunksmith.mixin.ServerChunkCacheMixin;
 import com.kishku7.chunksmith.platform.NeoForgeWorld;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import maki.chunksmithcache.CacheManager;
 import maki.chunksmithcache.LodCommitTracker;
 import maki.chunksmithcache.PipelineMetrics;
@@ -18,22 +20,13 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(targets = "com.kishku7.chunksmith.platform.NeoForgeWorld", remap = false)
 public abstract class NeoForgeWorldMixin {
    @Shadow
    @Final
    private ServerLevel world;
-
-   @Inject(method = "isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;", at = @At("HEAD"), cancellable = true, require = 1)
-   private void maki$cachedFullCountsAsGenerated(int x, int z, CallbackInfoReturnable<CompletableFuture<Boolean>> cir) {
-      if (CacheManager.chunksmithGeneratedHint(this.world, new ChunkPos(x, z))) {
-         cir.setReturnValue(CompletableFuture.completedFuture(true));
-      }
-   }
 
    @Redirect(
       method = "lambda$getChunkAtAsync$8",
@@ -53,7 +46,7 @@ public abstract class NeoForgeWorldMixin {
          PipelineMetrics.time("lod-offer", System.nanoTime() - started);
       }
 
-      CacheManager.captureFromChunksmith(level, chunk, lodWritten);
+      CacheManager.captureFromChunksmith(level, chunk, lodWritten, CacheManager.currentChunksmithRequestTask());
    }
 
    @Redirect(
@@ -65,10 +58,39 @@ public abstract class NeoForgeWorldMixin {
       require = 1
    )
    private CompletableFuture<ChunkResult<ChunkAccess>> maki$measureFull(ServerChunkCacheMixin source, int x, int z, ChunkStatus status, boolean create) {
-      long started = System.nanoTime();
-      CompletableFuture<ChunkResult<ChunkAccess>> future = source.invokeGetChunkFutureMainThread(x, z, status, create);
-      future.whenComplete((value, error) -> PipelineMetrics.time("full-future", System.nanoTime() - started));
-      return future;
+      ChunkPos pos = new ChunkPos(x, z);
+      GenerationTask sourceTask = CacheManager.currentChunksmithRequestTask();
+      boolean unified = CacheManager.unifiedPregenRequestAdmitted(this.world, pos, sourceTask);
+      if (unified && !CacheManager.unifiedPregenRequestActive(this.world, pos, sourceTask)) {
+         PipelineMetrics.count("full-request-owner-stale");
+         return CompletableFuture.failedFuture(new IllegalStateException("Unified pregen request owner is no longer active at " + pos));
+      } else {
+         long started = System.nanoTime();
+         CompletableFuture<ChunkResult<ChunkAccess>> future = source.invokeGetChunkFutureMainThread(x, z, status, create);
+         future.whenComplete((value, error) -> PipelineMetrics.time("full-future", System.nanoTime() - started));
+         return !unified ? future : future.thenCompose(result -> {
+            AtomicBoolean full = new AtomicBoolean();
+            if (result != null) {
+               result.ifSuccess(chunk -> full.set(chunk instanceof LevelChunk));
+            }
+
+            if (full.get()) {
+               CacheManager.notePregenFullLoaded(this.world, pos, sourceTask);
+            }
+
+            if (!CacheManager.unifiedPregenRequestActive(this.world, pos, sourceTask)) {
+               PipelineMetrics.count("full-request-owner-stale");
+               return CompletableFuture.failedFuture(new IllegalStateException("Unified pregen request owner detached before FULL completion at " + pos));
+            }
+
+            if (full.get()) {
+               return CompletableFuture.completedFuture((ChunkResult<ChunkAccess>)result);
+            }
+
+            PipelineMetrics.count("full-result-failed");
+            return CompletableFuture.failedFuture(new IllegalStateException("Unified pregen FULL request returned no LevelChunk at " + pos));
+         });
+      }
    }
 
    @Redirect(
@@ -77,9 +99,10 @@ public abstract class NeoForgeWorldMixin {
       require = 2
    )
    private Executor maki$measureSafePoint(NeoForgeWorld ignored) {
+      GenerationTask sourceTask = CacheManager.currentChunksmithRequestTask();
       return task -> {
          long queued = System.nanoTime();
-         ((MinecraftServerExtension)this.world.getServer()).chunksmith$atTicketSafePoint(() -> {
+         ((MinecraftServerExtension)this.world.getServer()).chunksmith$atTicketSafePoint(() -> CacheManager.runWithChunksmithRequestTask(sourceTask, () -> {
             PipelineMetrics.time("ticket-safe-point-wait", System.nanoTime() - queued);
             long started = System.nanoTime();
 
@@ -88,7 +111,7 @@ public abstract class NeoForgeWorldMixin {
             } finally {
                PipelineMetrics.time("ticket-safe-point-work", System.nanoTime() - started);
             }
-         });
+         }));
       };
    }
 }
