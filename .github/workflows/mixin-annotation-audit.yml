@@ -77,7 +77,9 @@ jobs:
 
       - name: Test audit and selection regressions
         if: always() && steps.scope.outputs.tests == 'true'
-        run: python3 -m unittest discover -s .github/scripts -p 'test_mixin*.py'
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_mixin*.py'
+          python3 -m unittest discover -s .github/scripts -p 'test_mod_interop.py'
 
       - name: Upload shipped JAR audit
         if: always() && steps.scope.outputs.audit == 'true'
