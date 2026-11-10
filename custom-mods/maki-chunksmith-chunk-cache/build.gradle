@@ -68,7 +68,7 @@ tasks.register('verifyIssue47BackfillOwnership') {
         def storage = issue47StorageSource.getText('UTF-8')
         if (!controller.contains('waiting-normal-state-unknown') || !controller.contains('waiting-dependency-scope-loaded')
                 || !controller.contains('candidateDeferredUntil') || !controller.contains('continueScope')
-                || !controller.contains('releaseIdlePregenClaim')) {
+                || !controller.contains('IdlePregenBridge.setBackfillActive(false)')) {
             throw new GradleException('Issue #47 regression: status-aware scan / deferred candidate visibility / drain claim release is missing')
         }
         if (!guard.contains('scopeAvailable') || !guard.contains('scopeDrained')

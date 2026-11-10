@@ -4,7 +4,6 @@ import net.minecraft.world.entity.Entity;
 import org.joml.Vector3dc;
 
 public final class AnchorMover {
-   private static final double EPSILON_SQUARED = 1.0E-12;
 
    private AnchorMover() {
    }

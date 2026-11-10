@@ -6,7 +6,6 @@ Mixin, services, reflection, registries, events and external APIs are special.
 import argparse
 import json
 import re
-from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -61,8 +60,6 @@ def audit():
         if path.is_file() and path.suffix in (".json", ".toml", ".properties"):
             resources.append(path.read_text(encoding="utf-8", errors="replace"))
     resources_text = "\n".join(resources)
-    all_java = "\n".join(source for _, _, source in files)
-    all_tokens = Counter(IDENT.findall(all_java))
     findings = []
     for mod, path, source in files:
         if "/src/main/java/" not in path.as_posix():
@@ -81,6 +78,8 @@ def audit():
         if not other_refs and not resource_ref and not runtime_root:
             findings.append(dict(kind="unreferenced-type", mod=mod, path=relative,
                                  line=1, symbol=name, confidence="review"))
+        if "/mixin/" in relative or "@Mixin(" in source:
+            continue  # Injection callbacks are invoked by Mixin, outside Java calls.
         for pattern, kind in ((PRIV_METHOD, "private-method"), (PRIV_FIELD, "private-field")):
             for match in pattern.finditer(source):
                 symbol = match.group(1)
@@ -91,7 +90,7 @@ def audit():
                     # Ignore constructors and special names; a single declaration
                     # with no textual call is only a candidate.
                     if symbol == name or len(re.findall(
-                        r"\b" + re.escape(symbol) + r"\s*\(", source
+                        r"\b" + re.escape(symbol) + r"\b", source
                     )) != 1:
                         continue
                 elif len(re.findall(r"\b" + re.escape(symbol) + r"\b", source)) != 1:
