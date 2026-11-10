@@ -125,10 +125,10 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "3464fc7284bc684525086648c5c3668d3f1c20c14a2083d48f9686a2dbceca8c"
     },
-    "mods/maki-chunksmith-chunk-cache-1.4.1.jar": {
-      "blob_oid": "5b0c574760fb2be83c1ac455ff28325725e55421",
-      "output": "mods/maki-chunksmith-chunk-cache-1.4.1",
-      "sha256": "4a1db782e61f6a782863e751a0cc4c1000211e38e3b44e211132adc5116c39f8"
+    "mods/maki-chunksmith-chunk-cache-1.4.2.jar": {
+      "blob_oid": "73b5b1529961836da23a0858dc123578d8446528",
+      "output": "mods/maki-chunksmith-chunk-cache-1.4.2",
+      "sha256": "43ca8e303cff05f45db9f315a82dba382d13ef761a2e76e1272fa87a8aec07ea"
     },
     "mods/maki-diorama-share-1.0.1.jar": {
       "blob_oid": "c5bf0011c7a0f4ac2aa5e415338bb0fe4c67fb64",

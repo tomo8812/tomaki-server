@@ -1,4 +1,4 @@
 Manifest-Version: 1.0
 Implementation-Title: Maki Chunksmith Chunk Cache
-Implementation-Version: 1.4.1
+Implementation-Version: 1.4.2
 

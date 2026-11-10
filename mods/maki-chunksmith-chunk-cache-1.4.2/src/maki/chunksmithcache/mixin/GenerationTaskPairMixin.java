@@ -52,7 +52,12 @@ public abstract class GenerationTaskPairMixin {
       return lod;
    }
 
-   @Redirect(method = "run()V", at = @At(value = "INVOKE", target = "Lcom/kishku7/chunksmith/lod/CsLodPresenceIndex;hasLod(II)Z", ordinal = 2), require = 1)
+   @Redirect(
+      method = "lambda$run$1(Lcom/kishku7/chunksmith/lod/CsLodPresenceIndex;Lcom/kishku7/chunksmith/util/ChunkCoordinate;ZZ[ZLjava/lang/Boolean;)Ljava/util/concurrent/CompletionStage;",
+      at = @At(value = "INVOKE", target = "Lcom/kishku7/chunksmith/lod/CsLodPresenceIndex;hasLod(II)Z", ordinal = 0),
+      require = 1,
+      allow = 1
+   )
    private boolean maki$observeAsyncLod(CsLodPresenceIndex index, int x, int z) {
       boolean lod = index.hasLod(x, z);
       if (lod && this.selection.world() instanceof NeoForgeWorld world && CacheManager.unifiedPregenOwns(world.getWorld())) {
