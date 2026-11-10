@@ -107,15 +107,17 @@ public final class PromotionLedger {
     }
 
     /** Observe the actual normal POI region write, not just dirty restoration. */
-    static void observePoiWrite(ServerLevel level, ChunkPos pos, CompletableFuture<Void> written) {
-        Key key = new Key(level,pos.toLong());
-        PromotionClaim claim = ACTIVE.get(key);
-        // A pre-handoff POI write must never acknowledge sections suppressed
-        // during pregen. The invoke-site hook runs after the veto has released.
-        if(claim==null || !claim.requiresPoiWrite()) return;
-        written.whenComplete((ignored,error) -> {
-            claim.poiWrite(error==null);
-            retire(key,claim);
+    public static void observePoiWrite(Object poiManager, ChunkPos pos, CompletableFuture<Void> written) {
+        if(poiManager==null||pos==null||written==null)return;
+        // The borrow may have unloaded before the POI Future completes; correlate
+        // against the live promotion claim instead of the transient borrow ledger.
+        ACTIVE.forEach((key,claim) -> {
+            if(key.pos()!=pos.toLong() || key.level().getPoiManager()!=poiManager
+               || !claim.requiresPoiWrite())return;
+            written.whenComplete((ignored,error) -> {
+                claim.poiWrite(error==null);
+                retire(key,claim);
+            });
         });
     }
 
