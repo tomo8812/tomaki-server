@@ -139,7 +139,7 @@ on_sample(s):
 
 ## 7. 既存MODへの実装割り当て
 
-**maki-chunksmith-chunk-cache:** CacheManagerのPublicationGate、confirmation ledger、LOD確認を通過したPAIRED_CONFIRMEDイベントのみを発行する、軽量なPregenCompletionTelemetryを追加。修復と新規生成の区別、失敗・pending、古いepochの重複排除を担当。現行PipelineMetrics.report()を現役の定期保守経路から確実に呼び、旧Backfill制御器に結び付いたログ出力依存を解消する。保存・昇格の安全制約を変更しない。
+**maki-chunksmith-chunk-cache:** CacheManagerのPublicationGate、confirmation ledger、LOD確認を通過したPAIR_CONFIRMEDイベントのみを発行する、軽量なPregenCompletionTelemetryを追加。修復と新規生成の区別、失敗・pending、古いepochの重複排除を担当。現行PipelineMetrics.report()を現役の定期保守経路から確実に呼び、旧Backfill制御器に結び付いたログ出力依存を解消する。保存・昇格の安全制約を変更しない。
 
 **maki-lod-cpu:** 計測専用のPregenTelemetryBridge、安全制御のSafetyController、純粋ロジックAdaptiveThroughputOptimizerを構成。GenerationTaskMixinは要求上限と実効幅を安全に扱う。外部MODに対する強制上限解除はしない。新しい計測APIはキャッシュMODがいない・旧版・計測不能の時に互換性のある保守的な動作へ降格する。
 
