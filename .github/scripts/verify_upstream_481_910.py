@@ -89,6 +89,8 @@ def main():
     check(sink, 'persist(com.kishku7.chunksmith.lod.CsLodChunk)', 'CsLodRegionStore.write:', 1)
     explored = read(args.chunksmith, 'com.kishku7.chunksmith.lod.ExploredLodGuard')
     check(explored, 'take(net.minecraft.server.level.ServerLevel, net.minecraft.world.level.chunk.LevelChunk, boolean)', 'LodSupport.offer:', 1)
+    hunter = read(args.millenaire, 'org.millenaire.world.SiteHunter')
+    check(hunter, 'attempt(net.minecraft.server.level.ServerLevel', 'VillageTerrainMap.placementAreaLoaded:', 1)
     rehydrator = read(args.millenaire, 'org.millenaire.village.VillageRehydrator')
     check(rehydrator, 'rehydrateAll(net.minecraft.server.level.ServerLevel)', 'Village.rebuildWaypointGraph:', 1)
     print('Upstream Mixin target bytecode: PASS (Chunksmith 4.8.1 / Millenaire 9.1.0)')
