@@ -349,6 +349,21 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !cache.contains('PregenBorrowLedger.cancel(level,pos,sourceTask)')) {
             throw new GradleException('Issue #83 regression: stale task may reuse or release a newer persistence guard')
         }
+        // A completed FULL may outlive a stopped follow task. The request must
+        // mark the owner-scoped veto before converting its result into a failure,
+        // and cancellation must recheck this flag when it reaches the server thread.
+        def markFull = world.indexOf('CacheManager.notePregenFullLoaded(this.world,pos,sourceTask)')
+        def activeAfterFull = world.indexOf('if(!CacheManager.unifiedPregenRequestActive(this.world,pos,sourceTask))',
+            world.indexOf('return future.thenCompose(result ->'))
+        if (markFull < 0 || activeAfterFull <= markFull
+                || !cache.contains('PregenBorrowLedger.generatedFullLoaded(level,pos,sourceTask)')
+                || !borrow.contains('borrow.fullLoaded().set(true)')
+                || !borrow.contains('if(remove && borrow.fullLoaded().get())return false;')
+                || !borrow.contains('if(remove && !ACTIVE.remove(key,borrow))return false;')
+                || !borrow.contains('borrow.owner()!=sourceTask')
+                || !unload.contains('CacheManager.pregenBorrowUnloaded(level,var1.getPos())')) {
+            throw new GradleException('Issue #83 regression: loaded FULL can lose its normal-persistence veto on stopped request')
+        }
         ['PREGEN_NEW_TARGETS', 'PREGEN_REQUEST_TARGETS', 'preparePregenRequest', 'pregenRequestFinished',
          'PregenBorrowLedger.beginGenerated',
          'PregenBorrowLedger.Kind.GENERATED', 'noteChunksmithGeneratedResult', 'noteChunksmithGeneratedFailure',

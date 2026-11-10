@@ -50,13 +50,16 @@ public abstract class NeoForgeWorldMixin {
       future.whenComplete((value,error) -> PipelineMetrics.time("full-future",System.nanoTime()-started));
       if(!unified)return future;
       return future.thenCompose(result -> {
+         java.util.concurrent.atomic.AtomicBoolean full=new java.util.concurrent.atomic.AtomicBoolean();
+         if(result!=null)result.ifSuccess(chunk -> full.set(chunk instanceof LevelChunk));
+         // Mark the FULL before checking task liveness: failure completion may
+         // otherwise cancel the normal-persistence guard of a loaded FULL.
+         if(full.get())CacheManager.notePregenFullLoaded(this.world,pos,sourceTask);
          if(!CacheManager.unifiedPregenRequestActive(this.world,pos,sourceTask)) {
             PipelineMetrics.count("full-request-owner-stale");
             return CompletableFuture.failedFuture(
                new IllegalStateException("Unified pregen request owner detached before FULL completion at "+pos));
          }
-         java.util.concurrent.atomic.AtomicBoolean full=new java.util.concurrent.atomic.AtomicBoolean();
-         if(result!=null)result.ifSuccess(chunk -> full.set(chunk instanceof LevelChunk));
          if(full.get())return CompletableFuture.completedFuture(result);
          PipelineMetrics.count("full-result-failed");
          return CompletableFuture.failedFuture(

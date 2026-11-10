@@ -20,7 +20,7 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 final class PregenBorrowLedger {
     enum Kind { GENERATED, BORROWED }
     private record Key(ServerLevel level, long pos) {}
-    private record Borrow(Path file, Kind kind, GenerationTask owner, CompletableFuture<Boolean> lodDone, AtomicBoolean handedOff,
+    private record Borrow(Path file, Kind kind, GenerationTask owner, CompletableFuture<Boolean> lodDone, AtomicBoolean handedOff, AtomicBoolean fullLoaded,
                           java.util.concurrent.atomic.AtomicReference<ChunkAccess> suppressedChunk,
                           java.util.Set<Long> suppressedPoiSections, AtomicBoolean poiWriteRequired) {}
     private static final ConcurrentHashMap<Key, Borrow> ACTIVE = new ConcurrentHashMap<>();
@@ -44,8 +44,22 @@ final class PregenBorrowLedger {
             && existing.owner()==owner && !existing.handedOff().get();
         CompletableFuture<Boolean> lodDone=new CompletableFuture<>();
         lodDone.completeOnTimeout(false,30L,TimeUnit.SECONDS);
-        Borrow borrow=new Borrow(file,kind,owner,lodDone,new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>(),new java.util.HashSet<>(),new AtomicBoolean());
+        Borrow borrow=new Borrow(file,kind,owner,lodDone,new AtomicBoolean(),new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>(),new java.util.HashSet<>(),new AtomicBoolean());
         return ACTIVE.putIfAbsent(key,borrow)==null;
+    }
+
+    /**
+     * A successful FULL result can remain in vanilla's chunk manager after its
+     * follow-owned request is rejected for stopping/detachment. Retain the
+     * persistence veto until unload, player handoff, or durable normal FULL.
+     */
+    static boolean generatedFullLoaded(ServerLevel level, ChunkPos pos, GenerationTask sourceTask) {
+        if(sourceTask==null)return false;
+        Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
+        if(borrow==null || borrow.kind()!=Kind.GENERATED || borrow.owner()!=sourceTask
+            || borrow.handedOff().get())return false;
+        borrow.fullLoaded().set(true);
+        return true;
     }
 
     static Kind kind(ServerLevel level, ChunkPos pos) {
@@ -90,9 +104,9 @@ final class PregenBorrowLedger {
     }
 
     /**
-     * A failed pregen request has no durable FULL result to protect. Remove the
-     * exact active guard so a later retry can arm a fresh one, and restore any
-     * dirty state that was already suppressed by the failed request.
+     * A failed request may still have obtained a FULL chunk. Release the exact
+     * task's guard only when no successful FULL has been observed; otherwise
+     * leave normal chunk/Entity/POI persistence vetoed until unload or handoff.
      */
     static boolean cancel(ServerLevel level, ChunkPos pos, GenerationTask sourceTask) {
         if(sourceTask==null)return false;
@@ -122,6 +136,9 @@ final class PregenBorrowLedger {
     private static boolean releaseCurrent(ServerLevel level, Key key, Borrow borrow, boolean remove) {
         Borrow active=ACTIVE.get(key);
         if(active!=borrow)return false;
+        // Check again on the server thread: a FULL may finish while cancellation
+        // is queued, even when the requesting task has already stopped.
+        if(remove && borrow.fullLoaded().get())return false;
         if(remove && !ACTIVE.remove(key,borrow))return false;
         releasePersistence(level,borrow);
         if(remove&&!borrow.lodDone().isDone())borrow.lodDone().complete(false);

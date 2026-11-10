@@ -296,6 +296,13 @@ public final class CacheManager {
       return false;
    }
 
+   /** Track FULL availability before a detached task's result is failed closed. */
+   public static void notePregenFullLoaded(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
+      if(level==null||pos==null||sourceTask==null)return;
+      if(PregenBorrowLedger.generatedFullLoaded(level,pos,sourceTask))
+         PipelineMetrics.count("pregen-full-retained-after-failure");
+   }
+
    public static boolean unifiedPregenRequestAdmitted(ServerLevel level,ChunkPos pos) {
       return level!=null&&pos!=null&&PREGEN_REQUEST_TARGETS.containsKey(captureKey(level,pos));
    }
@@ -335,8 +342,8 @@ public final class CacheManager {
       if(success)return;
       PREGEN_NEW_TARGETS.remove(key);
       addRetry(PREGEN_RETRY,key);
-      // A failed target never reached a durable FULL result. Drop its pregen
-      // persistence guard and restore any chunk/POI dirty state it already vetoed.
+      // Cancel only when no FULL was observed. A stopped task may already have
+      // a live FULL in vanilla's chunk manager, which still needs the save veto.
       PregenBorrowLedger.cancel(level,pos,sourceTask);
       // GenerationTask marks the native presence index before getChunkAtAsync.
       // If that request fails before LodSupport.offer, the bit is only provisional.
