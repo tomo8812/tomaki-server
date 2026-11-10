@@ -105,7 +105,14 @@ public abstract class SpawnQueueMixin {
         for (int i = 0; i < scans; i++) {
             Object candidate = queue.pollFirst();
             if (candidate == null) return null;
-            BlockPos pos = ((LoneCandidateAccessor)candidate).compat$pos();
+            LoneCandidateAccessor lone = (LoneCandidateAccessor) candidate;
+            BlockPos pos = lone.compat$pos();
+            // Native processLBQueue checks this exact 72,000-tick TTL just after pollFirst.
+            // Let an expired candidate reach that check instead of cycling it indefinitely.
+            if (tick - lone.compat$enqueuedTick() > 72_000L) {
+                Compat.expiredLone(level, pos);
+                return candidate;
+            }
             if (Compat.beginCandidate(level, pos)) return candidate;
             Compat.waiting(level, pos, true);
             queue.addLast(candidate);
@@ -137,12 +144,15 @@ public abstract class SpawnQueueMixin {
     @SuppressWarnings({"rawtypes", "unchecked"})
     private void compat$deferred(ServerLevel level, BlockPos pos, double distance, VillageManager manager,
                                   boolean lone, boolean log, boolean keyOnly, CallbackInfoReturnable<?> cir) {
-        if (maki$awaitingPersistentArea) {
+        boolean guardedByCompat = maki$awaitingPersistentArea;
+        if (guardedByCompat) {
             maki$awaitingPersistentArea = false;
             ((CallbackInfoReturnable) cir).setReturnValue(maki$deferredResult());
         }
         if ("DEFERRED".equals(String.valueOf(cir.getReturnValue()))) {
-            ReplayController.deferred(level, pos, !lone);
+            // Native non-lone DEFERRED already re-enqueues into candidates;
+            // our construction guard produces DEFERRED without that enqueue.
+            ReplayController.deferred(level, pos, !lone, !lone && !guardedByCompat);
         }
     }
 }
