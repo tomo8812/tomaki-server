@@ -289,9 +289,9 @@ public final class CacheManager {
       }
       Path file=path(level,pos,snapshot.fingerprint());
       PregenBorrowLedger.Kind kind=PregenBorrowLedger.kind(level,pos);
-      if(kind==PregenBorrowLedger.Kind.GENERATED)return true;
-      if(kind!=null)return false;
-      if(PregenBorrowLedger.beginGenerated(level,pos,file))return true;
+      if(kind!=null && kind!=PregenBorrowLedger.Kind.GENERATED)return false;
+      // A guard from a stopped task cannot be reused by this request.
+      if(PregenBorrowLedger.beginGenerated(level,pos,file,sourceTask))return true;
       addRetry(PREGEN_RETRY,key);
       return false;
    }
@@ -322,7 +322,12 @@ public final class CacheManager {
       // Only the exact follow task admitted for this coordinate may mutate unified
       // request state. A detached task's late completion must not erase a newer
       // task's marker or persistence guard for the same coordinate.
-      if(!PREGEN_REQUEST_TARGETS.remove(key,sourceTask))return;
+      if(!PREGEN_REQUEST_TARGETS.remove(key,sourceTask)) {
+         // The task may have been replaced while its request was still in flight.
+         // Only its own failed guard may be cancelled; never mutate the new task's state.
+         if(!success)PregenBorrowLedger.cancel(level,pos,sourceTask);
+         return;
+      }
       if(STOPPING.contains(level.getServer())) {
          PREGEN_NEW_TARGETS.remove(key);
          return;
@@ -332,7 +337,7 @@ public final class CacheManager {
       addRetry(PREGEN_RETRY,key);
       // A failed target never reached a durable FULL result. Drop its pregen
       // persistence guard and restore any chunk/POI dirty state it already vetoed.
-      PregenBorrowLedger.cancel(level,pos);
+      PregenBorrowLedger.cancel(level,pos,sourceTask);
       // GenerationTask marks the native presence index before getChunkAtAsync.
       // If that request fails before LodSupport.offer, the bit is only provisional.
       // Keep LOD debt until a real writer ACK and force the next check back to disk.
