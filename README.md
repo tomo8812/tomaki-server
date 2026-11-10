@@ -49,7 +49,7 @@ maki-chunksmith-chunk-cache-1.4.3.jar
 maki-diorama-share-1.0.1.jar
 maki-idle-pregen-1.1.2.jar
 maki-lod-cpu-1.4.3.jar
-maki-millenaire-lod-compat-1.0.7.jar
+maki-millenaire-lod-compat-1.0.8.jar
 maki-mods-observer-1.0.0.jar
 maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar
@@ -69,4 +69,4 @@ Chunksmithのタスク・キャッシュ・カーソル、LOD、Diorama、ワー
 
 更新に伴い Millénaire の地形・村生成方式が変わるため、チャンクキャッシュの互換性判定は従来どおり厳格に維持します。既存のワールドとChunksmithのLOD/保存済みデータは削除しないでください。まずワールドをバックアップして、新規生成・村候補の保留と再投入・FULL/LOD保存・船舶保護を確認してください。
 
-再現可能なJAR取得とハッシュ検証は `scripts/sync-upstream-481-910.sh` を使用します。
+Millénaire 9.1.0 の村は、プレイヤーが周辺へ来て実FULLチャンクが読み込まれ、建築に必要な全領域で自作キャッシュMODの保存抑制・Backfillの一時保存抑制が解除された後に建築します。事前生成時の地形調査は保持し、キャッシュ復元済み・通常生成済みのいずれもMinecraftがFULLを読み込んでから判定します。\n\n再現可能なJAR取得とハッシュ検証は `scripts/sync-upstream-481-910.sh` を使用します。
