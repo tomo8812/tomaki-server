@@ -41,7 +41,8 @@ public final class Compat {
 
    public static void onChunk(VillageSpawnQueue queue, ChunkPos pos, boolean natural, ServerLevel level) {
       // Millenaire 9.1.0 resolves the chunk and records SiteSurvey/SiteHunter
-      // before the RETURN injection calls this compatibility policy.
+      // before this hook. Keep the generation candidate until a real player
+      // has a loaded FULL and its normal persistence is safe.
       DeferredData data = DeferredData.get(level);
       long key = pos.toLong();
       if ((natural || data.pending.contains(key)) && !data.queued.contains(key)) {
@@ -49,7 +50,7 @@ public final class Compat {
          Holder<Biome> biome = level.getBiome(sample);
          if (!VillageSpawnQueue.couldHostAnyVillage(ModCultures.getAllVillageTypes().values(), biome::is)) {
             data.consume(key);
-         } else if (HorizonGuard.drop(level, pos)) {
+         } else if (!VillagePlacementReadiness.candidateReady(level, pos)) {
             data.remember(key, false);
          } else {
             enqueue(level, queue, pos);
