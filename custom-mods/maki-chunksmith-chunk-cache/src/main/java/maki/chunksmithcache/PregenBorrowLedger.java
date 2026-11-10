@@ -21,7 +21,7 @@ final class PregenBorrowLedger {
     private record Key(ServerLevel level, long pos) {}
     private record Borrow(Path file, Kind kind, CompletableFuture<Boolean> lodDone, AtomicBoolean handedOff,
                           java.util.concurrent.atomic.AtomicReference<ChunkAccess> suppressedChunk,
-                          java.util.Set<Long> suppressedPoiSections) {}
+                          java.util.Set<Long> suppressedPoiSections, AtomicBoolean poiWriteRequired) {}
     private static final ConcurrentHashMap<Key, Borrow> ACTIVE = new ConcurrentHashMap<>();
 
     private PregenBorrowLedger() {}
@@ -40,7 +40,7 @@ final class PregenBorrowLedger {
         if(existing!=null)return existing.kind()==kind && existing.file().equals(file);
         CompletableFuture<Boolean> lodDone=new CompletableFuture<>();
         lodDone.completeOnTimeout(false,30L,TimeUnit.SECONDS);
-        Borrow borrow=new Borrow(file,kind,lodDone,new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>(),new java.util.HashSet<>());
+        Borrow borrow=new Borrow(file,kind,lodDone,new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>(),new java.util.HashSet<>(),new AtomicBoolean());
         return ACTIVE.putIfAbsent(key,borrow)==null;
     }
 
@@ -157,10 +157,19 @@ final class PregenBorrowLedger {
         synchronized(borrow) {
             if(borrow.handedOff().get())return false;
             if(poiManager instanceof PregenPoiDirtyBridge bridge) {
-                for(long section:bridge.maki$clearPregenPoiDirty(pos))borrow.suppressedPoiSections().add(section);
+                for(long section:bridge.maki$clearPregenPoiDirty(pos)) {
+                    borrow.suppressedPoiSections().add(section);
+                    // Keep this obligation after restoring the temporary dirty keys.
+                    borrow.poiWriteRequired().set(true);
+                }
             }
             return true;
         }
+    }
+
+    static boolean needsPoiWrite(ServerLevel level, ChunkPos pos) {
+        Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
+        return borrow!=null&&borrow.poiWriteRequired().get();
     }
 
     static boolean isHandedOff(ServerLevel level, ChunkPos pos) {
