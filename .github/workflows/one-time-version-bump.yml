@@ -1,0 +1,65 @@
+name: One-time custom MOD version bump build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: version-bump-86
+  cancel-in-progress: false
+
+jobs:
+  build-and-sync:
+    if: github.head_ref == 'chore/bump-versions-after-pr86' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chore/bump-versions-after-pr86
+          persist-credentials: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Build governor first and stage its required version for cache regression tests
+        run: |
+          gradle --build-cache -p custom-mods/maki-lod-cpu clean check jar
+          cp custom-mods/maki-lod-cpu/build/libs/maki-lod-cpu-1.4.2.jar mods/
+          git rm --ignore-unmatch mods/maki-lod-cpu-1.4.1.jar
+      - name: Build and test cache and ship anchor
+        run: |
+          gradle --build-cache -p custom-mods/maki-chunksmith-chunk-cache clean check jar
+          gradle --build-cache -p custom-mods/maki-ship-anchor-fix clean check jar
+      - name: Replace deployed JARs and verify sources
+        run: |
+          cp custom-mods/maki-chunksmith-chunk-cache/build/libs/maki-chunksmith-chunk-cache-1.4.1.jar mods/
+          cp custom-mods/maki-ship-anchor-fix/build/libs/maki-ship-anchor-fix-1.1.2.jar mods/
+          git rm --ignore-unmatch mods/maki-chunksmith-chunk-cache-1.4.0.jar mods/maki-ship-anchor-fix-1.1.1.jar
+          python3 .github/scripts/check_deployment_sources.py
+      - name: Upload versioned distributables
+        uses: actions/upload-artifact@v4
+        with:
+          name: version-bumped-custom-mods
+          path: |
+            mods/maki-lod-cpu-1.4.2.jar
+            mods/maki-chunksmith-chunk-cache-1.4.1.jar
+            mods/maki-ship-anchor-fix-1.1.2.jar
+          retention-days: 14
+      - name: Commit versioned JARs to the PR branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mods/maki-lod-cpu-1.4.2.jar mods/maki-chunksmith-chunk-cache-1.4.1.jar mods/maki-ship-anchor-fix-1.1.2.jar
+          if git diff --cached --quiet; then
+            echo 'Versioned deployment JARs already synchronized.'
+          else
+            git commit -m 'build: ship versioned chunk cache and ship anchor MODs'
+            git push origin HEAD:refs/heads/chore/bump-versions-after-pr86
+          fi

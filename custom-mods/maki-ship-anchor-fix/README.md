@@ -7,3 +7,5 @@ Issue #30 found that version 1.1.0 had all five registered Mixin classes compile
 Version 1.1.1 rebuilds the existing source against NeoForge ModDev 21.1.262 and the real Sponge Mixin API supplied by ModDev. No hand-written Mixin annotation stubs are used. `check` verifies retention for all five registered Mixin classes.
 
 Runtime anchoring behavior and injection targets are intentionally unchanged.
+
+Version 1.1.2 incorporates PR #86 cleanup of the unused `EPSILON_SQUARED` constant. The live distance comparison and ship anchoring behavior are unchanged.
