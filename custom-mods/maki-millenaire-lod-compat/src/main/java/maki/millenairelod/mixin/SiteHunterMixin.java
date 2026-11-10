@@ -3,7 +3,6 @@ package maki.millenairelod.mixin;
 import maki.millenairelod.VillagePlacementReadiness;
 import net.minecraft.server.level.ServerLevel;
 import org.millenaire.world.SiteHunter;
-import org.millenaire.world.VillageTerrainMap;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
