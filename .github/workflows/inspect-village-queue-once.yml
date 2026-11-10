@@ -20,7 +20,7 @@ jobs:
           python3 - <<'PY'
           import subprocess
           jar='mods/millenaire-9.1.0.jar'
-          classes=['org.millenaire.world.VillageSpawnQueue','org.millenaire.world.SiteSurvey','org.millenaire.world.SiteHunter']
+          classes=['org.millenaire.world.VillageSpawnQueue','org.millenaire.world.sitescore.SiteSurvey','org.millenaire.world.SiteHunter']
           targets={'VillageSpawnQueue':['trySpawnNext(', 'processLBQueue(', 'isExpired(', 'trySpawnVillage(', 'getStats('],
                    'SiteSurvey':['processQueue(', 'ENABLED'],
                    'SiteHunter':['addCandidate(', 'attempt(', 'tick(', 'work', 'ENABLED']}
