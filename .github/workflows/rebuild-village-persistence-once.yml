@@ -1,4 +1,5 @@
 name: Rebuild verified Millenaire FULL persistence gate
+# Re-run after fixing the native JVM bytecode assertion.
 
 on:
   push:
