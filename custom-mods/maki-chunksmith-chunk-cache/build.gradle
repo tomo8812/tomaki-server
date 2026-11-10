@@ -166,19 +166,23 @@ tasks.register('verifyIssue66SharedBudget') {
 
 def issue66CacheManagerSource = file('src/main/java/maki/chunksmithcache/CacheManager.java')
 def issue66WorldMixinSource = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldMixin.java')
+def issue66RequestMixinSource = file('src/main/java/maki/chunksmithcache/mixin/GenerationRequestMixin.java')
 def issue66ChunksmithJar = file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
 
 tasks.register('verifyIssue66CacheVisibility') {
-    inputs.files(issue66CacheManagerSource, issue66WorldMixinSource, issue66ChunksmithJar)
+    inputs.files(issue66CacheManagerSource, issue66WorldMixinSource, issue66RequestMixinSource, issue66ChunksmithJar)
     doLast {
         def cache = issue66CacheManagerSource.getText('UTF-8')
         def mixin = issue66WorldMixinSource.getText('UTF-8')
+        def requestMixin = issue66RequestMixinSource.getText('UTF-8')
         ['CAPTURE_PENDING', 'BackfillGuard.suppress', 'chunksmithGeneratedHint'].each { token ->
             if (!cache.contains(token)) throw new GradleException('Issue #66 regression: cache overlap protection missing ' + token)
         }
-        if (!mixin.contains('isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;')
-                || !mixin.contains('protectChunksmithGeneratedResult')) {
-            throw new GradleException('Issue #66 regression: cache-backed generated-state Mixin missing')
+        if (!requestMixin.contains('isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;')
+                || !requestMixin.contains('protectChunksmithGeneratedResult')
+                || !requestMixin.contains('maki$trackGeneratedDecision')
+                || mixin.contains('maki$rememberGeneratedDecision')) {
+            throw new GradleException('Issue #66 regression: cache-backed generated-state Mixin missing or not task-scoped')
         }
         def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
         def process = new ProcessBuilder(
