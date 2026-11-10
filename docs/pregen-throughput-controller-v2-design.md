@@ -1,168 +1,193 @@
-# 設計案: Chunksmithの確定FULL＋LOD最大化に向けた適応制御 V2
+# 設計再検討 V3: FULL＋LOD先行生成の最適化を、前提から検証する
 
-**ステータス: 設計レビュー用。コード・mod jar・configは変更しない。**
-**対象: maki-lod-cpu / maki-chunksmith-chunk-cache / Chunksmith 4.6.0（NeoForge 1.21.1）**
-**仕様上の正本: [Issue #83](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/issues/83)**
+> **PR #89 設計レビュー版。ソースコード、MOD jar、設定、キャッシュ形式は未変更。** 2026-11-10のレビュー36スレッドと現行実装を踏まえる。本書の方式や3段階構造を「実装済みの最適解」とはみなさず、複数方式を同じ目的・同じ条件で比較して選定する。
+>
+> 現行の作業基点: main / Minecraft 1.21.1 / NeoForge 21.1.262 / Chunksmith 4.6.0 / maki-lod-cpu 1.4.2 / maki-chunksmith-chunk-cache。従来の合意事項は [Issue #83](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/issues/83) を参照する。
 
-## 1. 狙いと必須の不変条件
+## 1. 何を最適化したいのか。どこまで変えられるのか
 
-無人時の同心円順の先行生成で、**正常に確定した固有座標のFULL＋LODペア数／実経過時間**を最大化する。要求完了数・LOD書込数・CPU使用率は診断指標であり、最終目的ではない。新規FULL＋LOD完成と、既存の通常FULLまたは確定済みキャッシュFULLからのLOD修復は、両方とも有効な進捗と数える。ただし処理種別ごとに負荷が異なるため、比較統計は分けて扱う。
+最終目的は「プレイヤーがいない時間を使って、後に再生成せずに安全に使える地形を、できるだけ多く・早く・少ない資源の浪費で準備すること」。特定のアルゴリズム（A/B/A、bandit、PI、MPC、token bucket）、制御の階層数（2層／3層）、Chunksmithの現行writer構成、現在のMOD間の制御分担は目的ではない。
 
-安全性を成果より優先する。通常ワールドのFULLが常に正本、ProtoChunkはFULLキャッシュに採用しない。エンティティ・POI・構造物・プレイヤーの建築変更・Millénaireの村・VS2のShipyard、昇格ACK、所有権、互換性フィンガープリント、未完了成果の不採用、座標単位の失敗隔離を保持する。Chunksmithの同心円走査と各座標の作業選択を変更せず、別のBackfill探索器や座標順の並べ替えは追加しない。
+**最優先の保護価値**: 通常ワールドのFULL・ProtoChunk・POI・Entity・構造物・プレイヤーの変更を正本として保護する。Millénaireの村・住民とVS2の船舶／Shipyardを壊さない。保存の確認できない生成結果を完成として再利用しない。プレイヤーが入った時は新しい先行仕事を止め、通常のロード・保存・プレイヤー中LOD更新を妨害しない。リソースを使い切ってOOM、データ破損、通常保存失敗を起こさない。
 
-プレイヤー接続時は新たな先行生成投入を直ちに停止する。既存処理は安全にdrainし、通常プレイのロードと保存は妨げない。FULLキャッシュ＋LODの約15GiB上限とディスク空き2GiB予約を維持する。Chunksmith自身のMSPT・チャンクロード・LOD・書き込みキューなどの安全制限を無効化しない。性能探索のために完成済みキャッシュを削除したり、同じ座標を無駄に再生成したりしない。
+**現在の運用上の条件（再評価できるが、無断で破らない）**: 同心円順・指定中心からの優先生成、通常ワールドに先行FULLを書かず別キャッシュへ保存、FULLとLODの対を確定、15GiBのキャッシュ＋LOD合算上限、2GiBのディスク空き予約、旧独立Backfillの再導入禁止。実測上これらが本来の目的を妨げると判明した場合は、変更加減と損益、データ保護、必要なIssue #83更新を比較提案する。別順序への変更、LODだけ先行してFULLを後生成する設計、通常ワールドへの先行FULL常時保存などは、現行要件の逸脱として**無断実装しない**。なぜその方式を採らないかを計測上の仮説として評価することは妨げない。
 
-最適化の優先順位は次の辞書式とする:
-1. データ保全、プレイヤー応答性、OOMとディスク枯渇防止（破ってはならない制約）。
-2. 実測の確定ペアgoodput最大化。
-3. goodputが実用上同等ならCPU秒／確定ペア、GC、I/O負荷、切替回数が少ない構成。
+評価軸を分ける。
+- **主成果**: 対象座標の新規FULL＋LOD確定数と、既存FULLからのLOD修復完了数。タスクの要求完了・単なるLOD書込・既存完成座標のスキップは成果にしない。
+- **副成果**: 同心円中心からの連続完成範囲・未完成の穴・プレイヤー到達時の再生成回避率。簡単な遠方チャンクを優先して件数だけ稼ぐことを禁止する。
+- **資源効率**: CPU秒/完成ペア、圧縮CPU・I/O量、メモリ占有、GC、待ち・失敗・再試行、プレイヤー復帰の遅延。
+- **安全性**: すべての正本と永続化の不変条件、MSPT・OOM・ディスク予約。安全性はgoodput向上と交換しない。
 
-CPU使用率が高いこと**だけ**を理由に減速しない。メモリやI/O待ちが多い場合、2コアの機械でも並列数が2を超えた方が速くなる場合がある。
+## 2. 先に検証すべき「本当の律速」
 
-## 2. 現行1.4.2の問題と根拠
+現行の処理を工程別に分ける。分岐する既存FULLのLOD修復と新規FULL生成を混同しない。
 
-現行 [AdaptivePolicy.java](../custom-mods/maki-lod-cpu/src/main/java/maki/lodcpu/AdaptivePolicy.java) の評価値は、概ね min(Chunksmith要求完了数, LODストア保存成功数)/秒。これでは「同じ座標でFULLキャッシュが公開され、対応LODも確定した」ことが保証されない。別目的のLOD更新数が全体ストアに混ざる可能性があり、FULL保存失敗と遅延も評価できない。
+1. ChunksmithのisChunkGenerated、通常FULL権威／キャッシュ状態の確認、タスク・所有権とchunk ticket待ち。
+2. ネイティブのチャンク取得・生成。ChunkSmithの\`inFlight\`はこの要求段階の終端付近で減り得る。
+3. サーバースレッドでのChunkSerializer.writeとEntitySnapshotのFULL snapshot（新規FULLのみ）。
+4. ネイティブLOD抽出／単一writerへのofferと当該レコードwrite ACK。
+5. VALIDATE_IOの検証・通常FULL優先判定／claim確認（現行1 worker／有界64）。
+6. FULLキャッシュWRITE_IOの圧縮、ファイル書込、atomic publish、receipt（現行1 worker／有界128。修復のみのケースでは不要）。
+7. 正本とLODの対応／所有権が確認された時点での完成ペア確定。プレイヤー到着時の昇格・vanilla保存は別トランザクションとして計測する。
 
-[CpuGovernor.java](../custom-mods/maki-lod-cpu/src/main/java/maki/lodcpu/CpuGovernor.java) はネイティブストアの総書き込み差分とFollowタスク完了を組み合わせる。非同期生成・書き込みが長く続く場合、並列上限を切り替えた後に古い設定の要求が完了しても、新しい期間の成果に混ざる。[GenerationTaskMixin.java](../custom-mods/maki-lod-cpu/src/main/java/maki/lodcpu/mixin/GenerationTaskMixin.java) は上限をclampするが、Chunksmith自身の並列制限も働くため、指示値と実効値は一致しない。
+現行CaptureBudgetは64件/64MiB、INSPECTIONSは32。LOD writerはネイティブ側、FULL writerとは別。30秒のLOD offer timeoutとcache capture timeoutがある。\`LodCommitTracker.offer()\` はPENDING.containsValueとPENDING.values().removeIfでpending全走査を行い得る。CacheDiskBudget.refreshはLODディレクトリを10秒程度ごとの非同期refreshで全走査し、同じVALIDATE_IO系の能力を使う。これらは**コードから分かる潜在的律速**であり、実測なしに「writerが律速」「LODが律速」と断言してはならない。
 
-A/B/Aは地形変化を多少抑えるが、35%の基準許容差や5%の採用閾値では、長尾遅延・生成場所の変化・少量イベントの偶然に対する十分な証拠とはいえない。2026-11-10のログでは2→3、3→4、4→6の採用例がありながら、短い窓の値が大きく変動した。740件のFULL保存の実体は確認できたが、コントローラには直接その数が入っていない。
+初期計測は工程ごとの\`到着率 λ_j\`、当該段階成功ACK率\`μ_j\`、queue件数とbyte量、待ち時間、実行CPU時間、滞留傾き、oldest pending、失敗／期限切れの原因、Chunksmith native幅、main tickへの負荷とする。共通の時刻付きattemptを使い、非同期のcritical path（段階の重複・依存関係）を明示する。**別の母集団のp95を引き算して工程時間としない。** 1チックあたりsnapshot時間と実行回数を計測する。
 
-## 3. 正式な成果計測: Coordinate Completion Ledger
+収束した定常系での大まかな上界は、作業クラス別の段階需要\`d_j\`と実測サービス容量\`μ_j\`に対し\`G ≲ min_j(μ_j/d_j)\`。共有CPU・同期副作用・非定常なworkClassでは各工程が独立ではないため、**これは診断用の近似**。Littleの法則\`WIP≈throughput×sojourn time\`も十分に定常に近い場合の設計目安であり、短時間の世界生成では恒等的な制御則として扱わない。
 
-**保存完了を本当に判定している maki-chunksmith-chunk-cache が、読み取り専用の成功イベントを発行する。** 制御器は結果を観測するだけで、保存の採否を決定しない。
+## 3. 設計候補を対等に比べる
 
-イベントの最低仕様:
-- REQUEST_ADMITTED: taskEpoch, dimension, chunkPos, fingerprint, workClass, requestedCap, nativeEffectiveWidth, monotonic admission time。
-- NATIVE_FINISHED: 要求終了時刻、完了・失敗、チャンクロード時間（これは成果扱いしない）。
-- LOD_DURABLE: 当該座標のネイティブLOD保存成功を確認した時刻。ストア全体の差分から捏造しない。
-- FULL_DURABLE: 新規FULLのatomic publishと確認、またはLOD修復における通常FULL／確定済みキャッシュFULLの権威確認。
-- PAIR_CONFIRMED: 当該座標の必要なFULLとLOD、所有権と互換性が確定し、未完成から完成への状態遷移が証明できた時点で1回のみ発火。
-- PAIR_FAILED / RETRY_PENDING / HANDOFF: 失敗・未確定・プレイヤー引き渡しを追跡。スキップだけでは完成イベントを増やさない。
+| 候補 | 制御内容 | 有利な仮説 | 主な弱点 |
+| --- | --- | --- | --- |
+| A. nativeのみ | Chunksmith自身の安全適応、余計な自作最適化なし | ネイティブのworldgen制御が既に優秀なら最小負荷 | 後続FULL publishの滞留を観測しない |
+| B. 現行1.4.2 | A/B/Aによるcap探索 | 比較的単純で変更範囲が小さい | 誤ったLOD代理指標、後段遅延、切替損失 |
+| C. 成果計測付きcap-only | 確定ペアgoodputを見てcapをゆっくり調整 | worldgen段階だけが律速なら十分 | 保存キューのWIPを独立に制御しない |
+| D. cap固定＋投入ゲート | ACK連動のWIP・期限リスク制御 | 後段保存が律速なら無駄な生成を減らせる | native幅との二重制御、予測誤差、空転 |
+| E. cap＋投入ゲート | 成果に基づきcapを低頻度学習、流量を連続調整 | worldgenと保存が別々に変動する場合に有利 | 状態・計測・整合性の複雑さ |
+| F. パイプライン自体を改修 | O(P) ACK追跡、スナップショット負荷、writer、容量走査を改善 | 制御の工夫では越えられない物理的律速の解消 | CPU競合、正本保証の回帰、保守コスト |
+| G. 生成・保存方式の再設計 | FULL/LOD生成・キャッシュ構成・責務境界を再配置する | 根本の二重処理や転送待ちが大きい場合 | Issue #83との適合性、第三者MOD ABI、安全性に高リスク |
 
-workClassは NEW_FULL_PAIR / NORMAL_FULL_LOD_REPAIR / CACHED_FULL_LOD_REPAIR / ALREADY_COMPLETE / INELIGIBLE を区別する。ALREADY_COMPLETEの再検証を新規成果として加算しない。LOD修復は「実際に未完成から確定済みになった場合」だけ数える。
+**Eを最初から勝者にしない。** A～Dをベースラインとし、まず律速の実測で不要な機能を削る。Fは制御方式とは独立に優位性を測定できる。Gが本当に高速ならIssue #83の方式を再議論できるが、既存世界と将来のチャンク内容の正確性が最優先。Aが最速なら自作の並列最適化を削除することも正しい設計成果である。提案目的は「最も複雑な制御」を作ることではない。
 
-IDはtaskEpoch、dimension、chunkPos、fingerprint、当該completion世代で重複排除する。古いタスクの遅延完了が新タスクの結果を上書き・二重計上しないこと。再起動後の計測器のリセットはデータの完成状態を変更しない。既存の所有権・昇格・LOD確認を通した「確定」のみを受け取る。
+現時点の**最も価値が高い設計仮説**は、capだけではFULL snapshotとLOD/FULL writersの未完了仕事が見えないため、成功ACKに基づく軽量な投入ゲートD/Eが効果を出す可能性。ただし採用は実機比較後とする。最初の実装対象は**正確な計測と低コストな明白な無駄の削減**であり、3層制御の採用を前提にしない。
 
-**追加計測は軽量**とする。NBTの再読込、チャンクticket追加、ディスク全走査、main threadでの新たなブロッキング操作はしない。atomic aggregateと有界cohortを利用し、失敗時は計測欠損として安全側に倒す。センサーの故障をキャッシュ成功判定に伝播させない。
+## 4. 成果イベントの厳密な契約
 
-## 4. 数式と測定の意味
+保存／LODの正本を管理する\`maki-chunksmith-chunk-cache\`が、所有権確認済みの読み取り専用スナップショットを提供する。\`maki-lod-cpu\`は観測・入力制御のみを行い、正本の確定判定やセーブ形式を勝手に変更しない。
 
-~~~text
-G_total = Δ(unique NEW_FULL_PAIR confirmed + unique LOD_REPAIR confirmed) / T_eligible
-G_new   = Δ(unique NEW_FULL_PAIR confirmed) / T_eligible
-G_repair= Δ(unique LOD_REPAIR confirmed) / T_eligible
-Efficiency = Δ(unique confirmed pairs) / Δ(process CPU seconds)
-~~~
+**試行IDと成果IDは分離する。**
+- \`attemptId = taskEpoch + taskGeneration + per-task dispatch sequence\`：要求の一意性、投入時のcap、実験arm、native幅、入場時刻を記録する。同座標再試行や旧タスクの遅延完了を区別する。
+- \`completionIdentity = dimension + chunkPos + fingerprint + authoritative completion version/transition\`：同一座標の**未完了→確定済み**という正本側の状態遷移を一度だけ成果として数える。taskEpochが変わっても既存完成物の再確認を再加算しない。障害後再起動で計測器が空になっても、正本状態を見て新規完成を捏造しない。
+- \`plannedClass\`（入場時のUNKNOWN/NEW見込み/修復見込み）と\`resolvedClass\`（保存確定／通常FULL勝利／hand-off/失敗時の真の種類）を分離。**実験対象の母集団は投入時分類を保持**し、後から軽い処理だけ抜き取らない。事後分類は診断に使用する。
 
-T_eligibleは、無人かつFollowタスクが所有され、ディスク容量と安全条件が許可し、対象作業を投入できる実経過時間。プレイヤー入室・外部要因のディスク容量制限で投入不可能な時間は比較から除く。ただし、試した並列数が引き起こす生成遅延、LOD待ち、保存詰まり、後処理待ちを都合よく除外してはならない。
+真正な\`PAIR_CONFIRMED\`の条件は、対象が本当に新規に完成した正本遷移であり、**同じ生成／要求source tokenのLODレコードwriter ACKとFULLキャッシュatomic publish receipt（または対象座標の既存正本FULL確認）**が対応づけられ、所有権・互換性・失敗状態・player handoffとの競合が解決していること。単に「同じregionのFileStampが変わった」「2つのfileがある」だけでは同一生成を証明しない。現在のCsLodChunk record identityとLodCommitTracker.writtenを基点に、sourceLevelChunk／offer record／FULL snapshotの一意なトークンを安全に運ぶ。無理に証明できない場合は\`UNCERTAIN\`として完成イベントに加算せず、安全な既存採否判定を維持する。計測の強化が既存キャッシュの正常保存判定に新たな失敗を導入してはならない。
 
-仕事の種類が異なると単位時間あたりの件数も違うため、NEW・NORMAL REPAIR・CACHED REPAIRの層ごとに比較する。各層を元の同心円走査の実際の作業比率で合成し、層が偏りすぎて比較不能なときは採用しない。成果の計測のために生成順を変えない。
+**保証水準を分ける。**
+- \`LOD_WRITE_ACK\`: \`CsLodRegionStore.write(record)\`の成功戻り。現行が観測できる運用上のwriter ACK。fsync済みとは断言しない。
+- \`FULL_PUBLISHED\`: 一時ファイルの保存と原子的公開の成功（実際の呼出し・例外意味論を明記）。これも機器電源断時の完全耐久性を独断で保証しない。
+- \`PAIR_CONFIRMED_RUNTIME\`: 以上の同一source・所有権・状態遷移が成立した**実行時の運用上の完了**。goodputの主な計数。
+- \`PAIR_REVALIDATED_AFTER_RESTART\`: 再起動後に正本とLOD内容／有効世代を再検証できた状態。安全な継続利用の判定。現行LOD形式で同一生成まで復元不能な場合は追加のprovenance protocolを検討し、未証明なのに完了扱いしない。電源断耐久性が必要ならfsync／二相commit等を別設計・別コスト評価で扱う。
 
-必須の補助メトリクス:
-- 要求投入→ネイティブ完了→LOD ACK→FULL ACK→PAIR_CONFIRMEDの段階別p50/p95/p99と長尾pending件数
-- requestedCap／実効native width／inFlight／Chunksmith native slow chunk制限と変更理由
-- FULLの保存キュー長・保存失敗率・容量予約・LODキュー・同期書込fallback、失敗理由
-- cgroup CPU使用時間とthrottling、process CPU、MSPTのp95/最大、heap headroom、GC、memory PSI、I/O PSI
-- owner識別・workClass・measurement freshness・古いepochからの遅延完了・探索による切替回数
+現在の真の保存採否・キャッシュ形式・promote手順は変更せず、上記のイベント計測を実際の所有権遷移の最小限のフックに接続する。計測にだけ用いるowner tokenをLOD保存先の正本へ無理に埋め込まない。source確認と再起動再検証の技術的欠落があれば、パイプライン再設計候補Gとして明示する。
 
-計測欠損を0件の完成として処理しない。「要求が完了しない」「ストアが詰まる」「Chunksmithが制限」「本当に遅い地形」を分ける。
+イベントは\`REQUEST_ADMITTED\`、\`NATIVE_FINISHED\`、\`LOD_WRITE_ACK\`、\`FULL_PUBLISHED\`、\`PAIR_CONFIRMED_RUNTIME\`、\`REVALIDATED\`、\`FAILED\`、\`RETRY_PENDING\`、\`HANDOFF\`に分ける。外部Chunksmith、非タスクLOD refresh、スキップ、通常プレイ中のLOD更新はFollowの新規確定成果から除く。新規FULL＋LOD、通常FULL LOD修復、キャッシュFULL LOD修復の成果を別に集計する。
 
-## 5. 二層の制御
+記録は**有界のpending試行＋段階別集計**にとどめる。無制限の全座標Map、NBTの再読込、追加のchunk ticket、新規のディスク全走査、server threadでのブロッキングは導入しない。台帳溢れ／未知のACK／timestamp途切れでは計測unknownとして探索を止め、保存の安全状態には影響しない。期間統計は軽量atomicや有界bucketで出し、\`PipelineMetrics.report()\`を現役のmaintenance tickへ接続して60秒ごとの診断を復旧する。
 
-### 層A: 安全制御（原則1～2秒、緊急時はイベント即応）
+## 5. 性能測定で都合の良い分母を作らない
 
-hard stop: player入室、所有権喪失、ディスク枯渇／15GiB上限、互換性未確定、正常保存に危険な状態。新規先行生成投入を止めて安全にdrain。通常チャンク保存は保護する。
+主指標は、無人・タスク所有・外生的な容量停止なしという**capに依存しない**期間における実経過時間Tに対し、
 
-emergency reduction: OOM・cgroup OOM、極端なMSPT超過、深刻なメモリ不足、永続化キューの持続的発散など。安全な上限まで速やかに減速する。復帰にはヒステリシスと観測鮮度を要する。初期閾値は現行の安全閾値を踏襲し実測で調整する。
+\`\`\`text
+G_total(T)  = newly_runtime_confirmed_unique_coordinates / T_wall
+G_new(T)    = newly_confirmed_FULL_pairs / T_wall
+G_repair(T) = newly_confirmed_LOD_repairs / T_wall
+Resource efficiency = newly_confirmed_unique_coordinates / process_CPU_seconds
+\`\`\`
 
-soft pressure: GC、memory PSI、I/O PSI、writer backlog、native heldを複数回観測したら探索を中断し、維持または段階減速する。CPU高使用率単独では減速しない。Chunksmithネイティブの抑制を上書きせず、ネイティブがすでに律速なら「さらに上限を増やす実験」を停止する。
+制御器自身が引き起こしたinFlight制限、writer待機、native slow-chunk backoff、buffer full、再試行、flushとtail収束、探索切替は**すべて分母に含める**。外生停止を除外する場合はその時刻・理由を両armへ同一規則で適用し、総運転時間基準の全期間goodputも必ず併記する。完了しない仕事を窓から削除して残りの軽い成功だけを評価しない。
 
-missing data: 取得不能・古い観測は未知のまま記録し、新規探索は保守的に停止する。構成不明を正常値に置き換えない。既存のプレイ用ロードや保存は保護する。
+比較開始時点で\`plannedClass\`の分布を固定し、UNKNOWN、pending、失敗、hand-offも投入母数に保持する。新規と修復の重みをarmの**成功構成**から再計算しない。一次指標は全実時間のG_totalとtail debt、固定した基準workloadに対する層別比較は補助診断とする。短窓で終わった場合は終端の未確定cohort数、推定残サービス時間、最古ageと期限切れ率（tail debt）を同じarmの損失として提示し、観測済み成功だけで勝者を決めない。
 
-### 層B: 遅延フィードバック付き局所bandit（数十秒～数分）
+オンライン切替の交絡: 旧capから投入した仕事が、新cap期間中にもCPU・LOD writer・FULL writerの資源を奪う。attemptIdの成果帰属だけで因果効果は解消しない。比較開始・切替時のinFlight、下流writer残、queue age、carryover量を記録。切替後の混在期間は分離評価するか、ブロック全体のwall-clock成果＋tail debtを評価する。無理に停止・drainして検証を成立させず、分離不能なら\`INCONCLUSIVE\`とする。
 
-最良実績のある並列上限c_bestを維持し、必要な場合のみ近傍のc_best±stepを試す。探索ステップは現在の幅、未利用の実効並列、資源の余裕から調整し、無条件の1～64全探索をしない。下方向への探索はgoodputがほぼ同等でCPU・GC・I/Oコストを減らせるかを確認するためにも行う。CPU占有率そのものから最適な並列数を決めない。
+ABBA/BAAB等のswitchbackは**実験候補の一つに後退**させる。通常運転で強制しない。最も信頼できる因果検証は、同じseed、未生成ワールド状態、MOD/config、CPU quota、対象座標とキャッシュ・writer初期状態で比較する**複製ワールドによる反復A/B**。試験順を交互化し、再試行負担と探索時間を含む全期間を測る。オンラインの変化検知は因果証明ではない。固定「35%／5%」判定だけでは採用しない。相関の強いチャンク列は時間ブロック単位で不確実性を推定し、十分な証拠がなければ現行の安定方式を保持する。
 
-**常にA/B/Aを繰り返さない。** 候補を比較する際は、タスクepochに対して決定的に初期順序を選んだABBAまたはBAABの短いswitchbackを使う。A=安定実績、B=近傍候補。元の同心円チャンク順は変更しない。移動する地形の影響を和らげるための構成で、完全な因果比較を保証するものではない。
+## 6. 実運転の制御候補と安全な作用点
 
-非同期の結果帰属は、要求投入時のepoch・arm・cap・workClassを必ず保持する。設定を変えてから完了した古い作業を新しいarmへ計上しない。変更直後に旧仕事と新仕事が混ざる区間を純粋な比較期間として扱わない。候補の効果は完成したcohortだけで断定せず、pendingの年齢・未完了を含めて後から評価する。評価のために長時間生成を停止しない。上限時間内に有効なサンプルが集まらなければinconclusiveにする。
+候補Eの3時間スケールは**条件付き提案**である。計測で後段律速が否定されたらD/Eを実装する必要はない。
 
-各armについて複数の時間ブロックと十分な保存確定イベントを要する。少数の個別チャンクを独立サンプルとみなさず、時間ブロックで自己相関を扱う。事前に定めた測定期間・イベント数・信頼水準、逐次検定なら誤採用率調整を用い、**実用上の改善量を超え、保守的な信頼区間でも改善している時**にのみ新設定を採用する。5%の点推定だけでは判断しない。
+**保護層（即時～約2秒）**: player入室、保存所有権・fingerprint不明、ディスク上限／予約不足なら先行仕事の**新規投入だけ**を止め、既存の安全な停止・drainに従う。OOM、メモリ切迫、MSPT悪化、GC、I/O PSI、writer backlog/失敗には安全なcap制限とヒステリシス。CPU高使用率単独では減速しない。Chunksmith自体の制限を上書きしない。
 
-有意な良化が確認されなければ最良設定を保持する。性能が実用上同等ならCPU秒／確定ペアが小さい方を選ぶ。繰り返し改善なしなら探索頻度を減らし、長い安定運転を行う。生成遅延、workClass比率、native制限、CPU quotaなどの状態変化を検出した時にのみ再探索。探索に使う時間の割合に上限を設定し、「実験のために遅くなる時間」を抑える。
+**流量層（後段律速と判明した場合のみ、約2～5秒が候補）**: cap \`c\`とは独立に、新規dispatchを許可する速度\`a\`またはcredit/WIPを調整。各段階jの対象別必要量（新規FULLではLOD＋snapshot＋FULL、修復では主にLOD）と、\`queue_j + predicted_downstream_j\`、推定保守的ACKサービス率から\`debtSeconds_j ≈ pendingWork_j / max(conservativeServiceRate_j, ε)\`を求める。queue件数が小さくても生成中の仕事からの将来の流入を算入し、容量・byteの双方で上限を掛ける。writerに需要がなくμ=0のときは\`unknown/idle\`を区別し、0件/sを機械的に無限借金とみなさない。
 
-c_bestは絶対的な最適解ではなく、その時点で観測上最良の選択肢。学習値はキャッシュ互換性と独立した小さな状態に保存でき、破損時は破棄して安全な初期値に復帰する。キャッシュファイル自体を失効させない。
+制御則は**決め打ちしない**:
+1. 最小構成: ACK率の変化、writer待機秒とdeadline近接だけで手前の投入ゲートをON/OFFするヒステリシス式。
+2. 次の候補: AIMDまたは小さなtoken bucket（滞留改善時は緩やかに増やし、持続的発散・タイムアウト兆候では素早く減らす）。
+3. 推定が安定していて本当に速い場合のみ: queue debt誤差に対するPI（飽和時は積分器凍結＝anti-windup）、または有限予測窓MPC。PI/MPCの使用それ自体は成果ではない。
 
-## 6. 状態機械（擬似コード）
+**期限予測**: LodCommitTrackerの30秒期限、cache captureの30秒期限は起点が異なるので、実際のdeadlineごとに\`timeLeft - conservativeQueueWait - predictedServiceP95\`を計算。余裕が消える前に次の投入を減らして再試行CPUを減らす。見かけのqueue capacityが余っていても安全とは限らない。予測が少量サンプルで不確実なら未知として保守的に探索を止めるが、常時writerを空転させないよう、ヒステリシスと回復条件を検証する。
 
-~~~text
-on_sample(s):
-    if player_online or task_unowned or disk_budget_denied or fingerprint_unknown:
-        stop_new_pregen_admissions()
-        preserve_normal_world_and_drain_safely()
-        suspend_optimizer()
+**未分類仕事のcredit**: ChunksmithのisChunkGenerated結果が出るまでplannedClassはUNKNOWN。仮に保守的なNEW相当の下流需要を見積もり、分類が確定したら必要な段階のcreditを調整／返却する。これは制御器内のadvisory予約であり、CacheDiskBudgetやCaptureBudgetの権威あるhard leaseを代替しない。既存のdisk budgetの正式reserveを二重に加算しない。生成中のplayer handoff、失敗、timeoutで必ずcreditを解放する。
+
+**作用点**: 自作のFollow-ownerタスクが、Chunksmith iteratorから**次の座標を選んだ後、実際のネイティブdispatch時刻の前**に位置する安全なworker-side境界でのみ投入権を確認する。同じ選択済み座標を維持して短くpark／取消可能な待機を行い、同心円順を変えない。server thread、native writer、normal load、外部のChunksmith所有タスクはブロックしない。既存のプレイヤー入退場・停止・例外経路の優先順位を守る。ゲート待機をChunkSmithのslow-chunk latency測定に混入させない。ループの有界性・スレッドの生存性を検証する。
+
+**ネイティブとの二重制御防止**: commandedCap、Chunksmith native dispatchLimit、actual inFlight、実際のadmission rate、native slow-limit理由を別々に測定する。CAP_LIMITED / NATIVE_LATENCY_LIMITED / NATIVE_TICK_LIMITED / STORAGE_LIMITED / UNKNOWNを記録し、native側で抑制中はcap増加を「Bが不利」という実験結果にしない。PI積分／upward banditも凍結し、原因を診断。現行\`maki$clamp()\`は上げ方向の強制権を持たないという契約を維持する。
+
+**探索層（測定後の採用候補、数分単位）**: 主制御が安定運転している間、workClass構成・writer ACK率・p95待機・native幅・quota・MSPT・I/OのEWMAと持続的変化点（CUSUM等）を監視。変化が続き、安全余力がある時だけcapやtargetDebtSecondsの近傍を小さく比較する。小サンプルに過学習しない。旧仕事のcarryoverが大きければオンラインABBAを避ける。探索が消費する時間と失われた推定完成ペア数を記録し、効果がなければバックオフして長い安定運転。writer律速の場合は単純にcapを固定するだけでなく、goodputを維持したまま一段低いcapがCPU秒・滞留を減らせるかも試す。
+
+**学習の再利用**: c_bestを無条件に保持しない。別の小さなperformance profileにcontroller version、CPU quota/affinity、heap、Chunksmith native config/writer構成、workClass帯、観測日齢、成功サンプル・安全条件を最小限記録する。近い環境だけ安全clampしたwarm startと短い確認を許可。古い／破損／異なる環境では既知の安全開始値へ戻す。生成キャッシュのfingerprint・有効性には影響しない。
+
+## 7. cap以外の根本的な処理改善も対照にする
+
+以下の改善案は**勝手に全採用しない**。メトリクスまたはmicrobenchmarkで真の律速が確認できた場合に、単純な現状方式との同条件実測で採否を決める。
+
+- **LOD ACK O(P)走査**: LodCommitTrackerの\`PENDING.containsValue(result)\`と\`values().removeIf\`を、record identityに紐付く登録ハンドルと条件付きremove（理想的には通常O(1)）へ替えることを比較。offer中の同期write、複数レコード、同座標再試行、timeout/exception/composite sink、停止をテスト。負荷が軽いなら変更しない。
+- **main-thread snapshot**: ChunkSerializer.writeとEntitySnapshotを別スレッドへ安全性の根拠なく移さない。まず1tick当たりのsnapshot CPU時間と完了ペア/sを計測し、必要なら**生成前の投入**へtick負荷予算を戻す。native幅を増やしてもserver tickを浪費するならcapを上げない。
+- **容量refreshのO(file数)負荷**: CacheDiskBudget.refreshがLOD領域のFiles.walkを繰り返す負荷を測定。大きい場合に限りwriter ACKと変更リージョンのsize差に基づく保守的な増分会計を導入し、非同期の定期全走査でreconcileする。単純累積のLOD bytesは同一region上書きによる増減を表さない。測定不確実なら15GiB/2GiB制約をfail-closedし、性能よりデータ安全優先。
+- **容量境界での生成浪費**: FULL生成後にhard leaseを取る現状は、容量不足時にCPU時間が成果にならない。ワールド正本の事前判定後、新規FULL見込みのみadvisoryの圧縮後サイズ分位数・保守余裕で投入creditを予約し、生成後の既存hard leaseと照合する案を比較。hard leaseの前倒しが必要なら二重予約・timeout・hand-offリークを防ぐ正式API設計として別検討する。上限に近い条件でのみ効果があるか計測する。
+- **FULL圧縮とpublishの分離**: CacheManager.publishCaptureは同じWRITE_IOでgzip圧縮と原子的公開を直列実行している。まず圧縮CPU、ファイルI/O待ち、claim/renameの各時間を分ける。**圧縮CPUが律速**なら小さな有界圧縮worker（1→2等）を比較し、immutable NBT snapshot、byte lease、座標の所有権、原子的publishを保持する。2CPU環境ではworldgenとCPU競合するため逆効果もあり、速いと証明されないなら1workerのままにする。LODリージョンwriterの無条件並列化は禁止。
+- **native生成工程**: native-onlyで最速なら自作探索層を捨てる。逆にChunkSmithのnative slow-load判定が主律速なら、isChunkGenerated、ticket待ち、worldgen、server-thread snapshot、LOD／FULL writerを同じattemptの**重ならない時間区間と重なるcritical path**として分解し、真正なslow理由を診断する。第三者MODへの直接改変は、自作MODの介入や設定だけで安全に解決できないと判明した場合の最終案に限定。
+- **FULLとLODを別々の処理で生成する構成**や、将来の別ストア／圧縮形式、スケジューラを再配置する案は、通常ワールド保護と同一生成結果、既存完成物再利用、15GiB制約の全体コストを評価して初めて検討する。旧データを破棄するだけの速度向上策は評価から除外する。
+
+## 8. 実装境界・状態機械
+
+\`maki-chunksmith-chunk-cache\`: 保存成功、所有権、同一生成token、ACK保証、PAIR_CONFIRMED_RUNTIME、既存の安全なpromotionの責務。読み取り専用のPregenCompletionTelemetry、段階別統計、PipelineMetrics.report定期実行を実装候補とする。計測失敗で正本判定を変えない。
+
+\`maki-lod-cpu\`: 安全監視・実効native幅の観測・候補別制御器（native-only / cap-only / admission-only / combined）の切替と測定、学習profileの妥当性評価。必要になった時だけ短い安全なnative dispatch gateを実装。既存設計と混同しないfeature flagを設け、旧方式へのロールバックを確保する。
+
+\`maki-mods-observer\`: 診断専用MODの責務は尊重する。新たな軽量統計のために専用ログファイルや高速な座標別INFOを乱発しない。通常INFOは60秒集計（G_new/G_repair/G_total、未完了tail、native幅、LOD/FULL writer、deadlineリスク、採否と理由）、WARNは保存失敗や安全停止を記録する。
+
+候補方式の状態機械:
+
+\`\`\`text
+observe():
+    sensor = snapshot_native_and_pair_ack_and_storage_without_new_chunk_IO()
+    if player_online or ownership_unknown or fingerprint_unknown or hard_disk_budget_block:
+        stop_NEW_pregen_admission_only()
+        complete_or_abort_inflight_under_existing_safe_rules()
+        return
+    if emergency_pressure:
+        cut_admission_and_safe_native_cap(); freeze_learning()
+        return
+    if stale_or_unreliable_sensor:
+        use_previous_safe_policy_without_optimistic_increase()
         return
 
-    if hard_pressure(s):
-        reduce_to_safe_cap_with_hysteresis()
-        mark_comparison_contaminated()
-        return
+    classify_bottleneck(generation, main_thread_snapshot, validation,
+                        lod_writer, full_writer, native_safety, unknown)
+    if selected_policy_uses_admission_gate and downstream_congestion_supported:
+        update_bounded_dispatch_credit_avoiding_deadlines_and_queue_growth()
+    if selected_policy_uses_cap_learning and stable_environment_and_no_native_suppression:
+        run_rare_robust_local_test_or_keep_best_known()
+    record_all_wall_clock_pairs_and_pending_tail_and_resource_cost()
+\`\`\`
 
-    if sensors_stale(s) or native_backpressure(s):
-        keep_or_recover_safe_cap()
-        pause_exploration()
-        diagnose_bottleneck()
-        return
+安全監視は全候補で共有する。計測可能なすべての不変条件を守り、controllerの追加によって原子公開・正常FULL優先・LODsのnon-task更新・プレイヤー切替が壊れないことを保証する。
 
-    ingest_coordinate_pair_ack_events()
-    update_pending_cohorts_and_latency_histograms()
+## 9. 比較計画・段階採用・却下条件
 
-    if native_effective_width_is_limited or storage_pipeline_saturated:
-        keep_cap_and_diagnose()
-        return
+**P0（無条件採用）**: 既存方式を変更せず、権威のあるペア確定イベントと段階別律速計測、INFO診断復旧だけを行う。計測の正確さとパフォーマンス負荷を測る。真のLOD/世代対応が未証明な領域を隠さない。
 
-    if comparison_active:
-        continue_bounded_ABBA_or_BAAB()
-        if sufficient_comparable_confirmations():
-            adopt_candidate_only_if_robust_gain()
-            enter_stable_run_and_apply_exploration_backoff()
-        return
+**P1（個別の有利さを確認）**: LodCommitTracker O(P)、容量walk、FULL writer圧縮CPU、main-thread snapshotの律速を検証し、効果がある改善だけ切り出して採用する。コントローラの複雑化よりこの改善の方が速ければ優先する。
 
-    if model_empty or workload_drifted or safe_recheck_due:
-        candidate = select_local_neighbor(best_cap, safety_headroom)
-        begin_delayed_feedback_switchback(candidate)
-    else:
-        use(best_cap)
-~~~
+**P2（方式選定）**: 少なくとも (A) native-only、(B) 現行1.4.2、(C) confirmed-pair cap-only、(D) cap固定＋admission gate、(E) cap学習＋admission gate を複製ワールドで同条件比較する。D/E内部も(AIMD, simple gate, PI等)は最初から勝者を決めず、律速が後段にある場合だけ比較する。試験ごとに同じseed・未生成状態・MOD構成・CPU quota・同心円範囲・キャッシュ/LOD/writer初期条件を揃え、試験順を交互化して複数回実施する。実験での生成結果の再利用によるバイアスを避ける。
 
-現行の最大並列数はChunkSmithネイティブの上限より上げない。実効幅がずっと2なら、上限を9にする実験より「ネイティブがなぜ2に制限したか」を優先して分析する。プレイヤーがいない短いidle切替で学習済みの結果を無条件に2へリセットせず、ownership・構成・測定鮮度・安全性を評価して再利用する。
+**P3（必要な場合のみ）**: 単一FULL writer、main-thread snapshot、LOD writer/nativeインターフェース自体が高い構造的上限なら、制御方式とは独立にボトルネックの処理構成を再設計し、P2と組み合わせず単独の差で評価する。第三者MODの直接改変は必要性を証明してからに限定。
 
-## 7. 既存MODへの実装割り当て
+すべての試験に、探索に費やした時間、slow-chunk抑制を含む投入不可時間、30秒期限切れ、既存完成の再検証、tail debtの未確定残り、停止時のdrain、プレイヤー復帰時遅延を含める。追加の計測CPU／ロック待ちが本来の生産性を低下させるなら計測器を簡略化する。
 
-**maki-chunksmith-chunk-cache:** CacheManagerのPublicationGate、confirmation ledger、LOD確認を通過したPAIR_CONFIRMEDイベントのみを発行する、軽量なPregenCompletionTelemetryを追加。修復と新規生成の区別、失敗・pending、古いepochの重複排除を担当。現行PipelineMetrics.report()を現役の定期保守経路から確実に呼び、旧Backfill制御器に結び付いたログ出力依存を解消する。保存・昇格の安全制約を変更しない。
+テスト: 同一生成結果のtoken照合／LOD後続上書き、重複試行・旧epoch・restart、失敗順序とhand-off、native widthでcapが届かない状況、統計的に不安定な地形、writer ACK遅延・0件/秒・期限30秒、queue制限・memory pressure、センサー欠損・writer凍結、CGroup quota変更・learned profile破損、LOD writer同期fallback、Entity/POI/構造物保存と村・船舶保護。現行NeoForge／Chunksmithに対するMixin ABI、ビルド、既存テストも実施する。
 
-**maki-lod-cpu:** 計測専用のPregenTelemetryBridge、安全制御のSafetyController、純粋ロジックAdaptiveThroughputOptimizerを構成。GenerationTaskMixinは要求上限と実効幅を安全に扱う。外部MODに対する強制上限解除はしない。新しい計測APIはキャッシュMODがいない・旧版・計測不能の時に互換性のある保守的な動作へ降格する。
+採用判定: すべての正本とプレイヤー安全条件に回帰0。保存失敗・再試行・timeoutが悪化しないこと。複数回の同条件反復でwall-clock確定ペアgoodputが統計的に信頼できる程度改善、またはgoodputが同等でCPU秒／ペアや待ちが改善。優位性不明なら**単純な方式を維持し、複雑な制御は採用しない**。
 
-**maki-idle-pregen / maki-millenaire-lod-compat / maki-ship-save:** 今回の制御対象ではない。player入退場、無人時freeze、通常LOD更新、村と船舶の保存について結合テストで安全性を確認する。
+## 10. 参考・レビューの扱い
 
-通常INFOログには60秒ごとのG_total / G_new / G_repair、確定失敗／保留、requested/native cap、各圧力、学習モード、採否理由と信頼度を出す。個別座標の高頻度ログや新たなI/Oは避ける。
+関連: [Issue #83](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/issues/83)、[Issue #74](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/issues/74)、[Netflix concurrency-limits](https://github.com/Netflix/concurrency-limits)（遅延・待機量に基づく同時数制御の参考であり、この環境に適合するという証拠ではない）、[Little 1961: L=λW](https://doi.org/10.1287/opre.9.3.383)（定常系での関係）。
 
-## 8. 導入計画・比較テスト・採用基準
+実装参照: [AdaptivePolicy.java](../custom-mods/maki-lod-cpu/src/main/java/maki/lodcpu/AdaptivePolicy.java)、[CpuGovernor.java](../custom-mods/maki-lod-cpu/src/main/java/maki/lodcpu/CpuGovernor.java)、[GenerationTaskMixin.java](../custom-mods/maki-lod-cpu/src/main/java/maki/lodcpu/mixin/GenerationTaskMixin.java)、[CacheManager.java](../custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/CacheManager.java)、[LodCommitTracker.java](../custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/LodCommitTracker.java)、[CacheDiskBudget.java](../custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/CacheDiskBudget.java)、[PipelineMetrics.java](../custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/PipelineMetrics.java)。
 
-1. 計測契約だけを導入し、現行制御と独立してFULL+LODの確定goodput、FULL失敗、長尾pendingを測る。総LOD書込数と確定ペア数の差を明示する。
-2. feature flagでV2制御器を実装する。計測の不整合・エラー時は既存の安全な経路へ戻す。現行のChunksmith安全制約を保持する。
-3. モデル単体テストでは遅延完了、旧epoch、重複callback、LODだけ成功／FULLだけ成功、保存失敗、player接続、傾向変化、native並列抑制、0件窓、CPU制限変更、長尾分布を検証する。
-4. CIでNeoForge 21.1.262、Chunksmith 4.6.0、Mixin適用／ABI、jar再構築、既存のキャッシュ保存・昇格・POI／Entity保護試験を検証する。
-5. 本番ワールドを削除せず、同条件の複製テスト世界・同じseedと生成MOD・同じcgroup CPU制約・同じ範囲から現行1.4.2方式とV2方式を比較する。試験順を交互にし、複数回実施する。探索時間も含む全経過時間の確定goodput、資源消費、安全圧力、失敗件数、回復時間を評価する。
-6. V2の採用条件は、データ保全とプレイヤー応答性の回帰0、保存失敗率や再起動後の成果不採用に悪化なし、複数回の同条件試験で統計的に信頼できる確定goodput改善、または同等goodputでより少ない資源消費があること。改善不明なら現行方式を保持する。
+PR #89の36件のレビューは、同一生成の根拠、重複排除とattempt、分母バイアス、作業種別重み、carryover、writer律速、工程別credit、期限予測、native制御の干渉、root cause計測、容量、OOD(P)のACK、スナップショット、圧縮、学習profile、ablationなどを相互に整合させて本仕様へ取り込んだ。**基本採用とは設計条件として採用すること。性能改善を実測していない候補は比較対象として保留する。**
 
-**仕様の保証範囲:** この方式は非定常負荷に適応して安全な実用速度を狙う設計であり、あらゆる地形・ハードウェアで世界最速という証明ではない。最終採用は同条件の実測により判断する。今回の設計PRはコード未実装のため、CI緑や動作改善を主張しない。
-
-### 対応根拠
-- [Issue #83 統一FULL＋LOD仕様](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/issues/83)
-- [AdaptivePolicy.java](../custom-mods/maki-lod-cpu/src/main/java/maki/lodcpu/AdaptivePolicy.java)
-- [CpuGovernor.java](../custom-mods/maki-lod-cpu/src/main/java/maki/lodcpu/CpuGovernor.java)
-- [GenerationTaskMixin.java](../custom-mods/maki-lod-cpu/src/main/java/maki/lodcpu/mixin/GenerationTaskMixin.java)
-- [CacheManager.java](../custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/CacheManager.java)
-- [GenerationRequestMixin.java](../custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/mixin/GenerationRequestMixin.java)
-- [PipelineMetrics.java](../custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/PipelineMetrics.java)
+このPRの範囲は改訂した設計仕様に限る。実装・最適性・性能向上を確認したと称さない。
