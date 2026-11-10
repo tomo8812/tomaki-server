@@ -13,20 +13,20 @@ from classfile_annotations import parse_class, walk_annotations
 class MixinAuditTest(unittest.TestCase):
     def test_reserved_package_regression(self):
         root = Path(__file__).resolve().parents[2]
-        source = next((root / 'mods').glob('maki-lod-cpu-online-fix-*.jar'))
+        source = next((root / 'mods').glob('maki-lod-cpu-*.jar'))
         with tempfile.TemporaryDirectory() as tmp:
             target = Path(tmp) / source.name
             with zipfile.ZipFile(source) as src, zipfile.ZipFile(target, 'w') as dst:
                 for entry in src.infolist():
                     data = src.read(entry)
-                    if entry.filename == 'maki-lod-cpu-online-fix.mixins.json':
+                    if entry.filename == 'maki-lod-cpu.mixins.json':
                         config = json.loads(data)
-                        config['package'] = 'maki.lodcpu.onlinefix'
-                        config['server'] = ['mixin.AdaptivePolicyMixin']
+                        config['package'] = 'maki.lodcpu'
+                        config['server'] = ['mixin.GenerationTaskMixin']
                         data = json.dumps(config).encode()
                     dst.writestr(entry, data)
             _, errors = audit_jar(target)
-            self.assertTrue(any('MakiLodCpuOnlineFix.class' in e and 'reserved' in e for e in errors), errors)
+            self.assertTrue(any('MakiLodCpu.class' in e and 'reserved' in e for e in errors), errors)
 
     def test_classfile_annotations_unicode_nested_and_retention(self):
         # Compile a real fixture so constant-pool and nested attribute parsing

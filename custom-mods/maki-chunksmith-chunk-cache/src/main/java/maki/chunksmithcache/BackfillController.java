@@ -808,13 +808,6 @@ public final class BackfillController {
       advanceIfCurrent(level,pos,state);
    }
 
-   private static void releaseIdlePregenClaim(BackfillController.State state) {
-      if (state.idlePregenClaimed) {
-         IdlePregenBridge.setBackfillActive(false);
-         state.idlePregenClaimed=false;
-      }
-   }
-
    private static boolean active(BackfillController.State var0, long var1, ServerLevel var3, ChunkPos var4) {
       return !var0.stopping && var0.busy && var0.token == var1 && var0.activeLevel == var3 && var0.activePos != null && var0.activePos.toLong() == var4.toLong();
    }
@@ -896,14 +889,6 @@ public final class BackfillController {
       String chunk=state.activePos==null?"none":state.activePos.x+","+state.activePos.z;
       LOG.info("Chunk-cache backfill state: phase={}, busy={}, scanning={}, dimension={}, chunk={}, waitReason={}, outcome={}, budgetReason={}, budgetReserved={}, ownTicket={}, futurePending={}, dependencyDrain={}, retiredGuards={}, started={}, completed={}, failed={}, handedOff={}, sharedBudget=[{}]",
          state.phase,state.busy,state.scanning,dimension,chunk,state.waitReason,state.completionOutcome,state.budgetReason,state.resourceBudgetReserved,state.backfillTicketHeld,state.loadFuturePending,state.awaitingScopeDrain,state.retiredGuards.size(),state.backfillsStarted,state.backfillsCompleted,state.backfillsFailed,state.backfillsHandedOff,LodResourceBudgetBridge.status());
-   }
-
-   private static Double metric(double value) {
-      return value < 0.0 || !Double.isFinite(value) ? null : Math.round(value * 1000.0) / 1000.0;
-   }
-
-   private static String instant(long millis) {
-      return millis==0L?null:java.time.Instant.ofEpochMilli(millis).toString();
    }
 
    private static BackfillController.Target nextCandidate(ServerLevel var0, BackfillController.Cursor var1, String var2, BackfillController.State state) {

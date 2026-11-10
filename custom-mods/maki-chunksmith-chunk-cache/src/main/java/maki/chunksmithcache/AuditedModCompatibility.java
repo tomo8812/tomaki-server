@@ -37,20 +37,6 @@ final class AuditedModCompatibility {
             "1.4.1 audited as pressure observation and generation-lease scheduling only; no chunk serialization or worldgen hooks"
         ),
         new Attestation(
-            "maki_lod_cpu_online_fix",
-            "833defdc614826804dcbf8f818827e6baf0a6d69c5f4e9b0946b9a2609d413f1",
-            "47014b5ef8263cf772a8f8b75dc8116426826b4eae9e95fb0a94755da8c14d52",
-            "adaptive-cap-only-v1",
-            "1.0.2 audited as adaptive load-cap correction only"
-        ),
-        new Attestation(
-            "maki_lod_cpu_online_fix",
-            "2217e4f0267b8786016e5f2ddbf6491eb4165f37e17439f23b7003f1cd1de206",
-            "985853d8403f31501242852eb84c292f6ea5317e58932f2e6e5097a033d3b987",
-            "adaptive-cap-only-v1",
-            "1.0.3 audited as adaptive load-cap correction only"
-        ),
-        new Attestation(
             "maki_diorama_share",
             "43a3d604ff3b65c1f198d877575cafa539bdf6972281cb4afbe9980675aa2939",
             "34db18c58af1e8edb508aad2b8c6d6a383abff24dc774f323b91f2e3bdf4c83d",

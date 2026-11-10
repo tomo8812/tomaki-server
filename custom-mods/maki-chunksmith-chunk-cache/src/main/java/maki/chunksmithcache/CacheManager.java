@@ -7,10 +7,8 @@ import com.kishku7.chunksmith.lod.CsLodRegionStore;
 import com.kishku7.chunksmith.lod.HorizonGuard;
 import com.kishku7.chunksmith.lod.LodSupport;
 import java.io.IOException;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
@@ -61,7 +59,6 @@ public final class CacheManager {
    private static volatile List<Path> activeRoots = List.of();
    private static final Map<MinecraftServer, Long> NEXT_DISK_REFRESH = new WeakHashMap<>();
    private static final Set<MinecraftServer> DISK_REFRESHING = ConcurrentHashMap.newKeySet();
-   private static final AtomicLong LAST_QUEUE_WARNING = new AtomicLong();
    private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
    private static final Map<String,Long> ROTATION_RETRY = new ConcurrentHashMap<>();
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
@@ -1591,14 +1588,6 @@ public final class CacheManager {
          } catch (RejectedExecutionException var5) {
             ROTATED.remove(var2);
          }
-      }
-   }
-
-   private static void moveAtomically(Path var0, Path var1) throws IOException {
-      try {
-         Files.move(var0, var1, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-      } catch (AtomicMoveNotSupportedException var3) {
-         Files.move(var0, var1, StandardCopyOption.REPLACE_EXISTING);
       }
    }
 

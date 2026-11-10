@@ -13,7 +13,6 @@ Normal Minecraft/NeoForge logging is the operational interface for every maintai
 | `maki-diorama-share` | startup and owning-service share lifecycle | protocol/persistence failures retain stack traces | Diorama persistence remains |
 | `maki-idle-pregen` | startup; task/pause/resume lifecycle | guard/incompatible-state/recovery failures are WARN/ERROR | generation/task data remains |
 | `maki-lod-cpu` | startup/shutdown; governor changes and low-frequency CPU/MSPT summary; follow state transitions and 60 s summary | migration/persistence failures are WARN/ERROR | Chunksmith task state and migration backup/audit remain; no status JSON |
-| `maki-lod-cpu-online-fix` | startup | compatibility degradation is WARN/ERROR | none |
 | `maki-millenaire-lod-compat` | startup; queue/lifecycle summaries | unsafe transitions and worker failures are WARN/ERROR | authoritative Millenaire/Chunksmith state only |
 | `maki-mods-observer` | startup and explicit diagnostic configuration | writer/config failures are WARN | optional `logs/maki-mods-observer.jsonl` and `logs/maki-mods-observer-nbt.jsonl`, disabled by default |
 | `maki-ship-anchor-fix` | startup | anchor recovery/compatibility failure is WARN/ERROR | none |
