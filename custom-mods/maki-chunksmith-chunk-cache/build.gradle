@@ -465,7 +465,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
         def requestFinishEnd = cache.indexOf('public static void pregenRequestFailed', requestFinishStart)
         def requestFinishBody = cache.substring(requestFinishStart, requestFinishEnd)
         if (!requestFinishBody.contains('PREGEN_REQUEST_TARGETS.remove(key,sourceTask)')
-                || !requestFinishBody.contains('PregenBorrowLedger.cancel(level,pos)')
+                || !requestFinishBody.contains('PregenBorrowLedger.cancel(level,pos,sourceTask)')
                 || !requestFinishBody.contains('addRetry(PREGEN_LOD_RETRY,key)')
                 || !requestFinishBody.contains('invalidateChunksmithLodPresence(level,pos)')
                 || !cache.contains('LodSupport.presenceIndexFor')
