@@ -21,7 +21,7 @@ public abstract class LodStoreCommitMixin {
     private int maki$acknowledge(CsLodRegionStore store, CsLodChunk record) throws IOException {
         try {
             int bytes=store.write(record);
-            CacheManager.noteLodPhysicalBytes(bytes);
+            CacheManager.noteLodPhysicalBytes(record,bytes);
             LodCommitTracker.written(record,null);
             return bytes;
         } catch (IOException | RuntimeException | Error error) {

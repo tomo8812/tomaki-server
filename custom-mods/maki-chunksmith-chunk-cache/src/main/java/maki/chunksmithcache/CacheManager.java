@@ -2,6 +2,7 @@ package maki.chunksmithcache;
 
 import com.kishku7.chunksmith.ChunksmithProvider;
 import com.kishku7.chunksmith.GenerationTask;
+import com.kishku7.chunksmith.lod.CsLodChunk;
 import com.kishku7.chunksmith.lod.CsLodPresenceIndex;
 import com.kishku7.chunksmith.lod.CsLodRegionStore;
 import com.kishku7.chunksmith.lod.HorizonGuard;
@@ -342,6 +343,12 @@ public final class CacheManager {
             ? sourceTask : existing);
       if(admitted!=sourceTask) {
          PipelineMetrics.count("pregen-request-owner-conflict");
+         PregenFlowController.candidateFailed(level,pos,sourceTask);
+         return false;
+      }
+      if(!LodRegionCapacity.allowPregen(level,pos)) {
+         PipelineMetrics.count("pregen-lod-region-capacity-rejected");
+         addRetry(PREGEN_LOD_RETRY,key);
          PregenFlowController.candidateFailed(level,pos,sourceTask);
          return false;
       }
@@ -825,9 +832,10 @@ public final class CacheManager {
       return status.hardBlock()||status.sensorUnknown()?status.pressureReason():null;
    }
 
-   public static void noteLodPhysicalBytes(int bytes) {
+   public static void noteLodPhysicalBytes(CsLodChunk record,int bytes) {
       if(bytes<=0)return;
       for(Path root:activeRoots)CacheDiskBudget.at(root).lodPublished(bytes);
+      LodRegionCapacity.written(currentServer,record,bytes);
    }
 
    static String ioSummary(long nowNanos) {
@@ -1742,6 +1750,7 @@ public final class CacheManager {
       PregenBorrowLedger.clear(server);
       PregenFlowController.clear(server);
       PairReceiptStore.clear();
+      LodRegionCapacity.clear();
       PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_LOD_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_NEW_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);

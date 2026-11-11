@@ -557,11 +557,12 @@ def pregenV2Request = file('src/main/java/maki/chunksmithcache/mixin/GenerationR
 def pregenV2Pair = file('src/main/java/maki/chunksmithcache/mixin/GenerationTaskPairMixin.java')
 def pregenV2World = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldMixin.java')
 def pregenV2RegionGuard = file('src/main/java/maki/chunksmithcache/mixin/LodRegionOffsetGuardMixin.java')
+def pregenV2RegionCapacity = file('src/main/java/maki/chunksmithcache/LodRegionCapacity.java')
 def pregenV2Disk = file('src/main/java/maki/chunksmithcache/CacheDiskBudget.java')
 def pregenV2Cache = file('src/main/java/maki/chunksmithcache/CacheManager.java')
 
 tasks.register('verifyPregenControllerV2') {
-    inputs.files(pregenV2Flow,pregenV2Receipt,pregenV2LodTracker,pregenV2Request,pregenV2Pair,pregenV2World,pregenV2RegionGuard,pregenV2Disk,pregenV2Cache)
+    inputs.files(pregenV2Flow,pregenV2Receipt,pregenV2LodTracker,pregenV2Request,pregenV2Pair,pregenV2World,pregenV2RegionGuard,pregenV2RegionCapacity,pregenV2Disk,pregenV2Cache)
     doLast {
         def flow=pregenV2Flow.getText('UTF-8')
         def receipt=pregenV2Receipt.getText('UTF-8')
@@ -570,6 +571,7 @@ tasks.register('verifyPregenControllerV2') {
         def pair=pregenV2Pair.getText('UTF-8')
         def world=pregenV2World.getText('UTF-8')
         def region=pregenV2RegionGuard.getText('UTF-8')
+        def regionCapacity=pregenV2RegionCapacity.getText('UTF-8')
         def disk=pregenV2Disk.getText('UTF-8')
         def cache=pregenV2Cache.getText('UTF-8')
         ['enum Stage { LOD, VALIDATE, FULL }','reserveCandidate','beginActual','physicalStart','physicalTerminal',
@@ -599,6 +601,11 @@ tasks.register('verifyPregenControllerV2') {
         }
         if(!region.contains('Integer.MAX_VALUE-MAX_RECORD_BYTES') || !region.contains('RandomAccessFile;length()J')) {
             throw new GradleException('Pregen V2 regression: signed 32-bit CSLOD offset guard missing')
+        }
+        if(!regionCapacity.contains('PREGEN_HEADROOM=64L<<20') || !regionCapacity.contains('allowPregen')
+                || !cache.contains('LodRegionCapacity.written(currentServer,record,bytes)')
+                || !cache.contains('LodRegionCapacity.allowPregen(level,pos)')) {
+            throw new GradleException('Pregen V2 regression: Follow-specific CSLOD headroom guard missing')
         }
     }
 }
