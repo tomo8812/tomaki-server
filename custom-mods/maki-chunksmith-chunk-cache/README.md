@@ -1,5 +1,34 @@
 # maki-chunksmith-chunk-cache
 
+## Version 1.4.4: audited FULL cache migration (4.6.0 / 9.0.3 -> 4.8.1 / 9.1.0)
+
+The existing compatibility-generation migration now accepts the **exact**
+audited distributed Chunksmith/Millenaire upgrade only when all the
+relevant conditions hold:
+
+- Historical and current manifests contain the exact verified old/new JAR
+  pairs, including their filenames, byte sizes and SHA-256 hashes, for
+  Chunksmith, Millenaire, maki-millenaire-lod-compat, maki-idle-pregen
+  and maki-ship-save. Mixed versions and unknown builds fail closed.
+- The policy signature is unchanged and every other compatibility-relevant
+  input remains equivalent: world seed, dimension, generator class,
+  Minecraft data version, worldgen settings, datapacks, other MODs,
+  server settings and configuration inputs.
+- Normal FULL chunk integrity checks still apply to each loaded entry,
+  including schema, entity snapshot, dimension, coordinates and the
+  accepted historical fingerprint.
+
+`GenerationStore` uses its existing conflict-safe migration/merge and
+stored-fingerprint acceptance. Compatible quarantined generations are
+eligible for automatic recovery; incompatible inputs stay quarantined.
+LOD uses native Chunksmith's unchanged `.cslod` format.
+
+This is an exact, one-way upgrade audit, never a blanket exception for
+future or unrelated world-generation binaries. Test it with
+`./gradlew auditedGenerationUpgradeTest`. A server restart with the
+updated JAR is required for the migrated generation to be available.
+
+
 Version 1.2.1 combines semantic compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
 
 
