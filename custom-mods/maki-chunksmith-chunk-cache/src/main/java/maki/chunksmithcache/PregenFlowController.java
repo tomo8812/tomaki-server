@@ -200,7 +200,8 @@ final class PregenFlowController {
 
     static synchronized void physicalStart(String token,Stage stage) {
         Attempt attempt=BY_TOKEN.get(token);
-        if(attempt!=null&&attempt.held.contains(stage))attempt.started.add(stage);
+        if(attempt!=null&&attempt.held.contains(stage)&&attempt.started.add(stage))
+            PipelineMetrics.count(stageMetric(stage,"physical-start"));
     }
 
     static synchronized void physicalTerminal(String token,Stage stage,long serviceNanos,boolean success) {
@@ -210,6 +211,8 @@ final class PregenFlowController {
             StageState state=STAGES.get(stage);
             state.outstanding=Math.max(0,state.outstanding-1);
             state.terminal(serviceNanos,success);
+            PipelineMetrics.count(stageMetric(stage,"terminal"));
+            PipelineMetrics.count(stageMetric(stage,success?"success":"failure"));
         }
         attempt.started.remove(stage);
         finishIfDone(attempt);
@@ -326,6 +329,7 @@ final class PregenFlowController {
         for(Stage stage:needed) {
             attempt.held.add(stage);
             STAGES.get(stage).outstanding++;
+            PipelineMetrics.count(stageMetric(stage,"reserved"));
         }
     }
 
@@ -369,6 +373,14 @@ final class PregenFlowController {
             releaseAllUnstarted(attempt);
             finishIfDone(attempt);
         }
+    }
+
+    private static String stageMetric(Stage stage,String suffix) {
+        return switch(stage) {
+            case LOD -> "stage-lod-"+suffix;
+            case VALIDATE -> "stage-validate-"+suffix;
+            case FULL -> "stage-full-"+suffix;
+        };
     }
 
     private static String sanitize(String reason) {
