@@ -27,19 +27,12 @@ jobs:
           jar=custom-mods/maki-chunksmith-chunk-cache/build/libs/maki-chunksmith-chunk-cache-1.4.6.jar
           test -s "$jar"
           unzip -p "$jar" META-INF/neoforge.mods.toml | grep -F 'version="1.4.6"'
-          rm mods/maki-chunksmith-chunk-cache-1.4.5.jar
+          rm -f mods/maki-chunksmith-chunk-cache-1.4.5.jar
           cp "$jar" mods/maki-chunksmith-chunk-cache-1.4.6.jar
           test "$(find mods -maxdepth 1 -name 'maki-chunksmith-chunk-cache-*.jar' | wc -l)" -eq 1
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A mods
+          git diff --cached --quiet && exit 0
           git commit -m "build(cache): publish FULL-only cache compatibility 1.4.6"
           git push origin HEAD:compat/chunksmith-4.8.1-millenaire-9.1.0
-
-# Recheck after fixing sensitivity matching for historical MOD paths.
-
-# Re-run after replacing obsolete unknown-MOD fail-closed tests.
-
-# Verify semantic/legacy tests against the FULL-only policy.
-
-# Verify current-only generator configuration and no hypothetical future MOD rules.
