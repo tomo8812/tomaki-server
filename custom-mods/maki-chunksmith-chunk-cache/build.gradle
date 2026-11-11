@@ -50,6 +50,7 @@ def registeredMixins = [
     'maki.chunksmithcache.mixin.GenerationTaskPairMixin',
     'maki.chunksmithcache.mixin.GenerationRequestMixin',
     'maki.chunksmithcache.mixin.LodStoreCommitMixin',
+    'maki.chunksmithcache.mixin.LodRegionOffsetGuardMixin',
     'maki.chunksmithcache.mixin.ServerLevelEntityAccessor',
     'maki.chunksmithcache.mixin.EntitySectionManagerAccessor',
     'maki.chunksmithcache.mixin.EntityStorageWriteAckMixin',

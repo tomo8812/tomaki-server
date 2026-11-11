@@ -3,6 +3,7 @@ package maki.chunksmithcache.mixin;
 import com.kishku7.chunksmith.lod.CsLodChunk;
 import com.kishku7.chunksmith.lod.CsLodRegionStore;
 import java.io.IOException;
+import maki.chunksmithcache.CacheManager;
 import maki.chunksmithcache.LodCommitTracker;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -19,8 +20,9 @@ public abstract class LodStoreCommitMixin {
     @Redirect(method="persist", at=@At(value="INVOKE", target="Lcom/kishku7/chunksmith/lod/CsLodRegionStore;write(Lcom/kishku7/chunksmith/lod/CsLodChunk;)I"), require=1)
     private int maki$acknowledge(CsLodRegionStore store, CsLodChunk record) throws IOException {
         try {
-            int bytes = store.write(record);
-            LodCommitTracker.written(record, null);
+            int bytes=store.write(record);
+            CacheManager.noteLodPhysicalBytes(bytes);
+            LodCommitTracker.written(record,null);
             return bytes;
         } catch (IOException | RuntimeException | Error error) {
             LodCommitTracker.written(record, error);

@@ -819,6 +819,11 @@ public final class CacheManager {
       return status.hardBlock()||status.sensorUnknown()?status.pressureReason():null;
    }
 
+   public static void noteLodPhysicalBytes(int bytes) {
+      if(bytes<=0)return;
+      for(Path root:activeRoots)CacheDiskBudget.at(root).lodPublished(bytes);
+   }
+
    static String ioSummary(long nowNanos) {
       ResourceStatus status = resourceStatus();
       return "pending=" + status.pendingCaptures() + ",pendingBytes=" + status.pendingBytes()
