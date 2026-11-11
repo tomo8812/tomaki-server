@@ -603,9 +603,14 @@ public final class CacheManager {
    }
 
    public static boolean chunksmithWorldStateGenerated(ServerLevel level,ChunkPos pos,boolean nativeGenerated) {
-      if(!nativeGenerated||level==null||pos==null||!FollowCaptureOwnership.owns(level))return nativeGenerated;
+      if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return nativeGenerated;
       CaptureKey key=captureKey(level,pos);
-      if(PREGEN_RETRY.due(key,System.nanoTime()) || PREGEN_NEW_TARGETS.containsKey(key)
+      long retryNow=System.nanoTime();
+      PipelineMetrics.count("pregen-scanned-coordinate");
+      boolean fullRetryDue=PREGEN_RETRY.due(key,retryNow);
+      if(fullRetryDue)PipelineMetrics.count("pregen-effective-retry-full");
+      if(!nativeGenerated)return false;
+      if(fullRetryDue || PREGEN_NEW_TARGETS.containsKey(key)
          || CAPTURE_PENDING.containsKey(key) || PregenBorrowLedger.kind(level,pos)!=null
          || PromotionLedger.owns(level,pos)) return false;
       if(CONFIRMED_PREGEN.containsKey(key)) {
@@ -799,7 +804,10 @@ public final class CacheManager {
    public static boolean chunksmithLodSkipHint(ServerLevel level,ChunkPos pos,CsLodPresenceIndex index) {
       if(level==null||pos==null||index==null||!FollowCaptureOwnership.owns(level))return false;
       CaptureKey key=captureKey(level,pos);
-      if(PREGEN_LOD_RETRY.due(key,System.nanoTime()))return false;
+      if(PREGEN_LOD_RETRY.due(key,System.nanoTime())) {
+         PipelineMetrics.count("pregen-effective-retry-lod");
+         return false;
+      }
       Path region=lodRegionPath(index,pos);
       FileStamp current=fileStamp(region);
       LodStamp confirmed=CONFIRMED_LOD.get(key);
