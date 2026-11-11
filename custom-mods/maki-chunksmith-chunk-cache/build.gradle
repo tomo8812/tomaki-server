@@ -631,7 +631,8 @@ tasks.register('verifyPregenControllerV2') {
         if(!disk.contains('toRealPath()') || !disk.contains('samePhysicalStore(')
                 || !disk.contains('sharedFileStore') || !disk.contains('cacheUsableBytes')
                 || !disk.contains('lodUsableBytes') || !disk.contains('"lod-disk-reserve"')
-                || !disk.contains('PregenFlowController.snapshot().lodOutstanding()')) {
+                || !disk.contains('PregenFlowController.snapshot().lodOutstanding()')
+                || !disk.contains('observedLodBytes=inventory?treeBytes(realLodRoot):0L')) {
             throw new GradleException('Pregen V2 regression: independent physical FileStore/projected LOD disk guard missing')
         }
         if(!region.contains('Integer.MAX_VALUE-MAX_RECORD_BYTES') || !region.contains('RandomAccessFile;length()J')) {
