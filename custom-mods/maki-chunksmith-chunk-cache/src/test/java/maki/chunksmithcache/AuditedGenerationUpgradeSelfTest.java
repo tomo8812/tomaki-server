@@ -140,6 +140,21 @@ public final class AuditedGenerationUpgradeSelfTest {
             require(Files.isRegularFile(invalid), "invalid FULL must survive for quarantine");
             require(!Files.exists(valid), "validated original was moved");
 
+            // Production semantic migrations copy before committing the stored-
+            // fingerprint acceptance. The historical source must survive a
+            // crash or missing manifest until reconciliation succeeds.
+            NbtIo.writeCompressed(good, valid);
+            Path afterCopy = directory.resolve("copy-only");
+            CacheDirectoryMerge.MergeStats copy = CacheDirectoryMerge.copyValidatedPreservingSource(
+                old, afterCopy,
+                p -> CacheFormatValidator.rejectReason(
+                    p, historical, "minecraft:overworld", DATA_VERSION) == null);
+            require(copy.adoptedEntries() == 1 && copy.rejectedEntries() == 1,
+                "copy must adopt only the format-compatible entry");
+            require(Files.isRegularFile(valid) && Files.isRegularFile(invalid)
+                && Files.isRegularFile(afterCopy.resolve("r.11.-2/c.383.-61.nbt.gz")),
+                "copy-first migration must preserve every original until manifest commit");
+
             NbtIo.writeCompressed(envelope(historical.fingerprint(), 382, -61), invalid);
             CompoundTag village = envelope(historical.fingerprint(), 382, -61);
             CompoundTag villageEntity = new CompoundTag();
