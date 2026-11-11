@@ -58,6 +58,17 @@ public final class LodPhysicalSelfTest {
         LodCommitTracker.written(nether,null);
         require(a.join() && b.join(),"independent dimensions do not collide");
 
+        LodCommitTracker.LodReceipt committed=new LodCommitTracker.LodReceipt(
+            "source","minecraft:overworld",76,13,"digest",1L,2L);
+        require(LodCommitTracker.coordinateClear(committed),"completed coordinate starts clear for PAIR commit");
+        CsLodChunk later=record(76,13);
+        LodCommitTracker.track(later,null);
+        require(!LodCommitTracker.coordinateClear(committed),
+            "a later queued/native LOD write blocks an older PAIR receipt");
+        LodCommitTracker.written(later,null);
+        require(LodCommitTracker.coordinateClear(committed),
+            "PAIR fence clears only after the later physical write terminates");
+
         require(LodCommitTracker.physicalStatus().reliable(),"no native record identities were lost");
         System.out.println("LodPhysicalSelfTest passed");
     }
