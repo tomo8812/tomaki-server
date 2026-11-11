@@ -1,5 +1,31 @@
 # maki-chunksmith-chunk-cache
 
+## Version 1.4.5: field-based migration for later cache generations
+
+Cache migration no longer enumerates historical generation IDs or pins exact
+old/new distributed JAR SHA-256 pairs. On generation reconciliation it compares
+the runtime and historical manifest by semantic role and stable serialization
+format. Only the known pregen/LOD/deferred-village roles may change release
+within the same major version; every other generation-relevant binary, seed,
+world generator, level.dat worldgen state, datapack, terrain config and policy
+must still compare equal. Downgrades and unrecognized roles fail closed.
+
+Each candidate FULL cache is independently checked on the I/O executor before
+migration: canonical region and coordinate path, compressed NBT readability,
+cache schema 3, completed entities and LOD, accepted stored fingerprint,
+dimension, coordinates, FULL chunk status, current Minecraft DataVersion,
+and absence of serialized Millenaire content. Eligible entries enter the
+current generation without rewriting NBT. Rejected entries remain in the old
+directory and are quarantined by the usual reconciliation path. The same
+validation applies when recovering an equivalent quarantined generation.
+
+This supports previously generated and subsequently generated FULL caches
+as long as their actual schema/fields and environmental inputs satisfy the
+same contract. The original strict fingerprint system continues to protect
+changes in terrain-generating MODs. The native Chunksmith CSLOD store remains
+separate and is not modified.
+
+
 ## Version 1.4.4: audited FULL cache migration (4.6.0 / 9.0.3 -> 4.8.1 / 9.1.0)
 
 The existing compatibility-generation migration now accepts the **exact**
