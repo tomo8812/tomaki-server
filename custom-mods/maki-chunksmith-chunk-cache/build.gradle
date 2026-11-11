@@ -281,12 +281,11 @@ def issue83Mod = file('src/main/java/maki/chunksmithcache/MakiChunksmithChunkCac
 def issue83Promotion = file('src/main/java/maki/chunksmithcache/PromotionLedger.java')
 def issue83Claim = file('src/main/java/maki/chunksmithcache/PromotionClaim.java')
 def issue83Policy = file('src/main/java/maki/chunksmithcache/FingerprintPolicy.java')
-def issue83Compatibility = file('src/main/java/maki/chunksmithcache/CompatibilityInput.java')
 
 tasks.register('verifyIssue83UnifiedPregen') {
     inputs.files(issue83CacheSource, issue83FollowOwnership, issue83PairMixin, issue83Mixins, issue83DiskBudget,
         issue83Borrow, issue83PoiBridge, issue83ChunkSave, issue83EntitySave, issue83PoiSave, issue83Unload,
-        issue83Request, issue83World, issue83Mod, issue83Promotion, issue83Claim, issue83Policy, issue83Compatibility)
+        issue83Request, issue83World, issue83Mod, issue83Promotion, issue83Claim, issue83Policy)
     doLast {
         def cache = issue83CacheSource.getText('UTF-8')
         def followOwnership = issue83FollowOwnership.getText('UTF-8')
@@ -305,7 +304,6 @@ tasks.register('verifyIssue83UnifiedPregen') {
         def promotion = issue83Promotion.getText('UTF-8')
         def claim = issue83Claim.getText('UTF-8')
         def policy = issue83Policy.getText('UTF-8')
-        def compatibility = issue83Compatibility.getText('UTF-8')
         if (mixins.contains('"MinecraftServerMixin"')) {
             throw new GradleException('Issue #83 regression: independent Backfill server-tick exploration is active')
         }
@@ -420,10 +418,13 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !poiSave.contains('SimpleRegionStorage;write(')) {
             throw new GradleException('Issue #83 regression: promoted cache may retire before suppressed POI is durably saved')
         }
-        if (!policy.contains('fingerprint.audited-neutral-mod-sha256')
-                || !policy.contains('auditedNeutralArtifacts.contains(id+":"+rawSha256)')
-                || !compatibility.contains('policy.allowsAuditedNeutral(key, file, rawSha256)')) {
-            throw new GradleException('Issue #83 regression: audited generation-neutral MOD updates have no safe compatibility path')
+        if (!policy.contains('"epicterrain-"')
+                || !policy.contains('"zfastnoise-"')
+                || !policy.contains('BUILTIN_GENERATION_SENSITIVE_PATHS')
+                || !policy.contains('return FingerprintManifest.Impact.IGNORED')
+                || policy.contains('fingerprint.audited-neutral-mod-sha256')
+                || policy.contains('fingerprint.generation-sensitive-mod-ids')) {
+            throw new GradleException('Issue #83 regression: FULL cache terrain-input classification is not bounded to current inputs')
         }
         def prepareStart = cache.indexOf('public static boolean preparePregenRequest')
         def prepareEnd = cache.indexOf('public static void pregenRequestFinished', prepareStart)
