@@ -75,6 +75,8 @@ public final class CacheManager {
    private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_REQUEST_TARGETS = new ConcurrentHashMap<>();
    private static final Map<GenerationTask,Set<Long>> PREGEN_PROGRESS_REJECTED =
       Collections.synchronizedMap(new WeakHashMap<>());
+   private static final Map<GenerationTask,Set<Long>> PREGEN_DEFERRED_COORDINATES =
+      Collections.synchronizedMap(new WeakHashMap<>());
    private static final ThreadLocal<GenerationTask> CHUNKSMITH_REQUEST_TASK = new ThreadLocal<>();
    private static final ConcurrentHashMap<CaptureKey,AtomicInteger> LOD_PENDING = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,Path> CONFIRMED_PREGEN = new ConcurrentHashMap<>();
@@ -114,6 +116,9 @@ public final class CacheManager {
       synchronized(PREGEN_PROGRESS_REJECTED) {
          PREGEN_PROGRESS_REJECTED.computeIfAbsent(sourceTask,ignored->ConcurrentHashMap.newKeySet()).add(pos.toLong());
       }
+      synchronized(PREGEN_DEFERRED_COORDINATES) {
+         PREGEN_DEFERRED_COORDINATES.computeIfAbsent(sourceTask,ignored->ConcurrentHashMap.newKeySet()).add(pos.toLong());
+      }
    }
 
    public static boolean consumePregenProgressRejected(GenerationTask sourceTask,int x,int z) {
@@ -125,6 +130,21 @@ public final class CacheManager {
          if(rejected.isEmpty())PREGEN_PROGRESS_REJECTED.remove(sourceTask);
          return found;
       }
+   }
+
+   public static int pregenDeferredCoordinates(GenerationTask sourceTask) {
+      if(sourceTask==null)return 0;
+      synchronized(PREGEN_DEFERRED_COORDINATES) {
+         Set<Long> deferred=PREGEN_DEFERRED_COORDINATES.get(sourceTask);
+         return deferred==null?0:deferred.size();
+      }
+   }
+
+   public static void deferPregenAdmissionRetry(ServerLevel level,ChunkPos pos) {
+      if(level==null||pos==null)return;
+      CaptureKey key=captureKey(level,pos);
+      addRetry(PREGEN_RETRY,key);
+      addRetry(PREGEN_LOD_RETRY,key);
    }
 
    public static void pregenCandidateSkipped(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
@@ -164,7 +184,8 @@ public final class CacheManager {
    }
 
    public static boolean admissionBlocked() {
-      return controllerStatus().admissionBlocked();
+      ResourceStatus resource=resourceStatus();
+      return resource.hardBlock()||resource.softBackpressure()||resource.sensorUnknown();
    }
 
    public static void setFastTuningFrozen(boolean frozen) {
@@ -194,18 +215,19 @@ public final class CacheManager {
       });
    }
 
-   public static void captureFromChunksmith(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> lodCommitted, GenerationTask sourceTask) {
+   public static void captureFromChunksmith(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> lodCommitted,
+      GenerationTask sourceTask,String attemptToken) {
       PipelineMetrics.count("direct-full-candidates");
       if (level == null || chunk == null) return;
       ChunkPos pos=chunk.getPos();
       CaptureKey key=captureKey(level,pos);
-      String attemptToken=PregenFlowController.token(level,pos,sourceTask);
       // The NeoForgeWorld hook also observes third-party Chunksmith tasks. Only
       // the exact GenerationTask admitted by preparePregenRequest belongs to this
       // unified flow; a delayed external/stale callback for the same coordinate
       // must keep native LOD behavior without mutating unified ownership state.
       GenerationTask admitted=PREGEN_REQUEST_TARGETS.get(key);
       if(sourceTask==null || admitted!=sourceTask) {
+         if(attemptToken!=null)PregenFlowController.logicalCaptureFailed(attemptToken);
          PipelineMetrics.count("direct-external-observed");
          return;
       }
@@ -257,12 +279,14 @@ public final class CacheManager {
       if (!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(level)
          || BackfillGuard.suppress(level, pos)) {
          addRetry(PREGEN_RETRY,key);
+         PregenFlowController.logicalCaptureFailed(attemptToken);
          PipelineMetrics.count("direct-ineligible");
          return;
       }
 
       if(PregenBorrowLedger.kind(level,pos)!=PregenBorrowLedger.Kind.GENERATED) {
          addRetry(PREGEN_RETRY,key);
+         PregenFlowController.logicalCaptureFailed(attemptToken);
          PipelineMetrics.count("direct-persistence-guard-missing");
          return;
       }
@@ -271,6 +295,7 @@ public final class CacheManager {
             if(lodError==null&&Boolean.TRUE.equals(lodSaved)) markLodCommitted(level,pos,key);
             else addRetry(PREGEN_LOD_RETRY,key);
          });
+         PregenFlowController.logicalCaptureFailed(attemptToken);
          PipelineMetrics.count("direct-cache-skipped-after-player-handoff");
          return;
       }
@@ -664,7 +689,8 @@ public final class CacheManager {
                      return true;
                   }
                   CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
-                  if(validEnvelope(envelope,level,pos,fingerprint)) {
+                  if(validEnvelope(envelope,level,pos,fingerprint)
+                     &&pairProofValidIfRequired(envelope,level,pos,fingerprint,file)) {
                      if(!STOPPING.contains(level.getServer()))confirmPregenFull(key,file);
                      else addRetry(PREGEN_RETRY,key);
                      PipelineMetrics.count("pregen-full-validated");
@@ -706,8 +732,11 @@ public final class CacheManager {
       if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level)
          || !chunksmithWorldStateGenerated(level,pos,true))return;
       CaptureKey key=captureKey(level,pos);
-      PREGEN_RETRY.complete(key);
       PREGEN_LOD_RETRY.complete(key);
+      if(PREGEN_RETRY.contains(key)) {
+         PipelineMetrics.count("pregen-full-retry-hint-deferred");
+         return;
+      }
       PREGEN_NEW_TARGETS.remove(key);
    }
 
@@ -1007,6 +1036,7 @@ public final class CacheManager {
          envelope.putInt("schema", SCHEMA);
          envelope.putBoolean("entitiesComplete", true);
          envelope.putBoolean("lodCommitted", false); // Account for the publication receipt before reserving measured bytes.
+         envelope.putBoolean("pairRequired", sourceToken!=null);
          envelope.putString("fingerprint", fingerprint.fingerprint());
          envelope.putString("dimension", level.dimension().location().toString());
          envelope.putInt("x", pos.x); envelope.putInt("z", pos.z);
@@ -1033,7 +1063,7 @@ public final class CacheManager {
    private static void validateCapture(ServerLevel level,ChunkPos pos,Path file,CaptureWork work,long queuedAt) {
       PipelineMetrics.time("cache-validation-queue",System.nanoTime()-queuedAt);
       if(work.result.isDone()){work.inspection.close();return;}
-      work.validationStarted();
+      if(!work.validationStarted()){work.inspection.close();return;}
       long started=System.nanoTime();
       CompletableFuture<NormalChunkStorage.State> inspected;
       try {
@@ -1078,7 +1108,6 @@ public final class CacheManager {
    private static void publishCapture(MinecraftServer server,Path file,CaptureWork work,long queuedAt) {
       CompoundTag envelope=work.beginWrite();
       if(envelope==null)return;
-      work.fullStarted();
       boolean physicalSuccess=false;
       envelope.putBoolean("lodCommitted",true);
       PipelineMetrics.time("cache-queue", System.nanoTime()-queuedAt);
@@ -1103,6 +1132,10 @@ public final class CacheManager {
                PairReceiptStore.PublishResult pair=PairReceiptStore.publish(
                   work.level,work.pos,envelope.getString("fingerprint"),file,work.sourceToken,lod);
                if(pair==PairReceiptStore.PublishResult.FAILED) {
+                  clearConfirmedPregen(captureKey(work.level,work.pos));
+                  addRetry(PREGEN_RETRY,captureKey(work.level,work.pos));
+                  addRetry(PREGEN_LOD_RETRY,captureKey(work.level,work.pos));
+                  quarantineRejected(file);
                   PregenFlowController.uncertain(work.sourceToken,"pair-receipt");
                   work.result.complete(false);
                   return;
@@ -1144,11 +1177,17 @@ public final class CacheManager {
          if(result.isDone())return null;
          CompoundTag tag=snapshot.getAndSet(null);
          writing=tag!=null;
+         if(tag!=null&&fullStartedNanos==0L) {
+            fullStartedNanos=System.nanoTime();
+            PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.FULL);
+         }
          return tag;
       }
-      void validationStarted(){
-         synchronized(this){if(validationStartedNanos!=0)return;validationStartedNanos=System.nanoTime();}
+      synchronized boolean validationStarted(){
+         if(result.isDone()||validationStartedNanos!=0)return false;
+         validationStartedNanos=System.nanoTime();
          PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.VALIDATE);
+         return true;
       }
       void validationFinished(boolean success){
          long elapsed;
@@ -1158,10 +1197,6 @@ public final class CacheManager {
             elapsed=validationStartedNanos==0?0:System.nanoTime()-validationStartedNanos;
          }
          PregenFlowController.physicalTerminal(sourceToken,PregenFlowController.Stage.VALIDATE,elapsed,success);
-      }
-      void fullStarted(){
-         synchronized(this){if(fullStartedNanos!=0)return;fullStartedNanos=System.nanoTime();}
-         PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.FULL);
       }
       synchronized void terminal(boolean success){
          snapshot.set(null);
@@ -1265,7 +1300,8 @@ public final class CacheManager {
                      throw new java.io.UncheckedIOException(new IOException("Promotion ownership changed at "+currentClaim));
                   }
                   CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
-                  if(!validEnvelope(envelope,level,pos,fingerprint)) {
+                  if(!validEnvelope(envelope,level,pos,fingerprint)
+                     ||!pairProofValidIfRequired(envelope,level,pos,fingerprint,file)) {
                      quarantineRejected(file);
                      addRetry(PREGEN_RETRY,captureKey(level,pos));
                      return Optional.<CompoundTag>empty();
@@ -1462,7 +1498,8 @@ public final class CacheManager {
                         && var4.getInt("x") == var1.x
                         && var4.getInt("z") == var1.z
                         && var4.contains("chunk")
-                        && NormalChunkStorage.fromTag(var4.getCompound("chunk")) == NormalChunkStorage.State.FULL) {
+                        && NormalChunkStorage.fromTag(var4.getCompound("chunk")) == NormalChunkStorage.State.FULL
+                        && pairProofValidIfRequired(var4,var0,var1,var2,var3)) {
                         CompoundTag var5x = var4.getCompound("chunk");
                         if (!CacheEnvelope.completeEntities(var4)) {
                            quarantineRejected(var3);
@@ -1671,7 +1708,8 @@ public final class CacheManager {
 
       try {
          CompoundTag root = NbtIo.readCompressed(file, NbtAccounter.create(64L << 20));
-         if (validEnvelope(root, var0, var1, var2)) {
+         if (validEnvelope(root, var0, var1, var2)
+            && pairProofValidIfRequired(root,var0,var1,var2,file)) {
             return CacheState.COMPLETE;
          }
          quarantineRejected(file);
@@ -1681,6 +1719,10 @@ public final class CacheManager {
          LOG.warn("Ignoring invalid chunk cache {}; it remains eligible for backfill", new Object[]{file, error});
          return CacheState.ABSENT;
       }
+   }
+
+   private static boolean pairProofValidIfRequired(CompoundTag root,ServerLevel level,ChunkPos pos,String fingerprint,Path file) {
+      return root!=null&&(!root.getBoolean("pairRequired")||PairReceiptStore.fullProven(level,pos,fingerprint,file));
    }
 
    private static boolean validEnvelope(CompoundTag root, ServerLevel level, ChunkPos pos, String fingerprint) {
