@@ -22,7 +22,7 @@ final class AdaptivePolicyNeighbourSearchTest {
     }
 
     private static AdaptiveSample sample(int width) {
-        return new AdaptiveSample(5,50,12,40,1,4096,0,0,true,width,width,0,-1,0,false,0,0);
+        return new AdaptiveSample(5,50,12,40,1,4096,0,0,true,width,width,0,-1,0,false,0,0,0);
     }
 
     @Test
