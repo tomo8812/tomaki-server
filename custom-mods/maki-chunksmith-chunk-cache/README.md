@@ -12,11 +12,14 @@ mod does not compare Chunksmith's LOD implementation to decide compatibility.
 - Only Minecraft's chunk DataVersion, world seed/dimension/generator,
   level.dat worldgen settings, datapacks and declared/recognizable terrain
   generation MODs and their generation settings are compatibility inputs.
-- Built-in terrain-affecting MODs are zfastnoise, epicterrain,
-  worldgenfeaturefix, terrain_slabs and disabler. Added code-only worldgen
-  MODs must be declared in the existing configuration at installation.
-  Those changes require a fresh compatibility check; old data remains in
-  quarantine when its generated result is not known to be equivalent.
+- Currently tracked worldgen inputs are zfastnoise, epicterrain,
+  worldgenfeaturefix, terrain_slabs, disabler, architectury, and the deployed
+  LetsDo Bakery, Brewery, Candlelight, Farm & Charm and HerbalBrews JARs.
+  The exact list is in FingerprintPolicy.java. Changes to this existing
+  generation set require a fresh compatibility check.
+- No discovery or policy knobs are provided for hypothetical future MODs.
+  When the server's generation MOD set changes, edit that list and review
+  compatibility as part of the same MOD installation or upgrade.
 - Historical manifests can contain entries that older code classified as
   relevant. The new comparison checks their **actual FULL generation role**
   rather than accepting that broad historical classification.
@@ -24,6 +27,9 @@ mod does not compare Chunksmith's LOD implementation to decide compatibility.
   migration. The original FULL files remain available until the accepted
   fingerprint is durably recorded. Invalid individual caches are retained
   for quarantine, without rejecting valid siblings.
+- The cache configuration contains only storage and quarantine
+  controls. No future-MOD SHA allowlist, worldgen resource scanner, or dynamic
+  generation-sensitive MOD/config extension points are present.
 - Per-FULL validation checks schema 3, completed entity/LOD-write metadata,
   coordinate and region ownership, dimension, FULL status, chunk DataVersion
   and serialized terrain sections. The `lodCommitted` flag is a FULL-cache
