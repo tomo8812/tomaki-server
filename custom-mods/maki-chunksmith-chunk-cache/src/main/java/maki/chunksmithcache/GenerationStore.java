@@ -221,6 +221,11 @@ final class GenerationStore {
             accepted.addAll(old.storedFingerprints());
             if (existing != null) accepted.addAll(existing.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
+            // The source must survive until the adopted-fingerprint manifest
+            // has been durably committed. If any entry was rejected, leave the
+            // source directory for the normal quarantine pass instead.
+            if (AuditedGenerationUpgrade.eligible(old, current) && merge.rejectedEntries() == 0L)
+                deleteTree(candidate);
             long activeEntries = stats(active).entries();
             LOG.info(
                 "Adopted compatibility-equivalent chunk-cache generation {} as {} for {}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} bytes={} proofDetails={} trigger={}",
@@ -456,9 +461,10 @@ final class GenerationStore {
                 "Retaining incompatible historical FULL cache {}: {}", file, rejected);
             return rejected == null;
         };
-        return preserveSource
-            ? CacheDirectoryMerge.copyValidatedPreservingSource(source, active, verified)
-            : CacheDirectoryMerge.mergeValidated(source, active, verified);
+        // Copy first, then publish the accepted-fingerprint manifest. Moving
+        // the sole source before publication could strand old-fingerprint
+        // envelopes after a crash, making them unreadable on restart.
+        return CacheDirectoryMerge.copyValidatedPreservingSource(source, active, verified);
     }
 
     private static CacheDirectoryMerge.MergeStats mergeDirectory(Path source, Path target) throws IOException {
