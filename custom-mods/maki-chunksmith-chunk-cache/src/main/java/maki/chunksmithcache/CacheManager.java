@@ -834,8 +834,14 @@ public final class CacheManager {
 
    public static void noteLodPhysicalBytes(CsLodChunk record,int bytes) {
       if(bytes<=0)return;
-      for(Path root:activeRoots)CacheDiskBudget.at(root).lodPublished(bytes);
-      LodRegionCapacity.written(currentServer,record,bytes);
+      try {
+         for(Path root:activeRoots)CacheDiskBudget.at(root).lodPublished(bytes);
+         LodRegionCapacity.written(currentServer,record,bytes);
+      } catch(RuntimeException accountingFailure) {
+         // Observability/accounting must never turn an already-successful native
+         // LOD append into a failed save. The next disk refresh fails closed.
+         PipelineMetrics.count("lod-byte-accounting-failed");
+      }
    }
 
    static String ioSummary(long nowNanos) {
