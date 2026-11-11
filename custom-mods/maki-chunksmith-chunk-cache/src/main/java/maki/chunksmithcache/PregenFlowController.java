@@ -238,11 +238,10 @@ final class PregenFlowController {
         boolean unknown=false;
         for(Attempt attempt:ACTIVE.values()) {
             if(!attempt.actualStarted)continue;
-            if(now-attempt.reservedNanos>60_000_000_000L&&!attempt.held.isEmpty()) {
-                boolean allPhysical=true;
-                for(Stage stage:attempt.held)allPhysical&=attempt.started.contains(stage);
-                if(!allPhysical)unknown=true;
-            }
+            // Logical deadlines are 30s. A stage still physically outstanding
+            // after 60s is no longer safe input for active learning, regardless
+            // of whether its start callback was observed.
+            if(now-attempt.reservedNanos>60_000_000_000L&&!attempt.held.isEmpty())unknown=true;
         }
         return new Snapshot(candidates,actual,pairConfirmedRuntime,pairNew,pairRepair,pairRevalidated,uncertain,
             lod.outstanding,effectiveWindow(Stage.LOD),validate.outstanding,effectiveWindow(Stage.VALIDATE),
