@@ -56,7 +56,7 @@ public final class CompatibilityInputSelfTest {
     private static void testHistoricalZfastnoise(Path root) throws Exception {
         String oldSource = "#\n#Fri Nov 06 10:05:37 UTC 2026\nmixin.perf.biome=true\nmixin.perf.noise=true\n";
         byte[] bytes = oldSource.getBytes(StandardCharsets.UTF_8);
-        String digest = CompatibilityFingerprint.sha256(bytes);
+        String digest = CompatibilityFingerprint.hex(CompatibilityFingerprint.digest().digest(bytes));
         FingerprintManifest.Entry old = new FingerprintManifest.Entry(
             CompatibilityInput.ZFASTNOISE_PATH, bytes.length, digest,
             FingerprintManifest.Impact.RELEVANT, "old raw zfastnoise properties");
