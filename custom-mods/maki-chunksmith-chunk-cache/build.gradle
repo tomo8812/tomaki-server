@@ -593,7 +593,8 @@ tasks.register('verifyPregenControllerV2') {
          'pairConfirmedRuntime','effectiveWindow','admissionEpoch','60_000_000_000L&&!attempt.held.isEmpty()',
          'generationCapChanged','pregen-service-model-reset','MIN_SERVICE_SAMPLES=3',
          'SERVICE_SAMPLE_STALE_NANOS','serviceSamples<MIN_SERVICE_SAMPLES',
-         'stageMetric(stage,"physical-start")','stageMetric(stage,"terminal")'].each { token ->
+         'stageMetric(stage,"physical-start")','stageMetric(stage,"terminal")',
+         'if(!attempt.actualStarted)'].each { token ->
             if(!flow.contains(token))throw new GradleException('Pregen V2 regression: stage/WIP controller missing '+token)
         }
         if(!request.contains('reservePregenCandidate') || !request.contains('preparePregenRequest')
