@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.DigestInputStream;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.util.Map;
@@ -32,8 +33,8 @@ final class PairReceiptStore {
     private static final int VERSION=1;
     private static final Map<Path,ValidationStamp> VALIDATED=new ConcurrentHashMap<>();
     private static final Set<Path> REVALIDATED=ConcurrentHashMap.newKeySet();
-    private record FullIdentity(long size,long mtime,String fileKey) {}
-    private record ValidationStamp(long fullSize,long fullMtime,String fullKey,long lodSize,long lodMtime) {}
+    private record FullIdentity(long size,long mtime,String fileKey,String contentSha256) {}
+    private record ValidationStamp(long fullSize,long fullMtime,String fullKey,String fullSha256,long lodSize,long lodMtime) {}
     private PairReceiptStore() {}
 
     static PublishResult publish(ServerLevel level,ChunkPos pos,String fingerprint,Path full,String sourceToken,LodCommitTracker.LodReceipt lod) {
@@ -50,12 +51,12 @@ final class PairReceiptStore {
             Path region=lodRegion(level,pos);
             long lodSize=Files.size(region),lodMtime=Files.getLastModifiedTime(region).toMillis();
             String completion=hex(sha256((level.dimension().location()+"\n"+pos.x+"\n"+pos.z+"\n"+fingerprint+"\n"
-                +fullSize+"\n"+fullMtime+"\n"+fullIdentity.fileKey()+"\n"+lod.contentSha256())
+                +fullSize+"\n"+fullMtime+"\n"+fullIdentity.fileKey()+"\n"+fullIdentity.contentSha256()+"\n"+lod.contentSha256())
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             Path receipt=receipt(full);
             Properties prior=load(receipt);
             if(prior!=null&&completion.equals(prior.getProperty("completion"))) {
-                VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),lodSize,lodMtime));
+                VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),fullIdentity.contentSha256(),lodSize,lodMtime));
                 REVALIDATED.add(receipt);
                 return PublishResult.EXISTING;
             }
@@ -69,6 +70,7 @@ final class PairReceiptStore {
             properties.setProperty("fullSize",Long.toString(fullSize));
             properties.setProperty("fullMtime",Long.toString(fullMtime));
             properties.setProperty("fullFileKey",fullIdentity.fileKey());
+            properties.setProperty("fullSha256",fullIdentity.contentSha256());
             properties.setProperty("lodSha256",lod.contentSha256());
             properties.setProperty("completion",completion);
             properties.setProperty("confirmedAt",Long.toString(System.currentTimeMillis()));
@@ -96,7 +98,7 @@ final class PairReceiptStore {
                 return PublishResult.FAILED;
             }
             long finalLodSize=Files.size(region),finalLodMtime=Files.getLastModifiedTime(region).toMillis();
-            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),finalLodSize,finalLodMtime));
+            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),fullIdentity.contentSha256(),finalLodSize,finalLodMtime));
             REVALIDATED.add(receipt);
             return PublishResult.NEW;
         } catch(Throwable error) {
@@ -119,19 +121,21 @@ final class PairReceiptStore {
             long fullSize=fullIdentity.size(),fullMtime=fullIdentity.mtime();
             if(fullSize!=Long.parseLong(properties.getProperty("fullSize","-1"))
                 ||fullMtime!=Long.parseLong(properties.getProperty("fullMtime","-1"))
-                ||!fullIdentity.fileKey().equals(properties.getProperty("fullFileKey","")))return false;
+                ||!fullIdentity.fileKey().equals(properties.getProperty("fullFileKey",""))
+                ||!fullIdentity.contentSha256().equals(properties.getProperty("fullSha256","")))return false;
             Path region=lodRegion(level,pos);
             long lodSize=Files.size(region),lodMtime=Files.getLastModifiedTime(region).toMillis();
             ValidationStamp cached=VALIDATED.get(receipt);
             if(cached!=null&&cached.fullSize()==fullSize&&cached.fullMtime()==fullMtime
                 &&cached.fullKey().equals(fullIdentity.fileKey())
+                &&cached.fullSha256().equals(fullIdentity.contentSha256())
                 &&cached.lodSize()==lodSize&&cached.lodMtime()==lodMtime)return true;
             CsLodRegionStore store=new CsLodRegionStore(CacheManager.lodRoot(level));
             CsLodChunk record;
             try{record=store.read(pos.x,pos.z);}
             finally{try{store.close();}catch(IOException ignored){}}
             if(record==null||!properties.getProperty("lodSha256","").equals(lodDigest(record)))return false;
-            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),lodSize,lodMtime));
+            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),fullIdentity.contentSha256(),lodSize,lodMtime));
             if(REVALIDATED.add(receipt))PregenFlowController.pairRevalidated();
             return true;
         } catch(Throwable invalid) {
@@ -188,7 +192,19 @@ final class PairReceiptStore {
 
     private static FullIdentity fullIdentity(Path full)throws IOException {
         BasicFileAttributes attrs=Files.readAttributes(full,BasicFileAttributes.class);
-        return new FullIdentity(attrs.size(),attrs.lastModifiedTime().toMillis(),String.valueOf(attrs.fileKey()));
+        return new FullIdentity(attrs.size(),attrs.lastModifiedTime().toMillis(),String.valueOf(attrs.fileKey()),fileSha256(full));
+    }
+    private static String fileSha256(Path file)throws IOException {
+        try {
+            MessageDigest digest=MessageDigest.getInstance("SHA-256");
+            try(DigestInputStream in=new DigestInputStream(Files.newInputStream(file),digest)) {
+                byte[] buffer=new byte[64*1024];
+                while(in.read(buffer)>=0){}
+            }
+            return hex(digest.digest());
+        } catch(java.security.NoSuchAlgorithmException impossible) {
+            throw new IOException("SHA-256 unavailable",impossible);
+        }
     }
     private static Path receipt(Path full){return full.resolveSibling(full.getFileName()+".pair");}
     private static Path lodRegion(ServerLevel level,ChunkPos pos){
