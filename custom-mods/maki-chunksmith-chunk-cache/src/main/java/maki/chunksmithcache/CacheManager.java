@@ -65,8 +65,8 @@ public final class CacheManager {
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
    // FULL/ownership and LOD persistence debt are independent: a normal FULL save
    // must never erase a failed/missing LOD obligation.
-   private static final Set<CaptureKey> PREGEN_RETRY = ConcurrentHashMap.newKeySet();
-   private static final Set<CaptureKey> PREGEN_LOD_RETRY = ConcurrentHashMap.newKeySet();
+   private static final PregenRetryLedger<CaptureKey> PREGEN_RETRY = new PregenRetryLedger<>("full");
+   private static final PregenRetryLedger<CaptureKey> PREGEN_LOD_RETRY = new PregenRetryLedger<>("lod");
    private static final ConcurrentHashMap<CaptureKey,Long> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_REQUEST_TARGETS = new ConcurrentHashMap<>();
    private static final Map<GenerationTask,Set<Long>> PREGEN_PROGRESS_REJECTED =
@@ -135,6 +135,7 @@ public final class CacheManager {
       long pairConfirmedRuntime,long pairNew,long pairRepair,long pairRevalidated,long uncertain,
       int candidates,int actual,int lodOutstanding,int lodWindow,int validateOutstanding,int validateWindow,
       int fullOutstanding,int fullWindow,long oldestMillis,boolean admissionBlocked,long fastSignature,boolean fastTuningFrozen,
+      int retryEntries,boolean retryLedgerComplete,boolean retryOverflowDirty,long nextRetryMillis,
       boolean hardBlock,boolean softBackpressure,boolean sensorUnknown,String reason
    ) {}
 
@@ -143,10 +144,18 @@ public final class CacheManager {
       ResourceStatus resource=resourceStatus();
       boolean unknown=resource.sensorUnknown()||flow.sensorUnknown();
       boolean blocked=flow.blocked()||resource.hardBlock()||resource.softBackpressure()||unknown;
+      long now=System.nanoTime();
+      PregenRetryLedger.Status fullRetry=PREGEN_RETRY.status(now),lodRetry=PREGEN_LOD_RETRY.status(now);
+      int retryEntries=fullRetry.entries()+lodRetry.entries();
+      boolean ledgerComplete=fullRetry.ledgerComplete()&&lodRetry.ledgerComplete();
+      boolean overflowDirty=fullRetry.overflowDirty()||lodRetry.overflowDirty();
+      long nextRetry=fullRetry.nextDueMillis()<0?lodRetry.nextDueMillis()
+         :lodRetry.nextDueMillis()<0?fullRetry.nextDueMillis():Math.min(fullRetry.nextDueMillis(),lodRetry.nextDueMillis());
       return new ControllerStatus(
          flow.pairConfirmedRuntime(),flow.pairNew(),flow.pairRepair(),flow.pairRevalidated(),flow.uncertain(),
          flow.candidates(),flow.actual(),flow.lodOutstanding(),flow.lodWindow(),flow.validateOutstanding(),flow.validateWindow(),
          flow.fullOutstanding(),flow.fullWindow(),flow.oldestMillis(),blocked,flow.fastSignature(),flow.tuningFrozen(),
+         retryEntries,ledgerComplete,overflowDirty,nextRetry,
          resource.hardBlock(),resource.softBackpressure(),unknown,resource.pressureReason());
    }
 
@@ -278,7 +287,7 @@ public final class CacheManager {
                   addRetry(PREGEN_RETRY,key);
                   return;
                }
-               PREGEN_RETRY.remove(key);
+               PREGEN_RETRY.complete(key);
                lodCommitted.whenComplete((lodSaved,lodError) -> {
                   if(lodError==null && Boolean.TRUE.equals(lodSaved)) markLodCommitted(level,pos,key);
                   else addRetry(PREGEN_LOD_RETRY,key);
@@ -320,8 +329,13 @@ public final class CacheManager {
       if(server==null)return false;
       long radius=(long)Math.max(0,radiusBlocks)+16L;
       long radiusSquared=radius*radius;
-      if(anyInRange(server,PREGEN_RETRY,centerX,centerZ,radiusSquared))return true;
-      if(anyInRange(server,PREGEN_LOD_RETRY,centerX,centerZ,radiusSquared))return true;
+      long now=System.nanoTime();
+      if(anyDueInRange(server,PREGEN_RETRY,centerX,centerZ,radiusSquared,now))return true;
+      if(anyDueInRange(server,PREGEN_LOD_RETRY,centerX,centerZ,radiusSquared,now))return true;
+      if(PREGEN_RETRY.overflowRescanDue(now)||PREGEN_LOD_RETRY.overflowRescanDue(now)) {
+         PipelineMetrics.count("pregen-retry-overflow-rescan");
+         return true;
+      }
       if(anyInRange(server,PREGEN_NEW_TARGETS.keySet(),centerX,centerZ,radiusSquared))return true;
       if(anyInRange(server,LOD_PENDING.keySet(),centerX,centerZ,radiusSquared))return true;
       return anyInRange(server,CAPTURE_PENDING.keySet(),centerX,centerZ,radiusSquared);
@@ -494,6 +508,19 @@ public final class CacheManager {
       return false;
    }
 
+
+   private static boolean anyDueInRange(MinecraftServer server,PregenRetryLedger<CaptureKey> ledger,
+      int centerX,int centerZ,long radiusSquared,long nowNanos) {
+      for(CaptureKey key:ledger.keys()) {
+         if(key.level().getServer()!=server||!ledger.due(key,nowNanos))continue;
+         ChunkPos pos=new ChunkPos(key.pos());
+         long x=((long)pos.x<<4)+8L-centerX;
+         long z=((long)pos.z<<4)+8L-centerZ;
+         if(x*x+z*z<=radiusSquared)return true;
+      }
+      return false;
+   }
+
    /**
     * Fast, non-blocking indication used after the follow dispatch barrier and
     * by the Chunksmith world adapter. Cache files are atomically published, so
@@ -512,8 +539,8 @@ public final class CacheManager {
       Path expected=path(level,pos,snapshot.fingerprint());
       if(!confirmedPregenMatches(key,expected))return false;
       if(!chunksmithLodSkipHint(level,pos,index))return false;
-      PREGEN_RETRY.remove(key);
-      PREGEN_LOD_RETRY.remove(key);
+      PREGEN_RETRY.complete(key);
+      PREGEN_LOD_RETRY.complete(key);
       return true;
    }
 
@@ -549,7 +576,7 @@ public final class CacheManager {
          return NormalChunkStorage.inspectAsync(level,pos).handle((normal,error) -> {
             if(error==null && normal==NormalChunkStorage.State.FULL) {
                PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
-               PREGEN_RETRY.remove(key);
+               PREGEN_RETRY.complete(key);
                PREGEN_NEW_TARGETS.remove(key);
                return true;
             }
@@ -574,7 +601,7 @@ public final class CacheManager {
    public static boolean chunksmithWorldStateGenerated(ServerLevel level,ChunkPos pos,boolean nativeGenerated) {
       if(!nativeGenerated||level==null||pos==null||!FollowCaptureOwnership.owns(level))return nativeGenerated;
       CaptureKey key=captureKey(level,pos);
-      if(PREGEN_RETRY.contains(key) || PREGEN_NEW_TARGETS.containsKey(key)
+      if(PREGEN_RETRY.due(key,System.nanoTime()) || PREGEN_NEW_TARGETS.containsKey(key)
          || CAPTURE_PENDING.containsKey(key) || PregenBorrowLedger.kind(level,pos)!=null
          || PromotionLedger.owns(level,pos)) return false;
       if(CONFIRMED_PREGEN.containsKey(key)) {
@@ -598,7 +625,7 @@ public final class CacheManager {
       String fingerprint=snapshot.fingerprint();
       Path file=path(level,pos,fingerprint);
       if(confirmedPregenMatches(key,file)) {
-         PREGEN_RETRY.remove(key);
+         PREGEN_RETRY.complete(key);
          return CompletableFuture.completedFuture(true);
       }
 
@@ -666,8 +693,8 @@ public final class CacheManager {
       if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level)
          || !chunksmithWorldStateGenerated(level,pos,true))return;
       CaptureKey key=captureKey(level,pos);
-      PREGEN_RETRY.remove(key);
-      PREGEN_LOD_RETRY.remove(key);
+      PREGEN_RETRY.complete(key);
+      PREGEN_LOD_RETRY.complete(key);
       PREGEN_NEW_TARGETS.remove(key);
    }
 
@@ -714,7 +741,7 @@ public final class CacheManager {
       }
       CONFIRMED_PREGEN.put(key,file);
       CONFIRMED_PREGEN_STAMP.put(key,stamp);
-      PREGEN_RETRY.remove(key);
+      PREGEN_RETRY.complete(key);
       return true;
    }
 
@@ -758,7 +785,7 @@ public final class CacheManager {
             return;
          }
          CONFIRMED_LOD.put(key,new LodStamp(region,stamp));
-         PREGEN_LOD_RETRY.remove(key);
+         PREGEN_LOD_RETRY.complete(key);
       } catch(Throwable unavailable) {
          CONFIRMED_LOD.remove(key);
          addRetry(PREGEN_LOD_RETRY,key);
@@ -768,7 +795,7 @@ public final class CacheManager {
    public static boolean chunksmithLodSkipHint(ServerLevel level,ChunkPos pos,CsLodPresenceIndex index) {
       if(level==null||pos==null||index==null||!FollowCaptureOwnership.owns(level))return false;
       CaptureKey key=captureKey(level,pos);
-      if(PREGEN_LOD_RETRY.contains(key))return false;
+      if(PREGEN_LOD_RETRY.due(key,System.nanoTime()))return false;
       Path region=lodRegionPath(index,pos);
       FileStamp current=fileStamp(region);
       LodStamp confirmed=CONFIRMED_LOD.get(key);
@@ -783,7 +810,7 @@ public final class CacheManager {
          FileStamp validated=fileStamp(region);
          if(validated==null)return invalidateLodRecord(key,index);
          CONFIRMED_LOD.put(key,new LodStamp(region,validated));
-         PREGEN_LOD_RETRY.remove(key);
+         PREGEN_LOD_RETRY.complete(key);
          PipelineMetrics.count("pregen-lod-validated");
          return pairReceiptValidIfRequired(level,pos,key);
       } catch(Throwable invalid) {
@@ -815,8 +842,13 @@ public final class CacheManager {
 
    private record CaptureKey(ServerLevel level, long pos) {}
 
-   private static void addRetry(Set<CaptureKey> retrySet,CaptureKey key) {
-      if(key!=null&&!STOPPING.contains(key.level().getServer())) retrySet.add(key);
+   private static void addRetry(PregenRetryLedger<CaptureKey> retrySet,CaptureKey key) {
+      if(key==null||STOPPING.contains(key.level().getServer()))return;
+      String reason=retrySet==PREGEN_RETRY?"full-state":"lod-state";
+      if(!retrySet.defer(key,System.nanoTime(),reason)) {
+         PipelineMetrics.count("pregen-retry-ledger-overflow");
+         PregenFlowController.uncertain(null,"retry-ledger-overflow");
+      }
    }
 
    private record CaptureFlight(CompletableFuture<Boolean> result,long startedNanos,String sourceToken) {}
@@ -880,6 +912,7 @@ public final class CacheManager {
          + ",activeCacheBytes=" + status.activeCacheBytes() + ",usableDiskBytes=" + status.usableDiskBytes()
          + ",pressure=" + status.pressureReason() + ",hard=" + status.hardBlock()
          + ",soft=" + status.softBackpressure() + ",unknown=" + status.sensorUnknown()
+         + ",retryFull=" + PREGEN_RETRY.status(nowNanos) + ",retryLod=" + PREGEN_LOD_RETRY.status(nowNanos)
          + ",lodPhysical=" + LodCommitTracker.physicalStatus() + ",flow=" + PregenFlowController.snapshot();
    }
 
