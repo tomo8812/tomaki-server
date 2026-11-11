@@ -1,40 +1,23 @@
 package maki.chunksmithcache;
 
-import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Properties;
-import java.util.Set;
-import java.util.jar.JarEntry;
-import java.util.jar.JarFile;
 
 final class FingerprintPolicy {
     static final String CONFIG_RELATIVE = "config/maki-chunksmith-chunk-cache.properties";
-    static final String UNKNOWN_MOD_REASON = "unknown code-driven generation impact; fail-closed until audited";
-    private static final String OWN_MOD_ID = "maki_chunksmith_chunk_cache";
-    private static final Set<String> BUILTIN_GENERATION_NEUTRAL_MOD_IDS = Set.of(
-        OWN_MOD_ID, "maki_lod_cpu", "maki_mods_observer", "maki_diorama_share",
-        "chunksmith", "millenaire", "maki_millenaire_lod", "maki_idle_pregen", "maki_ship_save"
-    );
-    private static final String DEFAULT_IGNORED_PATHS =
-        "config/maki-mods-observer.properties,config/maki-lod-cpu.properties,config/maki-diorama-share-client.toml,"
-        + "config/chunksmith/config.json,config/millenaire-common.toml";
     private static final long DEFAULT_MAX_BYTES = 50L * 1024L * 1024L * 1024L;
 
     // Code-driven generation inputs that are known to affect generated results even
     // when their JAR contains no datapack worldgen resources.
-    private static final Set<String> BUILTIN_GENERATION_SENSITIVE_MOD_IDS = Set.of(
-        "zfastnoise", "epicterrain", "worldgenfeaturefix", "terrain_slabs", "disabler"
-    );
+    // These are the known current generation-affecting distributions. When
+    // installing another generation MOD, update this code as part of that change.
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_JAR_PREFIXES = List.of(
-        "zfastnoise-", "epicterrain-", "worldgenfeaturefix-",
-        "terrain_slabs-", "disabler-"
+        "zfastnoise-", "epicterrain-", "worldgenfeaturefix-", "terrain_slabs-", "disabler-",
+        "architectury-", "letsdo-bakery-", "letsdo-brewery-", "letsdo-candlelight-",
+        "letsdo-farm_and_charm-", "letsdo-herbalbrews-"
     );
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_PATHS = List.of(
         "config/zfastnoise.mixin.properties",
@@ -47,33 +30,17 @@ final class FingerprintPolicy {
         "world/serverconfig/terrain_slabs*"
     );
 
-    private final Set<String> generationSensitiveModIds;
-    private final List<String> generationSensitivePaths;
-    private final List<String> ignoredPaths;
-    // Exact manually audited MOD ID + JAR SHA-256 pairs. This policy is
-    // intentionally absent from compatibilitySignature(): each approved JAR
-    // is recorded as IGNORED in the manifest, while unapproved bytes remain
-    // RELEVANT. Changing the audit list alone cannot invalidate safe caches.
-    private final Set<String> auditedNeutralArtifacts;
     private final int retentionDays;
     private final int maxGenerations;
     private final long maxBytes;
     private final int minProtectionHours;
 
     private FingerprintPolicy(
-        Set<String> generationSensitiveModIds,
-        List<String> generationSensitivePaths,
-        List<String> ignoredPaths,
-        Set<String> auditedNeutralArtifacts,
         int retentionDays,
         int maxGenerations,
         long maxBytes,
         int minProtectionHours
     ) {
-        this.generationSensitiveModIds = Set.copyOf(generationSensitiveModIds);
-        this.generationSensitivePaths = List.copyOf(generationSensitivePaths);
-        this.ignoredPaths = List.copyOf(ignoredPaths);
-        this.auditedNeutralArtifacts = Set.copyOf(auditedNeutralArtifacts);
         this.retentionDays = retentionDays;
         this.maxGenerations = maxGenerations;
         this.maxBytes = maxBytes;
@@ -90,10 +57,6 @@ final class FingerprintPolicy {
             }
         }
         return new FingerprintPolicy(
-            lowerCsv(properties.getProperty("fingerprint.generation-sensitive-mod-ids", "")),
-            new ArrayList<>(csv(properties.getProperty("fingerprint.generation-sensitive-paths", ""))),
-            new ArrayList<>(csv(properties.getProperty("fingerprint.ignore-paths", DEFAULT_IGNORED_PATHS))),
-            auditedNeutralPairs(properties.getProperty("fingerprint.audited-neutral-mod-sha256", "")),
             boundedInt(properties, "quarantine.retention-days", 30, 1, 3650),
             boundedInt(properties, "quarantine.max-generations", 8, 1, 1024),
             boundedLong(properties, "quarantine.max-bytes", DEFAULT_MAX_BYTES, 1024L * 1024L, Long.MAX_VALUE),
@@ -102,104 +65,43 @@ final class FingerprintPolicy {
     }
 
     static FingerprintPolicy forTesting(List<String> ignoredPaths) {
-        return new FingerprintPolicy(Set.of(), List.of(), ignoredPaths, Set.of(), 30, 8, DEFAULT_MAX_BYTES, 24);
-    }
-
-    static FingerprintPolicy forTesting(Set<String> sensitiveModIds, List<String> sensitivePaths, List<String> ignoredPaths) {
-        LinkedHashSet<String> normalized = new LinkedHashSet<>();
-        for (String id : sensitiveModIds) normalized.add(id.toLowerCase(Locale.ROOT));
-        return new FingerprintPolicy(normalized, sensitivePaths, ignoredPaths, Set.of(), 30, 8, DEFAULT_MAX_BYTES, 24);
-    }
-
-    // Legacy test/source compatibility: the first set is now explicitly generation-sensitive.
-    static FingerprintPolicy forTesting(Set<String> sensitiveModIds, List<String> ignoredPaths) {
-        return forTesting(sensitiveModIds, List.of(), ignoredPaths);
+        return new FingerprintPolicy(30, 8, DEFAULT_MAX_BYTES, 24);
     }
 
     FingerprintManifest.Impact classify(String logicalPath, Path physicalPath) {
         String normalized = normalize(logicalPath);
         if (isAlwaysExcluded(normalized)) return FingerprintManifest.Impact.IGNORED;
         if (isGenerationSensitivePath(normalized)) return FingerprintManifest.Impact.RELEVANT;
-        if (matchesIgnoredPath(normalized)) return FingerprintManifest.Impact.IGNORED;
 
         if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
-            Set<String> ids = readTopLevelModIds(physicalPath);
-            // These roles schedule generation, preserve FULLs or defer villages.
-            // They do not own the terrain data stored by this cache.
-            if (ids.size() == 1 && BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())) {
-                return FingerprintManifest.Impact.IGNORED;
-            }
             if (isCacheNeutralJarName(normalized)) return FingerprintManifest.Impact.IGNORED;
-            if (ids.stream().anyMatch(this::isGenerationSensitiveModId)
-                || isGenerationSensitiveJarName(physicalPath.getFileName().toString())
-                || containsWorldgenResources(physicalPath)) {
+            if (isGenerationSensitiveJarName(physicalPath.getFileName().toString())) {
                 return FingerprintManifest.Impact.RELEVANT;
             }
-            // A newly installed code-only worldgen MOD must be marked sensitive
-            // when it is added, rather than anticipating every future MOD here.
+            // All other installed MODs are currently outside FULL generation
+            // ownership. New generation MODs require a deliberate code update.
             return FingerprintManifest.Impact.IGNORED;
         }
-
-        // Only configuration inputs which actually control terrain generation
-        // participate in FULL cache compatibility.
         return FingerprintManifest.Impact.IGNORED;
     }
 
-    boolean allowsAuditedNeutral(String logicalPath, Path physicalPath, String rawSha256) {
-        String normalized=normalize(logicalPath);
-        if(!normalized.startsWith("mods/") || !normalized.endsWith(".jar")
-           || rawSha256==null || !rawSha256.matches("[a-f0-9]{64}"))return false;
-        Set<String> ids=readTopLevelModIds(physicalPath);
-        if(ids.size()!=1)return false;
-        String id=ids.iterator().next();
-        // Audit approval must not override any known generation-sensitive or
-        // datapack-driven code, nor an indirect generation override.
-        if(isGenerationSensitiveModId(id)
-           || isGenerationSensitiveJarName(physicalPath.getFileName().toString())
-           || containsWorldgenResources(physicalPath)
-           || AuditedModCompatibility.declaresGenerationOverride(physicalPath))return false;
-        return auditedNeutralArtifacts.contains(id+":"+rawSha256);
-    }
-
     String reason(String logicalPath, Path physicalPath, FingerprintManifest.Impact impact) {
-        String normalized = normalize(logicalPath);
-        if (normalized.startsWith("config/chunksmith/tasks/")) return "chunksmith mutable task progress";
-        if (normalized.equals(CONFIG_RELATIVE)) return "cache management policy; generated-result inputs are hashed separately";
-        if (isGenerationSensitivePath(normalized)) return "declared/effective world-generation configuration input";
-        if (matchesIgnoredPath(normalized)) return "explicit generation-neutral path policy";
-        if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
-            Set<String> ids = readTopLevelModIds(physicalPath);
-            if (isCacheNeutralJarName(normalized)) return "generation scheduling or deferred village role, FULL terrain unchanged";
-            if (impact == FingerprintManifest.Impact.RELEVANT) {
-                if (ids.stream().anyMatch(this::isGenerationSensitiveModId)) {
-                    return "generation-sensitive MOD id=" + String.join(",", ids);
-                }
-                if (isGenerationSensitiveJarName(physicalPath.getFileName().toString())) {
-                    return "known generation-sensitive MOD artifact";
-                }
-                if (containsWorldgenResources(physicalPath)) {
-                    return "JAR contains worldgen/structure/dimension datapack resources";
-                }
-                return UNKNOWN_MOD_REASON;
-            }
-            if (ids.size() == 1 && BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())) {
-                return "owned scheduling/UI/diagnostic MOD role is generation-neutral";
-            }
-            return "explicit generation-neutral MOD input";
+        String key = normalize(logicalPath);
+        if (isAlwaysExcluded(key)) return "cache management or Chunksmith task progress";
+        if (isGenerationSensitivePath(key)) return "known terrain generation configuration input";
+        if (key.startsWith("mods/") && key.endsWith(".jar")) {
+            return impact == FingerprintManifest.Impact.RELEVANT
+                ? "known terrain generation MOD" : "does not own FULL terrain generation";
         }
-        if (isConfigurationPath(normalized)) return "does not participate in FULL terrain generation";
-        return impact == FingerprintManifest.Impact.RELEVANT ? "generation compatibility input" : "generation-neutral input";
+        return impact == FingerprintManifest.Impact.RELEVANT
+            ? "current FULL generation input" : "not a FULL generation input";
     }
 
     String compatibilitySignature() {
-        List<String> ignored = ignoredPaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
-        List<String> sensitivePaths = generationSensitivePaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
-        List<String> sensitiveMods = generationSensitiveModIds.stream().sorted().toList();
-        return "full-worldgen-inputs-v1"
-            + "|generation-sensitive-mod-ids=" + String.join(",", sensitiveMods)
-            + "|generation-sensitive-paths=" + String.join(",", sensitivePaths)
-            + "|worldgen-resource-detection=v1"
-            + "|effective-zfastnoise=" + CompatibilityInput.policySignature();
+        return "full-worldgen-current-v2"
+            + "|known-generators=" + String.join(",", BUILTIN_GENERATION_SENSITIVE_JAR_PREFIXES)
+            + "|known-configs=" + String.join(",", BUILTIN_GENERATION_SENSITIVE_PATHS)
+            + "|" + CompatibilityInput.policySignature();
     }
 
     int retentionDays() { return retentionDays; }
@@ -212,15 +114,9 @@ final class FingerprintPolicy {
         return normalized.startsWith("config/chunksmith/tasks/") || normalized.equals(CONFIG_RELATIVE);
     }
 
-    private boolean isGenerationSensitiveModId(String id) {
-        String normalized = id.toLowerCase(Locale.ROOT);
-        return BUILTIN_GENERATION_SENSITIVE_MOD_IDS.contains(normalized) || generationSensitiveModIds.contains(normalized);
-    }
-
     private boolean isGenerationSensitivePath(String logicalPath) {
         if (logicalPath.startsWith("world/datapacks/")) return true;
         for (String rule : BUILTIN_GENERATION_SENSITIVE_PATHS) if (matchesRule(logicalPath, rule)) return true;
-        for (String rule : generationSensitivePaths) if (matchesRule(logicalPath, rule)) return true;
         return false;
     }
 
@@ -236,26 +132,6 @@ final class FingerprintPolicy {
         return false;
     }
 
-    private static boolean containsWorldgenResources(Path jarPath) {
-        try (JarFile jar = new JarFile(jarPath.toFile())) {
-            return jar.stream().anyMatch(entry -> {
-                if (entry.isDirectory()) return false;
-                String name = entry.getName().toLowerCase(Locale.ROOT);
-                if (!name.startsWith("data/")) return false;
-                return name.contains("/worldgen/")
-                    || name.contains("/structure/")
-                    || name.contains("/structures/")
-                    || name.contains("/dimension/")
-                    || name.contains("/dimension_type/")
-                    || name.contains("/biome_modifier/")
-                    || name.contains("/structure_modifier/");
-            });
-        } catch (Throwable unreadable) {
-            // Unreadable/corrupt JARs never become generation-neutral.
-            return true;
-        }
-    }
-
     /**
      * Compatibility is the responsibility of the FULL cache. Existing manifests
      * from older policy revisions may call unrelated files RELEVANT; those
@@ -264,24 +140,19 @@ final class FingerprintPolicy {
      */
     static boolean affectsCachedFull(FingerprintManifest.Entry entry) {
         String key = normalize(entry.key());
-        if (key.equals("policy:compatibility") || key.startsWith("audit:")) return false;
-        if (key.startsWith("compat:mod:")) return false;
+        if (key.equals("policy:compatibility") || key.startsWith("audit:")
+            || key.startsWith("compat:mod:")) return false;
         if (key.startsWith("mods/") && key.endsWith(".jar")) {
-            if (isCacheNeutralJarName(key)) return false;
-            if (isGenerationSensitiveJarName(key.substring(key.lastIndexOf('/') + 1))) return true;
-            String reason = entry.reason();
-            return reason.contains("generation-sensitive MOD")
-                || reason.contains("worldgen/structure/dimension datapack")
-                || reason.contains("indirect zfastnoise generation override")
-                || reason.contains("generation override");
+            String filename = key.substring(key.lastIndexOf('/') + 1);
+            return isGenerationSensitiveJarName(filename);
         }
         if (isConfigurationPath(key)) {
             if (key.startsWith("world/datapacks/")) return true;
-            for (String rule : BUILTIN_GENERATION_SENSITIVE_PATHS)
+            for (String rule : BUILTIN_GENERATION_SENSITIVE_PATHS) {
                 if (matchesRule(key, rule)) return true;
-            return entry.reason().contains("declared/effective world-generation configuration");
+            }
+            return false;
         }
-        if (key.startsWith("compat:")) return false;
         return entry.impact() == FingerprintManifest.Impact.RELEVANT;
     }
 
@@ -297,11 +168,6 @@ final class FingerprintPolicy {
             || lower.startsWith("mods/maki-mods-observer-");
     }
 
-    private boolean matchesIgnoredPath(String logicalPath) {
-        for (String rule : ignoredPaths) if (matchesRule(logicalPath, rule)) return true;
-        return false;
-    }
-
     private static boolean matchesRule(String logicalPath, String rule) {
         String normalizedRule = normalize(rule);
         if (normalizedRule.endsWith("/**")) {
@@ -313,62 +179,6 @@ final class FingerprintPolicy {
             return logicalPath.matches(regex);
         }
         return logicalPath.equals(normalizedRule);
-    }
-
-    static Set<String> readTopLevelModIds(Path jarPath) {
-        LinkedHashSet<String> ids = new LinkedHashSet<>();
-        try (JarFile jar = new JarFile(jarPath.toFile())) {
-            JarEntry metadata = jar.getJarEntry("META-INF/neoforge.mods.toml");
-            if (metadata == null) return Set.of();
-            String text;
-            try (InputStream input = jar.getInputStream(metadata)) {
-                text = new String(input.readAllBytes(), StandardCharsets.UTF_8);
-            }
-            boolean inMods = false;
-            for (String raw : text.split("\\R")) {
-                String line = raw.trim();
-                if (line.startsWith("[[") && line.endsWith("]]")) {
-                    inMods = line.equals("[[mods]]");
-                    continue;
-                }
-                if (!inMods || !line.startsWith("modId")) continue;
-                int equals = line.indexOf('=');
-                if (equals < 0) continue;
-                String value = line.substring(equals + 1).trim();
-                int comment = value.indexOf('#');
-                if (comment >= 0) value = value.substring(0, comment).trim();
-                if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
-                    ids.add(value.substring(1, value.length() - 1).toLowerCase(Locale.ROOT));
-                }
-            }
-        } catch (Throwable ignored) {
-            return Set.of();
-        }
-        return Set.copyOf(ids);
-    }
-
-    private static Set<String> csv(String value) {
-        LinkedHashSet<String> result = new LinkedHashSet<>();
-        for (String item : value.split(",")) {
-            String normalized = item.trim();
-            if (!normalized.isEmpty()) result.add(normalized);
-        }
-        return result;
-    }
-
-    private static Set<String> auditedNeutralPairs(String value) {
-        LinkedHashSet<String> result = new LinkedHashSet<>();
-        for(String raw:csv(value)) {
-            String entry=raw.toLowerCase(Locale.ROOT);
-            if(entry.matches("[a-z0-9_.-]+:[a-f0-9]{64}"))result.add(entry);
-        }
-        return Set.copyOf(result);
-    }
-
-    private static Set<String> lowerCsv(String value) {
-        LinkedHashSet<String> result = new LinkedHashSet<>();
-        for (String item : csv(value)) result.add(item.toLowerCase(Locale.ROOT));
-        return Set.copyOf(result);
     }
 
     private static int boundedInt(Properties properties, String key, int fallback, int min, int max) {
