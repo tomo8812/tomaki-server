@@ -6,7 +6,9 @@ import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.IdentityHashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.server.MinecraftServer;
@@ -24,7 +26,10 @@ final class PregenFlowController {
     enum WorkClass { UNKNOWN, NEW, REPAIR }
 
     private record Key(ServerLevel level,long pos) {}
+    private static final String PROCESS_GENERATION=UUID.randomUUID().toString();
     private static final AtomicLong SEQUENCE=new AtomicLong();
+    private static final AtomicLong TASK_SEQUENCE=new AtomicLong();
+    private static final IdentityHashMap<GenerationTask,Long> TASK_GENERATIONS=new IdentityHashMap<>();
     private static final Map<Key,Attempt> ACTIVE=new HashMap<>();
     private static final Map<String,Attempt> BY_TOKEN=new HashMap<>();
     private static final EnumMap<Stage,StageState> STAGES=new EnumMap<>(Stage.class);
@@ -93,7 +98,7 @@ final class PregenFlowController {
         if(existing!=null)return existing.owner==owner&&existing.epoch==epoch;
         EnumSet<Stage> needed=EnumSet.allOf(Stage.class);
         if(!canReserve(needed))return false;
-        String token=Long.toUnsignedString(epoch,36)+"-"+Long.toUnsignedString(SEQUENCE.incrementAndGet(),36);
+        String token=attemptToken(owner,epoch);
         Attempt attempt=new Attempt(key,owner,epoch,token);
         reserve(attempt,needed);
         ACTIVE.put(key,attempt);
@@ -123,7 +128,7 @@ final class PregenFlowController {
         if(attempt==null) {
             EnumSet<Stage> needed=generatedNew?EnumSet.allOf(Stage.class):EnumSet.of(Stage.LOD);
             if(!canReserve(needed))return false;
-            String token=Long.toUnsignedString(epoch,36)+"-"+Long.toUnsignedString(SEQUENCE.incrementAndGet(),36);
+            String token=attemptToken(owner,epoch);
             attempt=new Attempt(key,owner,epoch,token);
             attempt.workClass=generatedNew?WorkClass.NEW:WorkClass.REPAIR;
             reserve(attempt,needed);
@@ -260,6 +265,12 @@ final class PregenFlowController {
             BY_TOKEN.remove(attempt.token);
             iterator.remove();
         }
+    }
+
+    private static String attemptToken(GenerationTask owner,long epoch) {
+        long taskGeneration=TASK_GENERATIONS.computeIfAbsent(owner,ignored->TASK_SEQUENCE.incrementAndGet());
+        return PROCESS_GENERATION+"-"+Long.toUnsignedString(taskGeneration,36)+"-"
+            +Long.toUnsignedString(epoch,36)+"-"+Long.toUnsignedString(SEQUENCE.incrementAndGet(),36);
     }
 
     private static Attempt attempt(ServerLevel level,ChunkPos pos,GenerationTask owner) {
