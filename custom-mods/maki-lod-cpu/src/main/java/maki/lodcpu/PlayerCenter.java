@@ -8,6 +8,7 @@ import java.nio.file.*;
 import java.lang.invoke.MethodHandle;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicLong;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.nbt.*;
@@ -23,12 +24,15 @@ public final class PlayerCenter {
     private static final Logger LOG=LoggerFactory.getLogger("MakiLodFollow");
     private static final Gson JSON=new Gson();
     private static final String WORLD="minecraft:overworld";
-    private static MinecraftServer owner;
-    private static Saved saved;
+    private static volatile MinecraftServer owner;
+    private static volatile Saved saved;
     private static Path stateFile;
     private static long boot,emptySince,lastCheck,lastSave,lastReport,lastCenterChange,healthySince,lastStateSummary;
     private static String lastLoggedState;
-    private static boolean hadPlayers,manualPause,loadPause,requested,wasEnabled;
+    private static boolean hadPlayers;
+    private static volatile boolean manualPause,loadPause,requested,wasEnabled;
+    private static final AtomicLong ADMISSION_EPOCH=new AtomicLong();
+    private static volatile boolean admissionClosed=true;
     private static String reason="starting";
     private static MethodHandle toWorld,isShipyard;
     private static boolean checkedVs,positionError;
@@ -40,9 +44,42 @@ public final class PlayerCenter {
     static final class Saved {String player,uuid;Integer x,z;boolean disabled;long savedAt;}
 
     private static Settings settings(){return CpuGovernor.settings();}
-    private static boolean enabled(){return CpuGovernor.healthyConfig()&&settings().followEnabled&&!saved.disabled;}
+    private static boolean enabled(){return saved!=null&&CpuGovernor.healthyConfig()&&settings().followEnabled&&!saved.disabled;}
+
+    private static void resetAdmission(){
+        admissionClosed=true;
+        ADMISSION_EPOCH.incrementAndGet();
+    }
+    private static void closeAdmission(){
+        if(!admissionClosed){admissionClosed=true;ADMISSION_EPOCH.incrementAndGet();}
+    }
+    private static boolean admissionPolicyAllows(GenerationTask task){
+        MinecraftServer server=owner;
+        Saved state=saved;
+        if(server==null||state==null||task==null||admissionClosed||!enabled()||manualPause||loadPause
+            ||server.getPlayerCount()>0||task.isStopping()||!TaskOwnership.isOwned(task))return false;
+        try{
+            if(!ChunksmithProvider.isLoaded()||ChunksmithProvider.get()==null
+                ||ChunksmithProvider.get().getGenerationTasks().get(WORLD)!=task)return false;
+            var selection=task.getSelection();
+            return state.x!=null&&state.z!=null
+                &&(int)selection.centerX()==state.x&&(int)selection.centerZ()==state.z
+                &&selection.radiusX()==settings().followRadius&&selection.horizon()==1;
+        }catch(LinkageError|RuntimeException error){return false;}
+    }
+    private static void openAdmission(GenerationTask task){
+        if(task==null)return;
+        // Evaluate with the gate temporarily open; the dynamic policy is checked
+        // again by admissionOpen on every async candidate/final-guard boundary.
+        admissionClosed=false;
+        if(!admissionPolicyAllows(task))admissionClosed=true;
+    }
+    public static long admissionEpoch(GenerationTask task){
+        return task!=null&&TaskOwnership.isOwned(task)?ADMISSION_EPOCH.get():-1L;
+    }
+    public static boolean admissionOpen(GenerationTask task){return admissionPolicyAllows(task);}
     private static void initialize(MinecraftServer server,long now){
-        owner=server;boot=now;lastCheck=lastSave=lastReport=lastCenterChange=healthySince=lastStateSummary=0;lastLoggedState=null;
+        owner=server;resetAdmission();boot=now;lastCheck=lastSave=lastReport=lastCenterChange=healthySince=lastStateSummary=0;lastLoggedState=null;
         emptySince=server.getPlayerCount()==0?now:0;hadPlayers=server.getPlayerCount()>0;
         manualPause=loadPause=false;requested=true;positionError=false;reason="startup-wait";
         appliedX=appliedZ=null;lastTask=null;nativeTaskLifecycle.clear();controllerStopTask=null;
@@ -102,6 +139,7 @@ public final class PlayerCenter {
     public static void logout(ServerPlayer player){if(owner==player.getServer()&&saved!=null){capture(player);save(System.currentTimeMillis());}}
     public static void login(ServerPlayer player){
         if(owner==player.getServer()&&saved!=null&&enabled()){
+            closeAdmission();
             capture(player);
             boolean followPaused=true;
             if(ChunksmithProvider.isLoaded())followPaused=pause(ChunksmithProvider.get());
@@ -109,7 +147,7 @@ public final class PlayerCenter {
             save(System.currentTimeMillis());
         }
     }
-    public static void shutdown(MinecraftServer server){if(owner==server&&saved!=null)save(System.currentTimeMillis());owner=null;nativeTaskLifecycle.clear();controllerStopTask=null;}
+    public static void shutdown(MinecraftServer server){if(owner==server&&saved!=null)save(System.currentTimeMillis());closeAdmission();owner=null;nativeTaskLifecycle.clear();controllerStopTask=null;}
     private static void save(long now){
         if(stateFile==null)return;
         try{
@@ -121,6 +159,7 @@ public final class PlayerCenter {
         }catch(Exception e){LOG.warn("Could not persist LOD follow center",e);}
     }
     private static boolean pause(Chunksmith chunky){
+        closeAdmission();
         if(chunky==null)return true;
         GenerationTask current=chunky.getGenerationTasks().get(WORLD);
         if(current!=null&&!TaskOwnership.isOwned(current)){
@@ -135,13 +174,18 @@ public final class PlayerCenter {
         return true;
     }
     public static void nativeTaskStarted(GenerationTask task){
-        if(task!=null&&TaskOwnership.isOwned(task))nativeTaskLifecycle.add(new NativeTaskLifecycle(task,true,false));
+        if(task!=null&&TaskOwnership.isOwned(task)){
+            nativeTaskLifecycle.add(new NativeTaskLifecycle(task,true,false));
+            openAdmission(task);
+        }
     }
     public static void nativeTaskStopping(GenerationTask task,boolean cancelled){
-        if(task!=null&&TaskOwnership.isOwned(task)&&task!=controllerStopTask)
-            nativeTaskLifecycle.add(new NativeTaskLifecycle(task,false,cancelled));
+        if(task!=null&&TaskOwnership.isOwned(task)){
+            closeAdmission();
+            if(task!=controllerStopTask)nativeTaskLifecycle.add(new NativeTaskLifecycle(task,false,cancelled));
+        }
     }
-    private static void markManualPause(){manualPause=true;requested=false;reason="manual-pause";}
+    private static void markManualPause(){closeAdmission();manualPause=true;requested=false;reason="manual-pause";}
     private static boolean sameTaskSelection(GenerationTask first,GenerationTask second){
         if(first==null||second==null)return false;
         var a=first.getSelection();var b=second.getSelection();
@@ -231,7 +275,10 @@ public final class PlayerCenter {
             boolean moved=FollowPolicy.moved(saved.x,saved.z,(int)selection.centerX(),(int)selection.centerZ());
             if((moved||selection.radiusX()!=settings().followRadius||selection.horizon()!=1)&&FollowPolicy.due(now,lastCenterChange,settings().recenterSeconds)){
                 requested=true;pause(chunky);reason="draining-before-recenter";
-            }else reason="generating";
+            }else {
+                openAdmission(current);
+                reason="generating";
+            }
         }else if(requested&&!LodHorizon.isArmed(WORLD)){
             var world=chunky.getServer().getWorld(WORLD);
             if(world.isPresent()){
@@ -264,7 +311,7 @@ public final class PlayerCenter {
                     }
                     if(chunky.getGenerationTasks().putIfAbsent(WORLD,task)==null){
                         try{chunky.getScheduler().runTask(task);}catch(RuntimeException e){chunky.getGenerationTasks().remove(WORLD,task);throw e;}
-                        lastTask=task;appliedX=saved.x;appliedZ=saved.z;lastCenterChange=now;requested=false;reason="generating";
+                        lastTask=task;appliedX=saved.x;appliedZ=saved.z;lastCenterChange=now;requested=false;openAdmission(task);reason="generating";
                         LOG.info("Unified pregen follows {} at {},{}; radius {}, concentric FULL+LOD completion flow; previous confirmed data retained",settings().followPlayer,saved.x,saved.z,settings().followRadius);
                     }
                 }catch(Exception|LinkageError e){requested=false;manualPause=true;reason="start-failed";LOG.error("LOD follow start failed; paused until explicit resume",e);}
@@ -367,7 +414,7 @@ public final class PlayerCenter {
                 :"Use /makilod task resume-external to continue it, or /makilod task switch-follow to preserve it and start follow."),false);
             return 0;
         }
-        saved.disabled=false;manualPause=false;requested=true;emptySince=0;save(System.currentTimeMillis());
+        closeAdmission();saved.disabled=false;manualPause=false;requested=true;emptySince=0;save(System.currentTimeMillis());
         source.sendSuccess(()->Component.literal("LOD follow resume requested. This does not assert generation has started; use /makilod status to confirm activeTaskOwner=follow and current blockers."),false);
         return 1;
     }
@@ -381,7 +428,7 @@ public final class PlayerCenter {
         Chunksmith chunky=commandChunksmith(source);if(chunky==null)return 0;
         var result=ExternalTaskMigration.resumeExternal(chunky,source.getServer(),actor(source));
         if(!result.ok()){source.sendFailure(Component.literal(result.message()));return 0;}
-        reason="external-task-active";
+        closeAdmission();reason="external-task-active";
         source.sendSuccess(()->Component.literal(result.message()),false);return 1;
     }
     private static int commandStash(net.minecraft.commands.CommandSourceStack source){
@@ -389,7 +436,7 @@ public final class PlayerCenter {
         Chunksmith chunky=commandChunksmith(source);if(chunky==null)return 0;
         var result=ExternalTaskMigration.stash(chunky,source.getServer(),actor(source),"stash");
         if(!result.ok()){source.sendFailure(Component.literal(result.message()));return 0;}
-        manualPause=true;requested=false;reason="external-task-stashed";save(System.currentTimeMillis());
+        closeAdmission();manualPause=true;requested=false;reason="external-task-stashed";save(System.currentTimeMillis());
         source.sendSuccess(()->Component.literal(result.message()+" Follow remains paused; use /makilod resume when ready."),false);return 1;
     }
     private static int commandSwitchFollow(net.minecraft.commands.CommandSourceStack source){
@@ -397,7 +444,7 @@ public final class PlayerCenter {
         Chunksmith chunky=commandChunksmith(source);if(chunky==null)return 0;
         var result=ExternalTaskMigration.stash(chunky,source.getServer(),actor(source),"switch-follow");
         if(!result.ok()){source.sendFailure(Component.literal(result.message()));return 0;}
-        saved.disabled=false;manualPause=false;requested=true;emptySince=0;reason="follow-switch-requested";save(System.currentTimeMillis());
+        closeAdmission();saved.disabled=false;manualPause=false;requested=true;emptySince=0;reason="follow-switch-requested";save(System.currentTimeMillis());
         source.sendSuccess(()->Component.literal(result.message()+" Follow is now requested, not assumed started. Confirm /makilod status shows activeTaskOwner=follow and runtime progress."),false);return 1;
     }
     private static int commandRestoreLatest(net.minecraft.commands.CommandSourceStack source){
@@ -405,7 +452,7 @@ public final class PlayerCenter {
         Chunksmith chunky=commandChunksmith(source);if(chunky==null)return 0;
         var result=ExternalTaskMigration.restoreLatest(chunky,source.getServer(),actor(source));
         if(!result.ok()){source.sendFailure(Component.literal(result.message()));return 0;}
-        manualPause=true;requested=false;reason="external-task-restored";save(System.currentTimeMillis());
+        closeAdmission();manualPause=true;requested=false;reason="external-task-restored";save(System.currentTimeMillis());
         source.sendSuccess(()->Component.literal(result.message()+" Follow is paused so the restored external state cannot be overwritten."),false);return 1;
     }
 

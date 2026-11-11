@@ -52,6 +52,9 @@ public abstract class GenerationTaskMixin {
         require=1
     )
     private Object maki$sharedBackfillBarrier(ChunkIterator iterator) {
+        if(maki$owned()) {
+            while(!stopped&&ResourceBudgetApi.blockFollowAdmission())LockSupport.parkNanos(1_000_000L);
+        }
         Object next=iterator.next();
         if(!maki$owned())return next;
         while(!stopped&&ResourceBudgetApi.blockFollowDispatch()) {

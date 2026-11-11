@@ -22,6 +22,7 @@ public final class CpuGovernor {
     private static LodCounters previousLod;
     private static long lastTime,lastCpu,lastGc=-1,lastOom=-1,lastThrottled=-1,lastStamp=Long.MIN_VALUE,lastReport;
     private static long reportedExperiment;
+    private static long previousPairConfirmed=-1;
     private static long lastBudgetTransition;
     private static volatile String pipelinePressure;
     private static boolean configGood=true;
@@ -67,6 +68,23 @@ public final class CpuGovernor {
         }
         pipelinePressure=reason;
         SHARED_BUDGET.pipelinePressure(reason);
+    }
+
+    private record ControllerObservation(boolean available,long pairConfirmed,boolean admissionBlocked,boolean sensorUnknown,String reason){}
+    private static ControllerObservation controllerObservation(){
+        try{
+            Object status=Class.forName("maki.chunksmithcache.CacheManager").getMethod("controllerStatus").invoke(null);
+            Class<?> type=status.getClass();
+            long pairs=((Number)type.getMethod("pairConfirmedRuntime").invoke(status)).longValue();
+            boolean blocked=Boolean.TRUE.equals(type.getMethod("admissionBlocked").invoke(status));
+            boolean unknown=Boolean.TRUE.equals(type.getMethod("sensorUnknown").invoke(status));
+            Object rawReason=type.getMethod("reason").invoke(status);
+            return new ControllerObservation(true,pairs,blocked,unknown,rawReason==null?null:rawReason.toString());
+        }catch(ClassNotFoundException absent){
+            return new ControllerObservation(false,0,false,false,"cache-controller-absent");
+        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable){
+            return new ControllerObservation(false,0,true,true,"cache-controller-unavailable");
+        }
     }
 
     static SharedWorkBudget.Decision reserveBackfill(String taskMode){
@@ -132,28 +150,34 @@ public final class CpuGovernor {
             writes/seconds,batch.completions()/seconds,stateFresh?state.width():0,stateFresh?state.inFlight():0,
             lod.queue(),stateFresh?state.worldWrites():-1,sync,stateFresh&&state.held()));
 
+        ControllerObservation controller=controllerObservation();
+        long pairDelta=controller.available()&&previousPairConfirmed>=0
+            ?Math.max(0,controller.pairConfirmed()-previousPairConfirmed):0;
+        previousPairConfirmed=controller.available()?controller.pairConfirmed():-1;
+        boolean pairAvailable=controller.available()&&!controller.sensorUnknown();
+
         long budgetTransition=SHARED_BUDGET.transitionSerial();
         boolean sharedBackfillPause=SHARED_BUDGET.reserved()||budgetTransition!=lastBudgetTransition;
         if(!configGood)cap=POLICY.unavailable(settings,"invalid-config");
-        else if(players>0)cap=POLICY.update(sample,players,settings);
+        else if(players>0)cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked());
         else if(sharedBackfillPause)cap=POLICY.updateSafetyOnly(sample,players,settings);
         else if(!active)cap=POLICY.reset(settings,"generation-idle");
         else {
-            cap=POLICY.update(sample,players,settings);
+            cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked());
             SHARED_BUDGET.noteCleanFollowSample();
         }
         lastBudgetTransition=budgetTransition;
 
         boolean experimentFinished=reportedExperiment!=POLICY.experimentNumber;
         if(experimentFinished){
-            LOG.info("LOD throughput experiment #{}: {}; decision {}; rates are completed-request AND successful-LOD-write pipeline chunks/s",POLICY.experimentNumber,POLICY.lastExperiment,POLICY.reason);
+            LOG.info("LOD c-neighbourhood experiment #{}: {}; decision {}; rate is confirmed runtime FULL+LOD PAIR/s",POLICY.experimentNumber,POLICY.lastExperiment,POLICY.reason);
             reportedExperiment=POLICY.experimentNumber;
         }
         if(previous!=cap||experimentFinished||now-lastReport>=30_000_000_000L){
-            LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}; shared budget [{}]",
+            LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); confirmed PAIR {}/s ({} in sample), all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}, admissionBlocked={}, controllerReason={}; shared budget [{}]",
                 previous,cap,fmt(used),fmt(capacity),fmt(mspt),fmt(heap),players,POLICY.reason,
-                fmt(writes/seconds),writes,fmt(batch.completions()/seconds),batch.completions(),fmt(gcPercent),
-                sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase,SHARED_BUDGET.summary(now));
+                fmt(pairDelta/seconds),pairDelta,fmt(writes/seconds),writes,fmt(batch.completions()/seconds),batch.completions(),fmt(gcPercent),
+                sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase,controller.admissionBlocked(),controller.reason(),SHARED_BUDGET.summary(now));
             lastReport=now;
         }
     }
@@ -195,7 +219,7 @@ public final class CpuGovernor {
             lastStamp=stamp;
             configGood=true;
             cap=POLICY.reset(settings,"config-reloaded");
-            LOG.info("Loaded {}; CPU budget {} cores, ceiling {}..{}; A/B/A saved-LOD throughput window {}s, settle {}s; safe backfill spacing {}..{}s",
+            LOG.info("Loaded {}; CPU budget {} cores, ceiling {}..{}; confirmed-PAIR c-neighbourhood window {}s, settle {}s; safe backfill spacing {}..{}s",
                 CONFIG,capacity,fresh.min,fresh.max,fresh.windowSeconds,fresh.settleSeconds,
                 fresh.backfillMinSpacingSeconds,fresh.backfillMaxSafeWaitSeconds);
         }catch(Exception e){
