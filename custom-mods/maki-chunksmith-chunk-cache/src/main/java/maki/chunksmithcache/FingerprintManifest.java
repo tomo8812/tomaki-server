@@ -315,6 +315,14 @@ final class FingerprintManifest {
         return result;
     }
 
+    private static Map<String, Entry> byKey(List<Entry> entries) {
+        Map<String, Entry> result = new LinkedHashMap<>();
+        for (Entry entry : entries) {
+            result.put(entry.key(), entry);
+        }
+        return result;
+    }
+
     private static boolean equivalent(Entry a, Entry b) {
         return a != null && b != null && a.size() == b.size() && a.sha256().equals(b.sha256());
     }
@@ -324,9 +332,6 @@ final class FingerprintManifest {
         String key = present == null ? "" : present.key();
         if (key.equals(CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH)) {
             return "(source-format/comment changed; effective values unchanged)";
-        }
-        if (key.startsWith(AuditedModCompatibility.RAW_AUDIT_PREFIX)) {
-            return "(audited generation-neutral JAR changed; compatibility contract unchanged)";
         }
         if (key.equals(CompatibilityInput.ZFASTNOISE_PATH) && oldEntry != null && newEntry != null) {
             return "(effective values changed)";
