@@ -38,3 +38,5 @@ jobs:
           git push origin HEAD:compat/chunksmith-4.8.1-millenaire-9.1.0
 
 # Final current-only FULL cache compatibility verification.
+
+# Recheck raw configuration byte digest in rewritten tests.
