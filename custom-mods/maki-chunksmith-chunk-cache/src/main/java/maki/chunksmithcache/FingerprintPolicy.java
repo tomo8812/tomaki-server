@@ -268,7 +268,7 @@ final class FingerprintPolicy {
         if (key.startsWith("compat:mod:")) return false;
         if (key.startsWith("mods/") && key.endsWith(".jar")) {
             if (isCacheNeutralJarName(key)) return false;
-            if (isGenerationSensitiveJarName(key)) return true;
+            if (isGenerationSensitiveJarName(key.substring(key.lastIndexOf('/') + 1))) return true;
             String reason = entry.reason();
             return reason.contains("generation-sensitive MOD")
                 || reason.contains("worldgen/structure/dimension datapack")
