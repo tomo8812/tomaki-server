@@ -98,7 +98,7 @@ public final class CompatibilityInputSelfTest {
         Files.writeString(path, content, StandardCharsets.UTF_8);
         byte[] bytes = Files.readAllBytes(path);
         return CompatibilityInput.entries(key, path, bytes.length,
-            CompatibilityFingerprint.sha256(bytes), POLICY);
+            CompatibilityFingerprint.hex(CompatibilityFingerprint.digest().digest(bytes)), POLICY);
     }
 
     private static FingerprintManifest.Manifest manifest(List<FingerprintManifest.Entry> entries) {
