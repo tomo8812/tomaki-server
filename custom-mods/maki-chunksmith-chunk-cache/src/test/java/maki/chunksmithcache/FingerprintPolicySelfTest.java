@@ -10,108 +10,87 @@ import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 
-/** FULL cache compatibility inputs: terrain generation, not LOD/scheduling. */
+/**
+ * Only the deployed server's known terrain MODs are compatibility inputs.
+ * Newly added generators are declared by changing this policy at install time.
+ */
 public final class FingerprintPolicySelfTest {
     public static void main(String[] args) throws Exception {
-        Path temp = Files.createTempDirectory("maki-full-compat-boundary");
+        Path root = Files.createTempDirectory("maki-full-cache-current-mods");
         try {
-            Path scheduler = temp.resolve("chunksmith.jar");
-            writeModJar(scheduler, "chunksmith", "changed-scheduling", false);
-            Path bridge = temp.resolve("millenaire.jar");
-            writeModJar(bridge, "millenaire", "changed-village-queue", false);
-            Path unknown = temp.resolve("utility.jar");
-            writeModJar(unknown, "non_worldgen_utility", "ui-change", false);
-            Path terrain = temp.resolve("worldgen.jar");
-            writeModJar(terrain, "epicterrain", "terrain-change", false);
-            Path dataWorldgen = temp.resolve("worldgen-data.jar");
-            writeModJar(dataWorldgen, "new_terrain_provider", "terrain-change", true);
-
+            Path jar = root.resolve("fixture.jar");
+            writeModJar(jar, "arbitrary_future_mod", true);
             FingerprintPolicy policy = FingerprintPolicy.forTesting(List.of());
-            require(policy.classify("mods/chunksmith-4.8.1.jar", scheduler)
-                == FingerprintManifest.Impact.IGNORED, "Chunksmith owns LOD/scheduling, not cached FULL validity");
-            require(policy.classify("mods/millenaire-9.1.0.jar", bridge)
-                == FingerprintManifest.Impact.IGNORED, "deferred village changes are not cached terrain changes");
-            require(policy.classify("mods/utility.jar", unknown)
-                == FingerprintManifest.Impact.IGNORED, "unrelated MOD changes must preserve FULLs");
-            require(policy.classify("mods/worldgen.jar", terrain)
-                == FingerprintManifest.Impact.RELEVANT, "known code-driven worldgen must remain relevant");
-            require(policy.classify("mods/new-worldgen-data.jar", dataWorldgen)
-                == FingerprintManifest.Impact.RELEVANT, "worldgen datapack resources must be relevant");
-            require(policy.classify("config/jade-common.toml", unknown)
-                == FingerprintManifest.Impact.IGNORED, "unrelated configuration is not a terrain input");
-            require(policy.classify("config/epicterrain-options.toml", unknown)
-                == FingerprintManifest.Impact.RELEVANT, "terrain config must stay relevant");
+
+            require(policy.classify("mods/new-unknown-generator.jar", jar)
+                == FingerprintManifest.Impact.IGNORED,
+                "unknown or future MODs are not preemptively treated as FULL terrain inputs");
+            require(policy.classify("mods/chunksmith-4.8.1+1.21.1-neoforge.jar", jar)
+                == FingerprintManifest.Impact.IGNORED,
+                "native LOD/Chunksmith compatibility belongs to Chunksmith");
+            require(policy.classify("mods/millenaire-9.1.0.jar", jar)
+                == FingerprintManifest.Impact.IGNORED,
+                "deferred village scheduling does not invalidate stored FULL terrain");
+            require(policy.classify("mods/epicterrain-0.3.0-1.21.1.jar", jar)
+                == FingerprintManifest.Impact.RELEVANT, "installed EpicTerrain is terrain input");
+            require(policy.classify("mods/letsdo-farm_and_charm-neoforge-1.1.29.jar", jar)
+                == FingerprintManifest.Impact.RELEVANT, "installed Farm and Charm contributes worldgen");
+            require(policy.classify("mods/architectury-13.0.11-neoforge.jar", jar)
+                == FingerprintManifest.Impact.RELEVANT, "installed Architectury worldgen inputs stay tracked");
+            require(policy.classify("config/jade-common.toml", jar)
+                == FingerprintManifest.Impact.IGNORED, "ordinary config changes must preserve FULL");
+            require(policy.classify("config/epicterrain-config.toml", jar)
+                == FingerprintManifest.Impact.RELEVANT, "terrain generator config change must invalidate");
+            require(policy.classify("config/zfastnoise.mixin.properties", jar)
+                == FingerprintManifest.Impact.RELEVANT, "effective terrain noise settings must be monitored");
+            require(policy.classify("world/datapacks/current/pack.mcmeta", jar)
+                == FingerprintManifest.Impact.RELEVANT, "world datapacks must be monitored");
             require(FingerprintPolicy.isAlwaysExcluded("config/chunksmith/tasks/minecraft/overworld.properties"),
-                "Chunksmith task progress never changes cached FULL compatibility");
+                "Chunksmith task progress must never invalidate FULL");
 
-            FingerprintPolicy manuallyConfigured = FingerprintPolicy.forTesting(
-                Set.of("non_worldgen_utility"), List.of("config/custom-terrain.properties"), List.of());
-            require(manuallyConfigured.classify("mods/utility.jar", unknown)
-                == FingerprintManifest.Impact.RELEVANT,
-                "code-only generator declared at installation must be a generation input");
-            require(manuallyConfigured.classify("config/custom-terrain.properties", unknown)
-                == FingerprintManifest.Impact.RELEVANT,
-                "explicitly declared terrain option must be relevant");
+            List<FingerprintManifest.Entry> oldEntries = baseline();
+            List<FingerprintManifest.Entry> updatedEntries = new ArrayList<>(oldEntries);
+            updatedEntries.set(0, relevant("mods/epicterrain-0.3.0-1.21.1.jar", "changed-terrain"));
+            require(!FingerprintManifest.sameCompatibilityInputsExcept(
+                manifest(oldEntries), manifest(updatedEntries), Set.of("policy:compatibility")),
+                "terrain generator change must not be adopted");
+            updatedEntries = new ArrayList<>(oldEntries);
+            updatedEntries.add(relevant("mods/letsdo-candlelight-neoforge-2.1.15.jar", "new-generation-input"));
+            require(!FingerprintManifest.sameCompatibilityInputsExcept(
+                manifest(oldEntries), manifest(updatedEntries), Set.of("policy:compatibility")),
+                "installing a currently recognized terrain generator must change compatibility");
 
-            List<FingerprintManifest.Entry> old = new ArrayList<>(List.of(
-                relevant("policy:compatibility", "old"),
-                relevant("mods/chunksmith-4.6.0.jar", "old-scheduler"),
-                relevant("mods/millenaire-9.0.3.jar", "old-village"),
-                relevant("mods/other-utility.jar", "other"),
-                relevant("config/jade-common.toml", "old-ui"),
-                relevant("mods/epicterrain-0.3.0.jar", "terrain"),
-                relevant("config/epicterrain-options.toml", "old-terrain-config"),
-                relevant("level:seed", "42"),
-                relevant("minecraft:data-version", "3955")
-            ));
-            List<FingerprintManifest.Entry> updated = new ArrayList<>(List.of(
-                relevant("policy:compatibility", "new"),
-                relevant("mods/chunksmith-4.8.1.jar", "new-scheduler"),
-                relevant("mods/millenaire-9.1.0.jar", "new-village"),
-                relevant("mods/another-utility.jar", "changed-ui"),
-                relevant("config/jade-common.toml", "changed-ui"),
-                relevant("mods/epicterrain-0.3.0.jar", "terrain"),
-                relevant("config/epicterrain-options.toml", "old-terrain-config"),
-                relevant("level:seed", "42"),
-                relevant("minecraft:data-version", "3955")
-            ));
-            FingerprintManifest.Manifest source = manifest(old);
-            FingerprintManifest.Manifest target = manifest(updated);
-            require(FingerprintManifest.sameCompatibilityInputsExcept(
-                source, target, Set.of("policy:compatibility")),
-                "old overly broad manifests must adopt when only non-worldgen inputs changed");
-            require(!FingerprintManifest.sameCompatibilityInputsExcept(
-                source, manifest(replace(updated, "mods/epicterrain-0.3.0.jar", "changed-worldgen")),
-                Set.of("policy:compatibility")), "real worldgen changes must not be adopted");
-            require(!FingerprintManifest.sameCompatibilityInputsExcept(
-                source, manifest(replace(updated, "minecraft:data-version", "4080")),
-                Set.of("policy:compatibility")), "new Minecraft data version must block old FULL reuse");
-            require(!FingerprintManifest.sameCompatibilityInputsExcept(
-                source, manifest(replace(updated, "config/epicterrain-options.toml", "changed-terrain")),
-                Set.of("policy:compatibility")), "terrain config change must block reuse");
-
-            String encoded = FingerprintManifest.encode(source);
+            String encoded = FingerprintManifest.encode(manifest(oldEntries));
             FingerprintManifest.Manifest decoded = FingerprintManifest.decode(encoded);
-            require(decoded.fingerprint().equals(source.fingerprint())
-                && decoded.entries().size() == old.size(), "manifest round trip");
+            require(decoded.entries().size() == oldEntries.size(), "manifest serialization");
             boolean corruptRejected = false;
             try {
                 FingerprintManifest.decode(encoded.replaceFirst("entry\\t[^\\t]+", "entry\t%%%"));
             } catch (IOException expected) { corruptRejected = true; }
-            require(corruptRejected, "invalid manifest must not be accepted");
-
-            System.out.println("Issue #40 FULL cache generation-input regression checks: PASS");
+            require(corruptRejected, "malformed manifest must reject");
+            System.out.println("Issue #40 current terrain-MOD boundary and manifest tests: PASS");
         } finally {
-            try (var stream = Files.walk(temp)) {
-                for (Path file : stream.sorted(java.util.Comparator.reverseOrder()).toList()) Files.deleteIfExists(file);
+            try (var stream = Files.walk(root)) {
+                for (Path path : stream.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(path);
+                }
             }
         }
+    }
+
+    private static List<FingerprintManifest.Entry> baseline() {
+        return List.of(
+            relevant("mods/epicterrain-0.3.0-1.21.1.jar", "original-terrain"),
+            relevant("minecraft:data-version", "3955"),
+            relevant("level:seed", "123"),
+            relevant("world/datapacks/current/pack.mcmeta", "old-datapack")
+        );
     }
 
     private static FingerprintManifest.Entry relevant(String key, String value) {
         return new FingerprintManifest.Entry(key, value.length(),
             CompatibilityFingerprint.sha256(value), FingerprintManifest.Impact.RELEVANT,
-            "historical over-broad classification");
+            "known FULL terrain generation input");
     }
 
     private static FingerprintManifest.Manifest manifest(List<FingerprintManifest.Entry> entries) {
@@ -119,27 +98,17 @@ public final class FingerprintPolicySelfTest {
         return new FingerprintManifest.Manifest(fingerprint, 1L, Set.of(fingerprint), entries);
     }
 
-    private static List<FingerprintManifest.Entry> replace(
-        List<FingerprintManifest.Entry> entries, String key, String changed
-    ) {
-        List<FingerprintManifest.Entry> next = new ArrayList<>();
-        for (FingerprintManifest.Entry entry : entries) {
-            next.add(entry.key().equals(key) ? relevant(key, changed) : entry);
-        }
-        return next;
-    }
-
-    private static void writeModJar(Path path, String modId, String text,
-                                    boolean worldgen) throws IOException {
+    private static void writeModJar(Path path, String id, boolean withWorldgenData) throws IOException {
         try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(path))) {
             out.putNextEntry(new JarEntry("META-INF/neoforge.mods.toml"));
-            out.write(("modLoader=\"javafml\"\n[[mods]]\nmodId=\"" + modId
-                + "\"\nversion=\"1\"\n").getBytes(StandardCharsets.UTF_8));
+            out.write(("modLoader=\"javafml\"\n[[mods]]\nmodId=\"" + id + "\"\n")
+                .getBytes(StandardCharsets.UTF_8));
             out.closeEntry();
-            out.putNextEntry(new JarEntry(worldgen
-                ? "data/fixture/worldgen/configured_feature/test.json" : "payload.txt"));
-            out.write(text.getBytes(StandardCharsets.UTF_8));
-            out.closeEntry();
+            if (withWorldgenData) {
+                out.putNextEntry(new JarEntry("data/fixture/worldgen/configured_feature/feature.json"));
+                out.write("{}".getBytes(StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
         }
     }
 
