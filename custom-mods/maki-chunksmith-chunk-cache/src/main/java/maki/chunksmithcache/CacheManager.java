@@ -913,6 +913,7 @@ public final class CacheManager {
          + ",pressure=" + status.pressureReason() + ",hard=" + status.hardBlock()
          + ",soft=" + status.softBackpressure() + ",unknown=" + status.sensorUnknown()
          + ",retryFull=" + PREGEN_RETRY.status(nowNanos) + ",retryLod=" + PREGEN_LOD_RETRY.status(nowNanos)
+         + ",scanner=" + NormalChunkStorage.scannerStatus()
          + ",lodPhysical=" + LodCommitTracker.physicalStatus() + ",flow=" + PregenFlowController.snapshot();
    }
 
