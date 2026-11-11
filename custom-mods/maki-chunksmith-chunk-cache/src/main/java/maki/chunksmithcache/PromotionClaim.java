@@ -41,6 +41,7 @@ final class PromotionClaim {
         // Same filesystem. If atomic rename is unavailable, refuse promotion.
         // A copy/delete fallback could expose the same snapshot twice after a crash.
         Files.move(available, target, StandardCopyOption.ATOMIC_MOVE);
+        PairReceiptStore.invalidate(available);
         return new PromotionClaim(target, hasEntities);
         }
     }
