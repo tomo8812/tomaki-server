@@ -36,7 +36,7 @@ public final class FingerprintPolicySelfTest {
             require(policy.classify("mods/letsdo-farm_and_charm-neoforge-1.1.29.jar", jar)
                 == FingerprintManifest.Impact.RELEVANT, "installed Farm and Charm contributes worldgen");
             require(policy.classify("mods/architectury-13.0.11-neoforge.jar", jar)
-                == FingerprintManifest.Impact.RELEVANT, "installed Architectury worldgen inputs stay tracked");
+                == FingerprintManifest.Impact.IGNORED, "Architectury is an API library, not a terrain generator");
             require(policy.classify("config/jade-common.toml", jar)
                 == FingerprintManifest.Impact.IGNORED, "ordinary config changes must preserve FULL");
             require(policy.classify("config/epicterrain-config.toml", jar)
