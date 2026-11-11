@@ -61,3 +61,29 @@ jobs:
                 print('BYTECODE_DIFF',fqcn,'oldLines',len(oa),'newLines',len(nb),'diffLines',len(diff))
                 print('\\n'.join(diff[:110]))
           PY
+
+      - name: Inspect all changed custom MOD binary payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import zipfile,hashlib,subprocess,os
+          pairs=[('maki-chunksmith-chunk-cache-1.4.2.jar','maki-chunksmith-chunk-cache-1.4.3.jar'),
+          ('maki-idle-pregen-1.1.1.jar','maki-idle-pregen-1.1.2.jar'),
+          ('maki-lod-cpu-1.4.2.jar','maki-lod-cpu-1.4.3.jar'),
+          ('maki-millenaire-lod-compat-1.0.6.jar','maki-millenaire-lod-compat-1.0.8.jar'),
+          ('maki-ship-save-1.0.2.jar','maki-ship-save-1.0.3.jar')]
+          for old,new in pairs:
+            raw=subprocess.check_output(['git','show','origin/main:mods/'+old])
+            with zipfile.ZipFile(__import__('io').BytesIO(raw)) as a,zipfile.ZipFile('mods/'+new) as b:
+              a1={i.filename:hashlib.sha256(a.read(i)).hexdigest() for i in a.infolist() if not i.is_dir()}
+              b1={i.filename:hashlib.sha256(b.read(i)).hexdigest() for i in b.infolist() if not i.is_dir()}
+            changed=sorted(x for x in a1 if x in b1 and a1[x]!=b1[x])
+            added=sorted(set(b1)-set(a1));removed=sorted(set(a1)-set(b1))
+            print('CUSTOM_MOD_PAIR',old,'->',new)
+            print('OLD_SHA',hashlib.sha256(raw).hexdigest(),'NEW_SHA',hashlib.sha256(open('mods/'+new,'rb').read()).hexdigest())
+            print('CLASS_CHANGED', [x for x in changed if x.endswith('.class')][:100])
+            print('CLASS_ADDED', [x for x in added if x.endswith('.class')][:45])
+            print('CLASS_REMOVED',[x for x in removed if x.endswith('.class')][:35])
+            print('RESOURCES_CHANGED',[x for x in changed+added+removed if not x.endswith('.class')][:65])
+          PY
