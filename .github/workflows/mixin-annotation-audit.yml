@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: mixin-static-${{ github.event_name }}-${{ github.ref }}
@@ -143,28 +143,6 @@ jobs:
           name: rebuilt-deployment-jars
           path: /tmp/maki-rebuilt/*.jar
           retention-days: 14
-
-      # Temporary same-repository PR handoff: source-build is the authoritative
-      # producer of deployment JARs, while the GitHub connector cannot write binary
-      # contents directly. This step is removed again after the two rebuilt JARs land.
-      - name: Sync pregen deployment JARs to PR head
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
-        env:
-          HEAD_REF: ${{ github.event.pull_request.head.ref }}
-        run: |
-          set -euo pipefail
-          git fetch origin "$HEAD_REF"
-          git checkout -B "$HEAD_REF" "origin/$HEAD_REF"
-          cp /tmp/maki-rebuilt/maki-chunksmith-chunk-cache-1.4.2.jar mods/
-          cp /tmp/maki-rebuilt/maki-lod-cpu-1.4.2.jar mods/
-          if git diff --quiet -- mods/maki-chunksmith-chunk-cache-1.4.2.jar mods/maki-lod-cpu-1.4.2.jar; then
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mods/maki-chunksmith-chunk-cache-1.4.2.jar mods/maki-lod-cpu-1.4.2.jar
-          git commit -m "[skip ci] build(pregen): refresh deployment jars"
-          git push origin "HEAD:$HEAD_REF"
 
       - name: Audit rebuilt JARs
         run: |
