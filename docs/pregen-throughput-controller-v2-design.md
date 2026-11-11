@@ -1,4 +1,4 @@
-# 設計再検討 V5: A1.Flex向け軽量自律最適化と実物理WIPに基づく生成・保存制御
+# 設計再検討 V6: A1.Flex向け自律WIP制御とPAIR保存確定の整合性
 
 > **PR #89 設計レビュー版。ソースコード、MOD jar、設定、キャッシュ形式は未変更。** 2026-11-10のレビュー36スレッドと現行実装を踏まえる。本書の方式や3段階構造を「実装済みの最適解」とはみなさず、複数方式を同じ目的・同じ条件で比較して選定する。
 >
@@ -218,28 +218,22 @@ SSHで`scripts/a1-pregen-preflight.py`を一度実行し、CPU affinity/quota、
 
 追跡できないlate writerやカウンタ欠損がある場合、状態を`PHYSICAL_UNKNOWN`として既存のnative writer queue・CaptureWork lease・inspection permitを利用した保守的圧力へ退避する。無制限Mapは導入しない。実物理終了の通知を得られないときは、計測都合で正式なキャッシュの所有権・採否・hard leaseを強制変更しない。unknownが残る限り積極的な新規投入探索を停止し、外部の信頼できるdrain/再計測で回復させる。計測器のメモリを無限に保持せず、過大な保守的負債で永久停止しないよう、可視のwriter実状態と既存hard leaseに照合した復帰条件を用意する。
 
-### 11.4 E-liteの安全なdispatch境界
+### 11.4 E-liteの安全なdispatch境界：二段階の課金
 
-現行`GenerationTaskMixin.maki$sharedBackfillBarrier`は`ChunkIterator.next()`へ@Redirectし、選択直後の位置にある。Chunksmith 4.6.0では**その後**にLOD/既存生成状態skip、native tick/LOD queue/heap/residency/AutoPause安全判断がある。**a-tokenを`next()`で消費しない。** 既存Backfillのbarrierは維持する。
+現行Chunksmith 4.6.0では、同期skipとnative safetyループの後、native inFlight加算・dispatchTime計測の後にも、非同期isChunkGeneratedの結果によるLOD既存skipとpreparePregenRequestの最終guard拒否がある。したがって「すべてのskip後、かつnativeの計測開始前」という単一フックは存在しない。前段で実要求数に確定課金するというV5の記述は撤回する。
 
-新しいaゲートは、**skip判定・native安全ループを通過したFollow-ownerの実要求に限って、`dispatchTime`・`inFlight.incrementAndGet()`・要求開始の直前で一度だけ**通す。待つ必要がある場合はnative安全ループ自身が呼べる非ブロッキングadmission述語を優先し、実現できない場合は短い有界待機後にプレイヤー・task stop・所有権・native health/AutoPause・writer状態を再評価する。待機中の次座標保持と同心円順は変えず、再確認に失敗したdispatchにはtokenを課金しない。gate時間をnative slow-chunk latencyへ含めない。server thread・外部Chunksmith・通常ロード／プレイヤーLODのブロックは禁止。#88のbytecode interop検査とMixin ABI/制御フロー検証を通らない場合は**aを無効化しcap-onlyで稼働**させる。
+第一候補は同期skip・native安全確認後に小さな候補WIPを仮予約し、非同期skip・guard拒否・stopでは確実に返し、既存GenerationRequestMixinが横取りする実getChunkAtAsync開始時にactualRequestを一度記録する二段階契約。既存のnext() RedirectはBackfill用のままとし、同じgetChunkAtAsyncへ第二のRedirectを作らない。非同期callbackでのparkやFuture繰延はnative latencyを汚染・デッドロックさせるためしない。native健康ループと再入停止・所有権・player入室を再検査できる安全な仮予約点を証明できなければaゲートを無効化しcap-onlyへ退避する。
 
+WIP creditと時間あたりのrate tokenは別勘定にする。第一候補のFASTはrate tokenを必須とせず、ACKで補充するstage WIP窓を使う。Follow専用のatomic admission epochを用い、AutoPauseからのTaskLoader復元後も最初のdispatch前に閉鎖世代とplayers/manualPause/ownerを再確認する。外部タスクと通常ロードは制御しない。詳細は§13。
+  
 ### 11.5 状態別の閉ループと二方向cap探索
 
-**WARMUP**：c=2、aはほぼ透過。初期`μ_busy`やPAIRが未知でもすぐに無期限停止しない。nativeと保存のhard guardで運転し、軽量な自然イベントだけでサービス率とworkClassを学ぶ。
+WARMUPは2 OCPU/12GBからc=2・小さな保存WIP窓で開始する。FASTは工程別のoutstanding（future＋physical）をACK時に個別返却する方式を第一候補にする。2〜5秒間隔のtickはdeadline・age・同期fallback・容量/メモリ安全性へ即応し、低頻度ACKのbusyサービス時間学習はイベント数・鮮度に応じて別周期で更新する。AIMDは対照候補とし、単純なACK-windowが十分なら追加のrate積分器を置かない。物理writerのTIMEOUT後WIPは実ACKまたは検証済みcancelまで保持する。
 
-**FAST（数秒を初期候補）**：LOD/FULLのbusyサービス率・物理WIP・futureWork・queue age/bytes・deadline riskを用い、下流が持続飽和ならaを小さくする（まず小さなAIMD＋ヒステリシス、単純ゲートで同等なら簡素化）。LOD同期fallbackは期限計算とは独立の**早期警報**とする。ChunksmithのLOD queueが満杯になると`CsLodStoreSink.offer()`は呼出し元で同期persistする可能性があり、`LodCommitTracker`の30秒timeoutは`LodSupport.offer`が戻る前の同期滞留に効かない。queue高水位・増加傾き・`getSynchronousWrites()`増分・offer wall timeを低コストで観測し、fallbackを繰り返す前にFollow投入を絞る。一時スパイクで過剰停止しないよう持続条件と復帰ヒステリシスを使う。
+SLOW-UPは生成需要がありcap差が実際のdispatchに効く場合だけc+1を試す。SLOW-DOWNは保存writerが連続稼働しa制限が効いている場合だけc-1で同等goodputと資源効率改善を試す。FASTの安全制御則はc比較中も動かし、比較対象は(c, 同じFAST制御則)の閉ループ全体。c変更時のwriter能力失効、native幅に達しない試行、非同期skip主体、少標本、観測欠損はINCONCLUSIVE。最大試行時間・tail budget・残生成仕事と探索費用の採算条件を設け、不要な再探索は控える。STABLEは設定を維持し実変化時だけ再探索する。
 
-**SLOW-UP（生成律速）**：writer余力がありaがほぼ透過、native幅がcommanded cへ届き、生成可能な候補が十分あり、cap上限に達して待った時間がある場合だけ`c+1`を試す。`inFlight<c`であってもスキップや候補不足が主因なら比較は`INCONCLUSIVE`であり、nativeを過剰抑制したと誤解しない。実効dispatchが変わらない試行を敗北として学習しない。
-
-**SLOW-DOWN（保存律速）**：writerが継続的にbusyでACKを返し、aゲートが発動している場合は、**c-1の非劣化試行**を認める。全実時間PAIR goodputとtail debt・writer idle比率を守り、等速ならCPU秒/PAIR、GC、bytes WIPが小さい方を採用する。下げすぎてwriterが供給不足になれば即戻す。native幅が小さくc差が効かない場合は採否しない。UPとDOWNを同時に走らせず、1度に1変数の局所試行で因果混同を抑える。
-
-**STABLE／CHANGE**：成果と安全性が安定したら探索を減らす。NEW→REPAIR構成、writerのbusyサービス率、native幅・quota、PSI、MSPT、ディスク圧力、失敗原因の持続変化を検知したときだけ局所再探索する。統計が薄いときは推測で大きく動かさず現値を保持する。c_bestなどはCPU quota/affinity、heap、writer版、workClass帯、観測鮮度付きprofileでwarm startし、cacheのfingerprintを汚さない。
-
-**NATIVE_LIMITED**：Chunksmithの`dispatchLimit`縮小だけで追加pauseしない。許される幅で生成を継続しcの上方向探索だけ凍結する。nativeのAutoPauseには従い自作側から再開を強制しない。MSPT/heap/diskなど独立したhard safety条件が悪化した場合だけSAFETYへ移る。理由UNKNOWNでもhard stopと決めつけず、他の安全信号を照合して探索を凍結する。
-
-**SAFETY／PAUSE**：プレイヤー接続、所有権・fingerprint不明、実際の容量hard block、OOM/メモリ切迫、重いMSPT、writer異常、検証できない物理WIPには必要な新規投入停止と既存の安全なdrainを適用する。CPU95%以上単独では減速しない。計測欠損は探索凍結・既知の安全ポリシーへ退避し、既存通常FULL、Entity/POI、Millénaire、VS2、プレイ中LODを保護する。
-
+NATIVE_LIMITEDではnativeが許す幅の仕事を継続し、上方探索だけ凍結する。SAFETYは実際のownership、player、容量hard違反、MSPT/OOM、未確認物理仕事に対応する。softなqueue圧力だけなら安全なaゲートが実装・有効な場合に限りタスクを再生成せず投入を抑え、soft/hard/unknownは同時に報告してhardを優先する。現行の保護を緩めず、詳細な導入条件は§13。
+  
 ### 11.6 容量tailとretryの無駄を削る
 
 15GiBのFULL＋LOD合算上限と2GiB予約に近づいたら、観測済み`activeBytes+lodBytes+hardLease`だけでなく、**writer queue・現在生成中・既に投入したLODの追加予測bytes（保守的な上位分位＋不確実性マージン）**を事前のadmission判断へ加える。LODにはFULL capture相当のハード容量leaseがないため、これは厳密保証ではない。観測が古い/他のwriterが活動中なら早めに新規Follow投入を止め、既存inFlightの安全なdrainを妨げず、そのtailが減るまで再開しない。外部の保存が原因で残容量が減った場合も既存のhard判定を尊重する。境界近傍でなければ余計なフル走査や広い容量予約を増やさない。
@@ -271,3 +265,69 @@ cache正本のPAIR・所有権・LOD/FULL ACKと物理writerの観測を`maki-lo
 | 4525910925 | **採用**：cap差が実際のdispatchに作用しなければ比較はINCONCLUSIVE | §11.2, §11.5 |
 
 指摘の採用は**設計契約または比較すべき実装候補としての採用**を意味する。ゲーム実機での最速性やMixin互換、全物理ACKの捕捉を実証したものではない。レビューへの個別返信は不要とし、対応済みスレッドの解決状態で管理する。
+
+## 13. V6レビュー67件の設計判断と新たな第一候補
+
+本節は整理済みのR01〜R67を、単なる指摘数削減でなく独立した故障経路・測定対象ごとに再検討したもの。性能優位が未測定の追加機能は、採用すべき「安全な契約」と、実測してから導入する「高速化候補」に区別する。2 OCPUのA1に常時多変量モデルや巨大な台帳を追加しない。
+
+### 13.1 保存正本の確定と再起動時の証明
+
+CaptureFlightのputIfAbsentで合流した複数の呼出元Futureの成功を、別々の生成sourceのFULL完成と解釈しない。最初のcaptureId・owner/task epoch・source identity・LOD offer/record identityを不変に記録し、後着はJOINED_EXISTINGなどの別結果として観測する。同一FULL公開は単一のcompletionIdentityだけに結び付ける。
+
+LODのstore ACKだけでは、queueに残る旧recordが同期fallbackで先に書かれた新recordを後から同座標上書きしないことまで証明できない。まずnative側に同一座標の書込順序保証があるか検証し、無い場合は古い物理LOD WIPが終わるまで新世代のPAIR確定を保留、競合した座標だけ再読込で再検証する。通常プレイ/村LODの後続更新を損なわない。正確な書込版を証明できなければUNCERTAINとする。
+
+再起動後の同一source FULL＋LOD証明は、メモリ上のCsLodChunk object identityやファイルの存在では足りない。両側ACK後に発行する小さな永続completion receiptを比較対象として具体化する。dimension/pos/fingerprint、FULL/LOD内容識別、source世代、完了状態を保持し、再起動時の実内容と通常FULL所有権を再照合する。sidecar存在だけで完成扱いせず、後続LOD更新で失効または再検証する。atomically renameできても電源断後の耐久性は別問題であり、fsyncやdirectory syncと復旧規則を実ファイルシステムで確認する。
+
+FULLのPromotionClaim.publishにATOMIC_MOVE非対応時の非atomic fallbackがある点を正本契約で明示する。第一候補は非atomic環境で先行PAIR公開をfail-closedとし、そこで運用を続ける必要がある場合だけjournal/marker付き二段公開を別比較する。timeoutと公開の競合にはPREPARED→COMMITTING→PUBLISHED/ABORTEDの単一線形化点を設け、timeout勝利後の旧publish禁止、公開後の結果とreceiptの一貫性、通常FULL勝利を証明する。
+
+論理attempt完了と実物理仕事は別状態。timeout後もFULL writer・LOD writerが生きていれば同座標のphysicalFlightと世代fenceを保持し、古い物理仕事が後着の新世代を公開で上書きしない。LODには論理Futureとは独立した有界record-identity handleを用意し、timeoutでFuture相関を消してもlate writer ACKが物理WIPから差し引かれるようにする。段階別creditは物理ACK・実cancel・stage不要確定時に一度だけ返す。UNKNOWNの実仕事を架空のゼロにしない。未開始のtimeout済VALIDATE/WRITE runnableのみ、キューから安全にremoveできる場合に限り二重permit返却に注意して回収を比較する。guard開始とLOD offer開始の30秒時計も分離する。
+
+### 13.2 FAST：ACK補充stage窓を標準候補、AIMDは比較候補へ
+
+工程jのoutstandingStageCreditはfuture→queued→runningの移行で合計を変更せず、実終了・確実な取消・不要確定だけで減る原子的カウンタを第一候補とする。カウンタ内訳は診断用に記録し、複数値を非原子的に足して入場判定時にWIPが一瞬ゼロに見える競合を防ぐ。予測stage bytesは同一状態世代での保守値を使い、既存hard leaseは二重計上しない。
+
+許容WIP窓はbusy時のサービス能力と、30秒より小さい安全なqueue待ち目標に基づき、実測に応じて低頻度に調整する。数秒ごとのFAST観測はqueue長/最古age・同期fallback・MSPT・heap/PSIへの反応に使う。ACKが0件の短い窓をwriter速度0と断定しない。writer idleを能力低下と誤学習せず、需要不足なら少数の安全な再開を許可。連続のwriter停止・失敗はサービス率低下とは別の安全状態。AIMD/token bucket/PI/MPCは本方式が実際のPAIR goodputで劣る場合のみ比較する。
+
+成功ACK数だけでなく、物理的な成功＋失敗終端数/実busy時間と保存成功歩留まりを別計測する。LOD通常writer・queue満杯の呼出元同期fallback・synchronized store lock待ち・ACK直後の同期callback（fileStamp属性I/Oを含み得る）を無差別に合算して処理能力を水増ししない。共用writerの村/プレイヤーLODは全体圧力に加えるがFollow以外をaで止めない。source不明や同期fallback発生時にはμの上方学習を凍結する。c変更時は2 OCPU上のwriter CPU競合を考慮して以前のμの鮮度を下げる。
+
+長い実行中書込を完了サンプルから落とす右打切りバイアス、NEW/REPAIRおよび可変サイズ、実service timeとqueue待機を区別する。まず件数窓で開始し、予測誤差が有意な工程だけ少数サイズ帯/保守的な実行ageを導入。期限付近のLatencyHistogramの粗い16→60秒bucketを30秒期限の判定へ流用せず、単調時計のtimeLeftとstage age、必要なら固定の細かいbucketで判定する。
+
+PAIRの残り時間は並列に進むLOD ACKとVALIDATE/scannerの遅い方に、その後のFULL writer待ち/圧縮/公開を加える依存DAGで考える。各stage秒数の総和や単純最大だけを正解としない。見積が不確かなら保守的なWIP windowに戻す。FULL側だけのsoft予測予約が詰まる場合に限り、未分類UNKNOWNを少数分類するprobeを比較し、LOD修復を不当に飢餓させない。容量・実WIP不明のhard条件ではprobeを許さない。
+
+### 13.3 ボトルネック計測：処理段階を実際の資源へ対応させる
+
+VALIDATE_IOのworkerとMinecraft chunk scanner（NormalChunkStorageの64 permit）は別資源であり、scanner limitによるUNKNOWNをFULL writer能力不足へ帰属させない。既存READ_IO再検証、初回RecoveryClaims.initializeの同期walk・旧claim回復、世代reconcile、quarantine pruneを通常のwriter serviceと分離計測し、実占有時間は当然end-to-end goodputから除外しない。起動直後の回復が有意な時だけprewarmを比較し、通常ロード/owner fail-closedを保護する。
+
+FULL WRITE_IOはpublish以外にreconcile・prune・claim-retirementを実行する。直列化すべき世代移動と原子的公開を勝手に別workerへ移さず、保守仕事と圧縮の占有時間を分ける。LOD ACK待ちとFULL一時圧縮を重ねるTEMP_PREPAREは、同じsource、validation、容量とtimeout/cleanupを満たせる時にだけ、1枠ほどの有界な比較候補とする。A1でCPU競合やLOD失敗時の無駄が上回れば採用しない。
+
+dispatch前のLOD skip用fileStampとregion再読込、presence index全失効、POI ACTIVEの毎回全走査、owner反射判定なども各々独立のO(N)/同期I/O候補。計測で主要律速と分かった場合だけ、同一regionの世代付きsnapshot、局所invalidate、POI manager identity index等を比較する。外部LOD書込と正本所有権を無視したcache最適化は不可。PipelineMetrics.reportの重い文字列化/ログ出力は、集計ロック内の短いsnapshot後にロック外へ移す低リスク候補。必要性が確認されるまで新しい高頻度座標ログを作らない。
+
+### 13.4 プレイヤー・native・soft/hard pressureの協調
+
+PlayerCenterの一時pressure停止は、E-liteが安定してaゲートでsoft backlogを制限できる段階でのみ、タスクを保ったままの流量待機へ置換する。CAPTURE_BUDGET/INSPECTIONS枯渇のsoftとディスク2GiB/正本所有権のhardは別々に評価する。ResourceStatus.pressureReasonの最初の文字列だけでhard/softを決めない。hard/unknown/softは同時に保持し優先順位hard > unknown > soft、ゲート未実装・計測不明なら現行fail-closedへ戻す。
+
+nativeの単なる幅縮小は追加停止の理由にならない。commandedCapを単一writer主体で管理し、nativeが既に狭めた幅を無理に引き上げない。AutoPauseからTaskLoaderがFollow taskを復元する場合も、player join/manual pause/所有権変更後のadmissionClosed epochを復元後の初回dispatchまで持ち越し、他人のnative taskを横取りしない。native inFlight=0と下流LOD/FULL物理tailゼロは別であり、旧SharedWorkBudgetのBackfill切替期間のみ安全なtail watermarkを比較する。将来の単一Followフローへ不要なBackfill分岐を持ち込まない。
+
+プレイヤー入室時は新規Followを即閉鎖し、既に残るLOD FIFO backlogと共有READ_IOのspeculative読み込みが通常LOD・通常FULLロードを遅らせていないか測る。入室前のFollow LOD queue待機秒数を浅めにする制御を比較し、player/village LODの優先・保存を損なわない。foreground READ_IOのp95/p99悪化時だけ安全な未開始バックグラウンド読み込みの延期または有界優先制御を検討する。
+
+### 13.5 ディスク・RAM・探索費用の非過小評価
+
+FULL/LODのrealPathとFileStoreを識別し、同一FSなら15GiBの論理合算＋共有2GiB reserve、異なるFSなら15GiB論理合算＋各FSの2GiB reserveを照合する。symlink・mount変更・計測不可は楽観視せずFollowだけfail-closed。CacheDiskBudget.refreshが古いusableBytes値で並行FULL publishのdebitを巻き戻すraceを、世代付き差分あるいは同等の保守的スナップショット規則で排除する。LODの未書込tail、再書込のappendによる物理増幅、TEMP_PREPARE一時領域を見込む。
+
+.cslodは同座標更新でもappendされ得るため、region物理増分と新規有効bytesを分け、単一regionのsigned 32-bit offsetが2GiBへ近づく危険を15GiB合算上限と独立に扱う。安全な回復契約がないうちは危険regionへのFollow書込を止める。ただし通常のLOD書込も同じnative writerを使うため、恒久的対策にはnative仕様確認が必要。compactionを行うならopen region handle、atomic交換、stamp失効、再検証、一時空き/電源断復旧をまとめて証明するまで提案段階に留める。
+
+CaptureBudgetのNBT論理bytesを実ヒープ保持上限と同一視しない。ticket/LevelChunk残留、snapshotの一時割当、圧縮bufferのGC、NBT retained bytes増幅を低コストに計測し、必要な場合だけ少数クラスのmemory予測へ反映する。hot pathでJFRや全object走査はしない。2 OCPUでc増加時のcgroup throttlingとwriterサービス低下を同じ窓で観測し、候補自身が起こしたthrottleを都合よく比較から外さない。
+
+retry debtはreason・再試行時刻だけでなくledgerComplete/overflowDirtyも持つ。成熟した座標だけを実際に再投入できるnative入口が証明できるなら座標別retryで全域再走査を削減する。現行iteratorに任意座標seekがない場合、原因別cooldown付き全域再走査を暫定fallbackと明示し、完了の偽装はしない。台帳overflow/再起動で取りこぼした穴がある時は長期sleep・範囲完了宣言をしない。
+
+cの試行はFASTが同じ制御則で動き続ける閉ループ全体を比較する。安全悪化・writer空転増・tail発散で即撤退。c変更が実効dispatchに作用しなかった/分類やsource証明の観測可能率が不均一ならINCONCLUSIVE。試行上限秒・完了件数・tail予算と、残り同心円仕事に対して学習費用を回収できるかの簡易条件を置く。中心側の未完成穴と最古ageは同等goodput時の補助評価とし、外側の軽い仕事だけを数える誤採用を避ける。
+
+### 13.6 検証順と実装を増やし過ぎないルール
+
+P0：正本PAIR、source証明の観測可能率、物理WIP、hard/soft/unknown、非同期skip/guard、各実資源と待機ageの測定を最小限実装。P0の観測が低コストで正確な場合だけ、実制御せずwouldDelay/wouldAllowを記録するshadow gateを短く試す。shadowから実際のgoodput優位は証明できない。
+
+P1：データ競合と保護条件（2段admission、同座標LOD旧record追越し、commit/timeout確定線、再起動後のPAIR証明、preflightの非破壊）を先に成立させ、シンプルなcap-onlyへ安全に退避できる。P2：ACK補充型WIP窓＋局所c探索。AIMDは対照であり最初から必須ではない。P3：計測で明確に必要ならTEMP_PREPARE、retry座標別入口、容量や索引の構造改善。新規thread/worker増設・compaction・PI/MPCは2 OCPUでの全期間PAIR goodputと安全性が明瞭に上がる時だけ比較する。
+
+試験にはsync/async skip、最後のguard拒否、AutoPause復元、timeout中のFULL publish、旧LOD queueとsync fallbackの追越し、late ACK、scanner64枠不足、READ_IO優先、hard＋soft同時圧力、refresh/publish競合、2GiB region offset、低頻度ACK、観測欠損、NEW→REPAIR、中心移動と穴1件、player join／村／船舶／通常FULLを含む。最適化値ではなく正本安全に回帰0を要求し、性能優位不明なら単純な方式を維持する。
+
+**ここまで設計改訂・preflight診断コードの整備であり、ゲームMOD実装やA1実測の性能改善は未完了。**
