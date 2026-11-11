@@ -167,6 +167,10 @@ public final class CacheManager {
       PregenFlowController.setTuningFrozen(frozen);
    }
 
+   public static void generationCapChanged(int cap) {
+      PregenFlowController.generationCapChanged(cap);
+   }
+
    public static <T> T withChunksmithRequestTask(GenerationTask sourceTask, Supplier<T> action) {
       GenerationTask previous=CHUNKSMITH_REQUEST_TASK.get();
       if(sourceTask==null)CHUNKSMITH_REQUEST_TASK.remove();
