@@ -170,7 +170,7 @@ function addMca(u,rx,rz){if(u.length<4096)return 0;let n=0;for(let i=0;i<1024;i+
 function addCslod(u,rx,rz,size){if(u.length<8192)return 0;const v=new DataView(u.buffer,u.byteOffset,u.byteLength);let n=0;for(let i=0;i<1024;i++){const off=v.getInt32(i*8,false),len=v.getInt32(i*8+4,false);if(off>=8192&&len>0&&off+len<=size){add(rx*32+(i%32),rz*32+Math.floor(i/32),L);n++}}return n}
 async function processZip(file,kind,progress){
  const entries=await zipIndex(file);let relevant=0,count=0,issues=0;const jobs=[];
- for(const entry of entries){if(!validName(entry.name))continue;if(kind==='C'){const m=entry.name.match(/(?:^|\/)c\.(-?\d+)\.(-?\d+)\.nbt\.gz$/i);if(m){add(+m[1],+m[2],C);relevant++;count++}}
+ for(const entry of entries){if(!validName(entry.name))continue;if(kind==='R'&&/(?:^|\/)(?:entities|poi)(?:\/|$)/i.test(entry.name))continue;if(/(?:^|\/)(?:minecraft_the_nether|minecraft_the_end|DIM-1|DIM1)(?:\/|$)/i.test(entry.name))continue;if(kind==='C'){const m=entry.name.match(/(?:^|\/)c\.(-?\d+)\.(-?\d+)\.nbt\.gz$/i);if(m){add(+m[1],+m[2],C);relevant++;count++}}
  else{const rg=findRegion(entry.name,kind==='R'?'mca':'cslod');if(rg){relevant++;jobs.push([entry,rg])}}}
  const total=kind==='C'?relevant:jobs.length;
  if(kind!=='C'){for(let i=0;i<jobs.length;i++){const [entry,rg]=jobs[i];try{const u=await readHeader(file,entry,kind==='R'?4096:8192);count+=(kind==='R'?addMca(u,rg[0],rg[1]):addCslod(u,rg[0],rg[1],entry.uncompressedSize))}catch(e){issues++;if(issues<=3)warn(($('warn').textContent?$('warn').textContent+'\n':'')+entry.name+': '+e.message)}
