@@ -945,9 +945,10 @@ public final class CacheManager {
       if(!rotation.isDone()) {
          return rotation.thenCompose(ok -> Boolean.TRUE.equals(ok)
             ? loadForPregenLodRepair(level,pos)
-            : CompletableFuture.completedFuture(Optional.empty()));
+            : reconciliationUnavailable(level,pos,"pregen-lod-repair"));
       }
-      if(!Boolean.TRUE.equals(rotation.getNow(false)))return CompletableFuture.completedFuture(Optional.empty());
+      if(!Boolean.TRUE.equals(rotation.getNow(false)))
+         return reconciliationUnavailable(level,pos,"pregen-lod-repair");
       Path file=path(level,pos,fingerprint);
       Path dimension=cacheRoot(level).resolve(dimensionKey(level));
       // Repair is a cache load too: prove absence of coordinate ownership in
@@ -1132,6 +1133,18 @@ public final class CacheManager {
       return value==null?"none":value.getClass().getSimpleName()+(message==null?"":": "+message);
    }
 
+   private static <T> CompletableFuture<T> reconciliationUnavailable(
+      ServerLevel level, ChunkPos pos, String trigger
+   ) {
+      Path dimension=cacheRoot(level).resolve(dimensionKey(level));
+      PromotionLedger.blockReplay(level,pos,RecoveryClaims.root(dimension));
+      PipelineMetrics.count("cache-generation-reconcile-blocked");
+      return CompletableFuture.failedFuture(new IOException(
+         "Chunk-cache generation reconciliation is unavailable for "
+            +dimensionKey(level)+" "+pos+" trigger="+trigger
+            +"; replacement generation remains blocked until reconciliation succeeds"));
+   }
+
    private static CompletableFuture<Optional<CompoundTag>> loadReadyCache(ServerLevel var0, ChunkPos var1) {
       CompletableFuture<Boolean> borrowed=PregenBorrowLedger.pending(var0,var1);
       if(borrowed!=null) {
@@ -1150,9 +1163,10 @@ public final class CacheManager {
          if(!rotation.isDone()) {
             return rotation.thenCompose(ok -> Boolean.TRUE.equals(ok)
                ? loadReadyCache(var0,var1)
-               : CompletableFuture.completedFuture(Optional.empty()));
+               : reconciliationUnavailable(var0,var1,"load"));
          }
-         if(!Boolean.TRUE.equals(rotation.getNow(false)))return CompletableFuture.completedFuture(Optional.empty());
+         if(!Boolean.TRUE.equals(rotation.getNow(false)))
+            return reconciliationUnavailable(var0,var1,"load");
          Path var3 = path(var0, var1, var2);
          Path claim=PromotionClaim.claimedPath(var3);
          try {

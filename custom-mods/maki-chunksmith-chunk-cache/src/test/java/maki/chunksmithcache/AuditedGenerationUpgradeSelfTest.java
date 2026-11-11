@@ -8,6 +8,7 @@ import java.util.Set;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
+import net.minecraft.nbt.StringTag;
 
 /**
  * Dynamic (no historical SHA allowlist) format/field migration regressions.
@@ -121,6 +122,15 @@ public final class AuditedGenerationUpgradeSelfTest {
                 valid, historical, "minecraft:overworld", DATA_VERSION) == null,
                 "a complete v3 FULL with identical DataVersion must pass");
 
+            Path noTerrain = old.resolve("r.11.-2/c.381.-61.nbt.gz");
+            CompoundTag missingSections = envelope(historical.fingerprint(), 381, -61);
+            missingSections.getCompound("chunk").remove("sections");
+            NbtIo.writeCompressed(missingSections, noTerrain);
+            require("missing-terrain-sections".equals(CacheFormatValidator.rejectReason(
+                noTerrain, historical, "minecraft:overworld", DATA_VERSION)),
+                "FULL metadata without serialized terrain sections must remain old/quarantined");
+            Files.delete(noTerrain);
+
             CompoundTag bad = envelope(historical.fingerprint(), 382, -61);
             bad.putBoolean("entitiesComplete", false);
             NbtIo.writeCompressed(bad, invalid);
@@ -154,6 +164,55 @@ public final class AuditedGenerationUpgradeSelfTest {
             require(Files.isRegularFile(valid) && Files.isRegularFile(invalid)
                 && Files.isRegularFile(afterCopy.resolve("r.11.-2/c.383.-61.nbt.gz")),
                 "copy-first migration must preserve every original until manifest commit");
+
+            Path retryTarget = directory.resolve("retry");
+            Path retryValid = retryTarget.resolve("r.11.-2/c.383.-61.nbt.gz");
+            Files.createDirectories(retryValid.getParent());
+            Files.writeString(retryValid, "partial-copy");
+            CacheDirectoryMerge.MergeStats retried = CacheDirectoryMerge.copyValidatedPreservingSource(
+                old, retryTarget,
+                p -> CacheFormatValidator.rejectReason(
+                    p, historical, "minecraft:overworld", DATA_VERSION) == null);
+            require(retried.adoptedEntries() == 1 && retried.rejectedEntries() == 1,
+                "an invalid existing destination must be replaced from the validated source");
+            require(CacheFormatValidator.rejectReason(
+                retryValid, historical, "minecraft:overworld", DATA_VERSION) == null,
+                "retry must leave a complete validated destination, not a partial duplicate");
+
+            long cleaned = CacheDirectoryMerge.cleanupCopiedSources(
+                old, afterCopy,
+                p -> CacheFormatValidator.rejectReason(
+                    p, historical, "minecraft:overworld", DATA_VERSION) == null,
+                p -> CacheFormatValidator.rejectReason(
+                    p, historical, "minecraft:overworld", DATA_VERSION) == null);
+            require(cleaned == 1 && !Files.exists(valid) && Files.isRegularFile(invalid),
+                "post-commit cleanup removes only byte-identical validated sources");
+
+            Path budgetSource = directory.resolve("budget-source/r.11.-2/c.383.-61.nbt.gz");
+            Files.createDirectories(budgetSource.getParent());
+            NbtIo.writeCompressed(good, budgetSource);
+            Path budgetRoot = directory.resolve("budget-root");
+            Path budgetConfig = directory.resolve("budget.properties");
+            Files.writeString(
+                budgetConfig,
+                "cache.max-active-bytes=1\ncache.minimum-free-bytes=1\n");
+            CacheDiskBudget budget = CacheDiskBudget.at(budgetRoot);
+            budget.refresh(budgetConfig);
+            boolean budgetBlocked = false;
+            try {
+                CacheDirectoryMerge.copyValidatedPreservingSource(
+                    budgetSource,
+                    budgetRoot.resolve("minecraft_overworld/current"),
+                    p -> CacheFormatValidator.rejectReason(
+                        p, historical, "minecraft:overworld", DATA_VERSION) == null,
+                    p -> CacheFormatValidator.rejectReason(
+                        p, historical, "minecraft:overworld", DATA_VERSION) == null,
+                    budget);
+            } catch (java.io.IOException expected) {
+                budgetBlocked = true;
+            }
+            require(budgetBlocked && Files.isRegularFile(budgetSource),
+                "migration must defer without consuming the source when disk reserve/capacity is unavailable");
 
             NbtIo.writeCompressed(envelope(historical.fingerprint(), 382, -61), invalid);
             CompoundTag village = envelope(historical.fingerprint(), 382, -61);
@@ -228,6 +287,26 @@ public final class AuditedGenerationUpgradeSelfTest {
         chunk.putInt("xPos", x);
         chunk.putInt("zPos", z);
         chunk.put("entities", new ListTag());
+
+        CompoundTag section = new CompoundTag();
+        section.putByte("Y", (byte)0);
+        CompoundTag blockStates = new CompoundTag();
+        ListTag blockPalette = new ListTag();
+        CompoundTag stone = new CompoundTag();
+        stone.putString("Name", "minecraft:stone");
+        blockPalette.add(stone);
+        blockStates.put("palette", blockPalette);
+        section.put("block_states", blockStates);
+
+        CompoundTag biomes = new CompoundTag();
+        ListTag biomePalette = new ListTag();
+        biomePalette.add(StringTag.valueOf("minecraft:plains"));
+        biomes.put("palette", biomePalette);
+        section.put("biomes", biomes);
+
+        ListTag sections = new ListTag();
+        sections.add(section);
+        chunk.put("sections", sections);
         e.put("chunk", chunk);
         return e;
     }

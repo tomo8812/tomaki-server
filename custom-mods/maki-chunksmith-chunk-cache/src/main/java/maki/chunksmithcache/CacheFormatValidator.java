@@ -72,6 +72,8 @@ final class CacheFormatValidator {
                 || chunk.getInt("DataVersion") != dataVersion) return "data-version-mismatch";
             if (chunk.contains("xPos", Tag.TAG_INT) && chunk.getInt("xPos") != x) return "chunk-xPos";
             if (chunk.contains("zPos", Tag.TAG_INT) && chunk.getInt("zPos") != z) return "chunk-zPos";
+            String terrain = terrainRejectReason(chunk);
+            if (terrain != null) return terrain;
 
             // Pre-generated FULL caches must contain terrain only; Millenaire's
             // delayed village creation happens when a player later loads it.
@@ -82,6 +84,36 @@ final class CacheFormatValidator {
         } catch (Throwable invalid) {
             return "invalid-or-unreadable-nbt:" + invalid.getClass().getSimpleName();
         }
+    }
+
+    private static String terrainRejectReason(CompoundTag chunk) {
+        if (!chunk.contains("sections", Tag.TAG_LIST)) return "missing-terrain-sections";
+        ListTag sections = chunk.getList("sections", Tag.TAG_COMPOUND);
+        if (sections.isEmpty()) return "missing-terrain-sections";
+        for (Tag entry : sections) {
+            if (!(entry instanceof CompoundTag section)
+                || !section.contains("Y", Tag.TAG_BYTE)
+                || !section.contains("block_states", Tag.TAG_COMPOUND)
+                || !section.contains("biomes", Tag.TAG_COMPOUND)) {
+                return "incomplete-terrain-section";
+            }
+            CompoundTag blockStates = section.getCompound("block_states");
+            ListTag blockPalette = blockStates.getList("palette", Tag.TAG_COMPOUND);
+            if (blockPalette.isEmpty()
+                || !(blockPalette.getFirst() instanceof CompoundTag firstState)
+                || !firstState.contains("Name", Tag.TAG_STRING)
+                || firstState.getString("Name").isBlank()) {
+                return "incomplete-block-state-palette";
+            }
+            CompoundTag biomes = section.getCompound("biomes");
+            ListTag biomePalette = biomes.getList("palette", Tag.TAG_STRING);
+            if (biomePalette.isEmpty()
+                || !(biomePalette.getFirst() instanceof StringTag firstBiome)
+                || firstBiome.getAsString().isBlank()) {
+                return "incomplete-biome-palette";
+            }
+        }
+        return null;
     }
 
     private static boolean containsMillenaireData(Tag tag) {

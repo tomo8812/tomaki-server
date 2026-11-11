@@ -12,6 +12,7 @@ import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.storage.LevelResource;
@@ -31,6 +32,7 @@ final class GenerationStore {
         try {
             RecoveryClaims.initialize(root);
             Files.createDirectories(root);
+            CacheDiskBudget migrationBudget = refreshMigrationBudget(level);
             FingerprintManifest.Manifest currentState = snapshot.manifest(Set.of(snapshot.fingerprint()));
             FingerprintManifest.Manifest previousState = FingerprintManifest.readIfValid(root.resolve(FingerprintManifest.CURRENT_FILE_NAME));
             if (previousState != null && previousState.fingerprint().equals(snapshot.fingerprint())) {
@@ -42,8 +44,8 @@ final class GenerationStore {
             }
 
             migrateExactLegacy(root, snapshot, trigger);
-            migratePolicyEquivalent(level, root, snapshot, trigger);
-            migrateEquivalentQuarantines(level, root, snapshot, trigger);
+            migratePolicyEquivalent(level, root, snapshot, trigger, migrationBudget);
+            migrateEquivalentQuarantines(level, root, snapshot, trigger, migrationBudget);
             quarantineIncompatible(root, snapshot, trigger);
             Path active = root.resolve(snapshot.fingerprint());
             Files.createDirectories(active);
@@ -144,28 +146,62 @@ final class GenerationStore {
                 return "restore refused: quarantined inputs are not proven compatibility-equivalent; current="
                     + snapshot.fingerprint() + " quarantined=" + manifest.fingerprint() + " changed=" + changed;
             }
+            CacheDiskBudget migrationBudget = refreshMigrationBudget(level);
             Path active = dimensionRoot(level).resolve(snapshot.fingerprint());
             FingerprintManifest.Manifest activeManifest = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
             List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
                 manifest, current, Set.of("policy:compatibility"), 12, source
             );
             CacheDirectoryMerge.MergeStats merge = mergeForCompatibility(
-                level, manifest, current, source, active, false);
+                level, manifest, current, source, active, false, migrationBudget);
             Set<String> accepted = new LinkedHashSet<>(manifest.storedFingerprints());
             accepted.add(manifest.fingerprint());
             accepted.add(snapshot.fingerprint());
             if (activeManifest != null) accepted.addAll(activeManifest.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
+
+            long cleanedSourceEntries = 0L;
+            long retainedSourceEntries = 0L;
+            if (Files.isDirectory(source)) {
+                Predicate<Path> sourceVerified = AuditedGenerationUpgrade.eligible(manifest, current)
+                    ? cacheValidator(level, manifest) : null;
+                Predicate<Path> targetVerified = sourceVerified == null
+                    ? null : cacheValidator(level, validationManifest(current, active, manifest));
+                cleanedSourceEntries = CacheDirectoryMerge.cleanupCopiedSources(
+                    source, active, sourceVerified, targetVerified);
+                retainedSourceEntries = stats(source).entries();
+                if (retainedSourceEntries == 0L) {
+                    deleteTree(source);
+                } else {
+                    Files.writeString(
+                        source.resolve(RECOVERY_INFO),
+                        "sourceFingerprint=" + manifest.fingerprint() + "\n"
+                            + "targetFingerprint=" + snapshot.fingerprint() + "\n"
+                            + "proof=manual restore\n"
+                            + "proofDetails=" + proofDetails + "\n"
+                            + "sourceEntries=" + merge.sourceEntries() + "\n"
+                            + "adoptedEntries=" + merge.adoptedEntries() + "\n"
+                            + "duplicateEntries=" + merge.duplicateEntries() + "\n"
+                            + "cleanedSourceEntries=" + cleanedSourceEntries + "\n"
+                            + "retainedSourceEntries=" + retainedSourceEntries + "\n"
+                            + "sourcePreserved=true\n"
+                            + "trigger=manual-restore\n"
+                    );
+                    Files.setLastModifiedTime(source, FileTime.fromMillis(System.currentTimeMillis()));
+                }
+            }
+
             String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
             long activeEntries = stats(active).entries();
             LOG.info(
-                "Restored quarantined chunk-cache generation {} for {} after {}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} proofDetails={}",
+                "Restored quarantined chunk-cache generation {} for {} after {}; sourceEntries={} adoptedEntries={} duplicateEntries={} cleanedSourceEntries={} retainedSourceEntries={} activeEntriesAfter={} proofDetails={}",
                 id, CacheManager.dimensionKey(level), proof, merge.sourceEntries(), merge.adoptedEntries(),
-                merge.duplicateEntries(), activeEntries, proofDetails
+                merge.duplicateEntries(), cleanedSourceEntries, retainedSourceEntries, activeEntries, proofDetails
             );
             return "restored " + id + " to active fingerprint " + snapshot.fingerprint() + " after " + proof
                 + " (source=" + merge.sourceEntries() + ", adopted=" + merge.adoptedEntries()
-                + ", duplicates=" + merge.duplicateEntries() + ", active=" + activeEntries + ")";
+                + ", duplicates=" + merge.duplicateEntries() + ", cleaned=" + cleanedSourceEntries
+                + ", retained=" + retainedSourceEntries + ", active=" + activeEntries + ")";
         } catch (Throwable error) {
             LOG.warn("Could not restore quarantined chunk-cache generation {}", id, error);
             return "restore failed: " + error.getClass().getSimpleName();
@@ -190,7 +226,10 @@ final class GenerationStore {
             snapshot.legacyFingerprint(), snapshot.fingerprint(), root.getFileName(), before.entries(), before.bytes(), trigger);
     }
 
-    private static void migratePolicyEquivalent(ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+    private static void migratePolicyEquivalent(
+        ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger,
+        CacheDiskBudget migrationBudget
+    ) throws IOException {
         FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
         List<Path> candidates;
         try (Stream<Path> stream = Files.list(root)) {
@@ -213,7 +252,7 @@ final class GenerationStore {
                 old, current, Set.of("policy:compatibility"), 12, candidate
             );
             CacheDirectoryMerge.MergeStats merge = mergeForCompatibility(
-                level, old, current, candidate, active, false);
+                level, old, current, candidate, active, false, migrationBudget);
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
@@ -224,8 +263,10 @@ final class GenerationStore {
             // The source must survive until the adopted-fingerprint manifest
             // has been durably committed. If any entry was rejected, leave the
             // source directory for the normal quarantine pass instead.
-            if (AuditedGenerationUpgrade.eligible(old, current) && merge.rejectedEntries() == 0L)
+            if (AuditedGenerationUpgrade.eligible(old, current) && merge.rejectedEntries() == 0L) {
                 deleteTree(candidate);
+                migrationBudget.deleted(before.bytes());
+            }
             long activeEntries = stats(active).entries();
             LOG.info(
                 "Adopted compatibility-equivalent chunk-cache generation {} as {} for {}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} bytes={} proofDetails={} trigger={}",
@@ -235,7 +276,10 @@ final class GenerationStore {
         }
     }
 
-    private static void migrateEquivalentQuarantines(ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+    private static void migrateEquivalentQuarantines(
+        ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger,
+        CacheDiskBudget migrationBudget
+    ) throws IOException {
         Path quarantineRoot = root.resolve(QUARANTINE_DIR);
         if (!Files.isDirectory(quarantineRoot)) return;
 
@@ -279,7 +323,7 @@ final class GenerationStore {
                 old, current, Set.of("policy:compatibility"), 12, candidate
             );
             CacheDirectoryMerge.MergeStats merge = mergeForCompatibility(
-                level, old, current, candidate, active, true);
+                level, old, current, candidate, active, true, migrationBudget);
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
@@ -433,6 +477,48 @@ final class GenerationStore {
         return new Stats(entries, bytes);
     }
 
+    private static CacheDiskBudget refreshMigrationBudget(ServerLevel level) {
+        Path cacheRoot = level.getServer().getWorldPath(LevelResource.ROOT)
+            .resolve("chunksmith_chunk_cache");
+        CacheDiskBudget budget = CacheDiskBudget.at(cacheRoot);
+        budget.refresh(level.getServer().getServerDirectory()
+            .resolve("config/maki-chunksmith-chunk-cache.properties"));
+        return budget;
+    }
+
+    private static Predicate<Path> cacheValidator(
+        ServerLevel level, FingerprintManifest.Manifest acceptedManifest
+    ) {
+        int dataVersion = WorldVersionBridge.getDataVersion(
+            net.minecraft.SharedConstants.getCurrentVersion()).getVersion();
+        String dimension = level.dimension().location().toString();
+        return file -> {
+            String rejected = CacheFormatValidator.rejectReason(
+                file, acceptedManifest, dimension, dataVersion);
+            if (rejected != null) {
+                LOG.warn("Historical FULL cache failed migration validation {}: {}", file, rejected);
+            }
+            return rejected == null;
+        };
+    }
+
+    private static FingerprintManifest.Manifest validationManifest(
+        FingerprintManifest.Manifest current, Path active,
+        FingerprintManifest.Manifest historical
+    ) {
+        Set<String> accepted = new LinkedHashSet<>(current.storedFingerprints());
+        accepted.add(current.fingerprint());
+        accepted.add(historical.fingerprint());
+        accepted.addAll(historical.storedFingerprints());
+        FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(
+            active.resolve(FingerprintManifest.FILE_NAME));
+        if (existing != null && existing.fingerprint().equals(current.fingerprint())) {
+            accepted.addAll(existing.storedFingerprints());
+        }
+        return new FingerprintManifest.Manifest(
+            current.fingerprint(), current.createdAtMillis(), Set.copyOf(accepted), current.entries());
+    }
+
     /**
      * A version-independent role transition must pass the persisted schema
      * and chunk fields for every file. A rejected file stays at its previous
@@ -444,27 +530,19 @@ final class GenerationStore {
         FingerprintManifest.Manifest historical,
         FingerprintManifest.Manifest current,
         Path source, Path active,
-        boolean preserveSource
+        boolean preserveSource,
+        CacheDiskBudget migrationBudget
     ) throws IOException {
         if (!AuditedGenerationUpgrade.eligible(historical, current)) {
             return preserveSource
-                ? CacheDirectoryMerge.copyCacheEntriesPreservingSource(source, active)
+                ? CacheDirectoryMerge.copyCacheEntriesPreservingSource(source, active, migrationBudget)
                 : mergeDirectory(source, active);
         }
-        int dataVersion = WorldVersionBridge.getDataVersion(
-            net.minecraft.SharedConstants.getCurrentVersion()).getVersion();
-        String dimension = level.dimension().location().toString();
-        java.util.function.Predicate<Path> verified = file -> {
-            String rejected = CacheFormatValidator.rejectReason(
-                file, historical, dimension, dataVersion);
-            if (rejected != null) LOG.warn(
-                "Retaining incompatible historical FULL cache {}: {}", file, rejected);
-            return rejected == null;
-        };
-        // Copy first, then publish the accepted-fingerprint manifest. Moving
-        // the sole source before publication could strand old-fingerprint
-        // envelopes after a crash, making them unreadable on restart.
-        return CacheDirectoryMerge.copyValidatedPreservingSource(source, active, verified);
+        Predicate<Path> sourceVerified = cacheValidator(level, historical);
+        Predicate<Path> targetVerified = cacheValidator(
+            level, validationManifest(current, active, historical));
+        return CacheDirectoryMerge.copyValidatedPreservingSource(
+            source, active, sourceVerified, targetVerified, migrationBudget);
     }
 
     private static CacheDirectoryMerge.MergeStats mergeDirectory(Path source, Path target) throws IOException {

@@ -14,23 +14,47 @@ final class CacheDirectoryMerge {
     private CacheDirectoryMerge() {}
 
     static MergeStats merge(Path source, Path target) throws IOException {
-        return transferCacheEntries(source, target, false, null);
+        return transferCacheEntries(source, target, false, null, null, null);
     }
 
     static MergeStats copyCacheEntriesPreservingSource(Path source, Path target) throws IOException {
-        return transferCacheEntries(source, target, true, null);
+        return copyCacheEntriesPreservingSource(source, target, null);
+    }
+
+    static MergeStats copyCacheEntriesPreservingSource(
+        Path source, Path target, CacheDiskBudget budget
+    ) throws IOException {
+        return transferCacheEntries(source, target, true, null, null, budget);
     }
 
     static MergeStats mergeValidated(Path source, Path target, Predicate<Path> verified) throws IOException {
-        return transferCacheEntries(source, target, false, verified);
+        return transferCacheEntries(source, target, false, verified, verified, null);
     }
 
-    static MergeStats copyValidatedPreservingSource(Path source, Path target, Predicate<Path> verified) throws IOException {
-        return transferCacheEntries(source, target, true, verified);
+    static MergeStats copyValidatedPreservingSource(
+        Path source, Path target, Predicate<Path> verified
+    ) throws IOException {
+        return copyValidatedPreservingSource(source, target, verified, verified, null);
     }
 
-    private static MergeStats transferCacheEntries(Path source, Path target,
-                                                     boolean preserveSource, Predicate<Path> verified) throws IOException {
+    static MergeStats copyValidatedPreservingSource(
+        Path source,
+        Path target,
+        Predicate<Path> sourceVerified,
+        Predicate<Path> targetVerified,
+        CacheDiskBudget budget
+    ) throws IOException {
+        return transferCacheEntries(source, target, true, sourceVerified, targetVerified, budget);
+    }
+
+    private static MergeStats transferCacheEntries(
+        Path source,
+        Path target,
+        boolean preserveSource,
+        Predicate<Path> sourceVerified,
+        Predicate<Path> targetVerified,
+        CacheDiskBudget budget
+    ) throws IOException {
         Files.createDirectories(target);
         List<Path> files;
         try (Stream<Path> stream = Files.walk(source)) {
@@ -39,26 +63,55 @@ final class CacheDirectoryMerge {
                 .sorted(Comparator.comparing(Path::toString))
                 .toList();
         }
-        if(files.stream().anyMatch(path -> path.getFileName().toString().endsWith(".in-use")))
-            throw new IOException("Recover interrupted promotion ownership before merging "+source);
-        files=files.stream().filter(path -> path.getFileName().toString().endsWith(".nbt.gz")).toList();
+        if (files.stream().anyMatch(path -> path.getFileName().toString().endsWith(".in-use"))) {
+            throw new IOException("Recover interrupted promotion ownership before merging " + source);
+        }
+        files = files.stream()
+            .filter(path -> path.getFileName().toString().endsWith(".nbt.gz"))
+            .toList();
 
         long adopted = 0L;
         long duplicates = 0L;
         long rejected = 0L;
         for (Path path : files) {
-            if (verified != null && !verified.test(path)) {
+            if (sourceVerified != null && !sourceVerified.test(path)) {
                 rejected++;
                 continue;
             }
+
             Path destination = target.resolve(source.relativize(path));
             Files.createDirectories(destination.getParent());
-            if (Files.exists(destination)) {
+            boolean destinationExists = Files.exists(destination);
+            if (destinationExists
+                && (targetVerified == null || targetVerified.test(destination))) {
                 duplicates++;
                 continue;
             }
+
+            long sourceBytes = Files.size(path);
+            long existingBytes = Files.isRegularFile(destination) ? Files.size(destination) : 0L;
             if (preserveSource) {
-                Files.copy(path, destination, StandardCopyOption.COPY_ATTRIBUTES);
+                CacheDiskBudget.Lease lease = budget == null ? null : budget.tryAcquire(sourceBytes);
+                if (budget != null && lease == null) {
+                    throw new IOException(
+                        "Chunk-cache migration deferred by disk capacity/reserve guard for "
+                            + path + " bytes=" + sourceBytes);
+                }
+                try {
+                    copyAtomically(path, destination);
+                    if (targetVerified != null && !targetVerified.test(destination)) {
+                        Files.deleteIfExists(destination);
+                        throw new IOException(
+                            "Copied cache entry failed destination validation: " + destination);
+                    }
+                    if (lease != null) {
+                        lease.published(Math.max(0L, sourceBytes - existingBytes));
+                    }
+                } finally {
+                    if (lease != null) lease.close();
+                }
+            } else if (destinationExists && sourceVerified != null) {
+                moveReplacing(path, destination);
             } else {
                 move(path, destination);
             }
@@ -66,12 +119,62 @@ final class CacheDirectoryMerge {
         }
 
         if (!preserveSource) {
-            // A failed format check must never be removed alongside approved
-            // files. The caller quarantines the remaining old generation.
             if (rejected == 0L) deleteTree(source);
             else deleteEmptyDirectories(source);
         }
         return new MergeStats(files.size(), adopted, duplicates, rejected);
+    }
+
+    static long cleanupCopiedSources(
+        Path source,
+        Path target,
+        Predicate<Path> sourceVerified,
+        Predicate<Path> targetVerified
+    ) throws IOException {
+        if (!Files.isDirectory(source)) return 0L;
+        List<Path> files;
+        try (Stream<Path> stream = Files.walk(source)) {
+            files = stream
+                .filter(Files::isRegularFile)
+                .filter(path -> path.getFileName().toString().endsWith(".nbt.gz"))
+                .sorted(Comparator.comparing(Path::toString))
+                .toList();
+        }
+
+        long removed = 0L;
+        for (Path path : files) {
+            if (sourceVerified != null && !sourceVerified.test(path)) continue;
+            Path destination = target.resolve(source.relativize(path));
+            if (!Files.isRegularFile(destination)) continue;
+            if (targetVerified != null && !targetVerified.test(destination)) continue;
+            if (Files.size(path) != Files.size(destination)
+                || Files.mismatch(path, destination) != -1L) continue;
+            Files.deleteIfExists(path);
+            removed++;
+        }
+        deleteEmptyDirectories(source);
+        return removed;
+    }
+
+    private static void copyAtomically(Path source, Path target) throws IOException {
+        Files.createDirectories(target.getParent());
+        Path temporary = Files.createTempFile(
+            target.getParent(), "." + target.getFileName() + ".", ".migration");
+        try {
+            Files.copy(
+                source,
+                temporary,
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.COPY_ATTRIBUTES
+            );
+            if (Files.size(source) != Files.size(temporary)
+                || Files.mismatch(source, temporary) != -1L) {
+                throw new IOException("Incomplete chunk-cache migration copy: " + source);
+            }
+            moveReplacing(temporary, target);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
     }
 
     private static void move(Path source, Path target) throws IOException {
@@ -83,16 +186,29 @@ final class CacheDirectoryMerge {
         }
     }
 
+    private static void moveReplacing(Path source, Path target) throws IOException {
+        Files.createDirectories(target.getParent());
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException ex) {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
     private static void deleteTree(Path root) throws IOException {
         if (!Files.exists(root)) return;
         try (Stream<Path> stream = Files.walk(root)) {
-            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) Files.deleteIfExists(path);
+            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
         }
     }
 
     private static void deleteEmptyDirectories(Path root) throws IOException {
+        if (!Files.exists(root)) return;
         try (Stream<Path> stream = Files.walk(root)) {
-            for (Path directory : stream.sorted(Comparator.reverseOrder()).filter(Files::isDirectory).toList()) {
+            for (Path directory : stream.sorted(Comparator.reverseOrder())
+                .filter(Files::isDirectory).toList()) {
                 try (Stream<Path> contents = Files.list(directory)) {
                     if (contents.findAny().isEmpty()) Files.deleteIfExists(directory);
                 }
