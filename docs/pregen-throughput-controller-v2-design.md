@@ -331,3 +331,89 @@ P1：データ競合と保護条件（2段admission、同座標LOD旧record追�
 試験にはsync/async skip、最後のguard拒否、AutoPause復元、timeout中のFULL publish、旧LOD queueとsync fallbackの追越し、late ACK、scanner64枠不足、READ_IO優先、hard＋soft同時圧力、refresh/publish競合、2GiB region offset、低頻度ACK、観測欠損、NEW→REPAIR、中心移動と穴1件、player join／村／船舶／通常FULLを含む。最適化値ではなく正本安全に回帰0を要求し、性能優位不明なら単純な方式を維持する。
 
 **ここまで設計改訂・preflight診断コードの整備であり、ゲームMOD実装やA1実測の性能改善は未完了。**
+
+### 13.7 補足：実装主体、回収、プロファイルの境界
+
+制御値cはFollow-owner内で単一の意思決定主体から更新し、native側のrampUp/backoffと競合して高い値を強制書込しない。複数の安全ガードはmin clampで合流させ、nativeが実幅を回復しないときはcap性能を採否しない（R48）。
+
+timeout後の下流Runnableは、VALIDATE_IO/WRITE_IOキューに残っても着手時にno-opとなることがある。実害がある場合のみ、未開始と証明できるRunnableをThreadPoolExecutor.remove等で回収する候補を比較する。remove成功時のInspectionPermit/lease一回だけ返却と、dequeue競合時の実WIP保持を契約にする。native LOD writerや進行中I/Oはこの方法ではキャンセルできない（R18）。
+
+maki-lod-cpuが正本を観測できるとは限らないので、Source証明対象数・検証成功数・UNCERTAIN/late ACK/イベント欠損率を同じ試行で併記する。c変更で観測可能率が変化したらINCONCLUSIVE。ログ集計のロック自体がA1の2コアを浪費しないようにする（R63/R64）。
+
+preflightはSSH Python自身のaffinity、/proc/statのsystem CPU、cgroup v2のcpu.stat/pressureを**異なるスコープ**として記録し、Minecraftのsystemd unitやコンテナと同じ割当だと断定しない。ターゲットVMの実効CPU/heapはJVM起動後に再検証する。--outputは既存ファイルを上書きせず、O_EXCL/O_NOFOLLOWによる新規作成のみ許す。空き容量が乏しい時はdisk testもJSON出力も安全にスキップして画面へ診断を残す。これらは短期ベンチの生成速度への変換を意味しない（R65〜R67）。
+
+## 14. 整理レビュー67件の採否と追跡
+
+本表は67件を意味で乱暴に統合せず、R番号ごとに独立の採否を残す。各リンクは整理後のインライン指摘。**必須**は実装時に満たす安全・整合性契約、**観測／比較**は計測やABI確認後だけ採用、**第一候補**は最初に試す方式、**修正済**は現PRのpreflight実装に反映した項目。レビュー済みは実装完了・実性能向上の証明を意味しない。
+
+| R番号と論点 | 採否 | 反映先 |
+| --- | --- | --- |
+| [R01 二段階admissionと非同期skip](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339651) | 必須契約 | §13.1/13.2 |
+| [R02 既存Redirectと計測フックの実装境界](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339664) | 必須契約 | §13.1/13.2 |
+| [R03 最終guard拒否の返却](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339680) | 必須契約 | §13.1/13.2 |
+| [R04 WIP creditとrate token](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339523) | 観測／比較 | §13.1/13.2 |
+| [R05 停止の可視性とepoch](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339617) | 必須契約 | §13.1/13.2 |
+| [R06 AutoPause自動再開境界](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339823) | 必須契約 | §13.1/13.2 |
+| [R07 retryの座標別処理](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339919) | 観測／比較 | §13.1/13.2 |
+| [R08 retry ledgerの完全性](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339937) | 必須契約 | §13.1/13.2 |
+| [R09 CaptureFlightのsource証明](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339020) | 必須契約 | §13.1/13.2 |
+| [R10 LOD同座標追越し](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339048) | 必須契約 | §13.1/13.2 |
+| [R11 永続PAIR receipt](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339063) | 必須契約 | §13.1/13.2 |
+| [R12 FULL atomic publish](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339076) | 必須契約 | §13.1/13.2 |
+| [R13 single-flightと世代fence](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339540) | 必須契約 | §13.1/13.2 |
+| [R14 timeoutとcommit確定線](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339489) | 必須契約 | §13.1/13.2 |
+| [R15 LOD late ACK handle](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339556) | 必須契約 | §13.1/13.2 |
+| [R16 物理WIP観測欠損](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339592) | 必須契約 | §13.1/13.2 |
+| [R17 WIP残数スナップショット](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339561) | 必須契約 | §13.1/13.2 |
+| [R18 timeout済queue回収](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339608) | 観測／比較 | §13.1/13.2 |
+| [R19 LOD guard timer起点](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339499) | 必須契約 | §13.1/13.2 |
+| [R20 snapshot予測予約](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339570) | 観測／比較 | §13.2/13.5 |
+| [R21 NBTとheap占有](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339580) | 観測／比較 | §13.2/13.5 |
+| [R22 chunk/ticket滞留](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339314) | 観測／比較 | §13.2/13.5 |
+| [R23 PAIR critical path](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339125) | 必須契約 | §13.2/13.5 |
+| [R24 期限分位の解像度](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339095) | 観測／比較 | §13.2/13.5 |
+| [R25 LOD同期fallbackとμ_busy](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339366) | 観測／比較 | §13.2 |
+| [R26 LOD storeの排他ロックとμ測定境界](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339376) | 観測／比較 | §13.2 |
+| [R27 ACK callback仕事](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339389) | 観測／比較 | §13.2 |
+| [R28 共有writer source帰属](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339402) | 観測／比較 | §13.2 |
+| [R29 c変化とμの鮮度](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339416) | 観測／比較 | §13.2 |
+| [R30 物理能力と成功歩留まり](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339437) | 必須契約 | §13.2 |
+| [R31 実行中右打ち切り](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339454) | 観測／比較 | §13.2 |
+| [R32 サイズ帯別debt](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339468) | 観測／比較 | §13.2 |
+| [R33 低頻度ACK統計](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339693) | 採用（計測先行） | §13.2 |
+| [R34 ACK補充WIP窓比較](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339709) | 第一候補（ACK-WIP窓） | §13.2/13.5 |
+| [R35 UNKNOWN有界分類probe](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339302) | 観測／比較 | §13.2/13.5 |
+| [R36 shadow admission評価](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339284) | 観測／比較 | §13.2/13.5 |
+| [R37 FAST込みc比較](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339753) | 必須契約 | §13.2/13.5 |
+| [R38 online CPU throttle](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339740) | 採用（計測先行） | §13.2/13.5 |
+| [R39 残仕事に対する探索採算](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339810) | 観測／比較 | §13.2/13.5 |
+| [R40 c試行早期終了規則](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339781) | 必須契約 | §13.2/13.5 |
+| [R41 中心側の穴](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339797) | 観測／比較 | §13.2/13.5 |
+| [R42 player LOD待機予算](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339726) | 観測／比較 | §13.3/13.4 |
+| [R43 foreground READ_IO優先](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339267) | 観測／比較 | §13.3/13.4 |
+| [R44 VALIDATEとscanner分離](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531338940) | 観測／比較 | §13.3/13.4 |
+| [R45 SCANS permit制約](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339328) | 観測／比較 | §13.3/13.4 |
+| [R46 soft pressureとtask存続](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339837) | 観測／比較 | §13.3/13.4 |
+| [R47 hard/soft同時原因](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339850) | 必須契約 | §13.3/13.4 |
+| [R48 cap単一更新主体](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339247) | 必須契約 | §13.3/13.4 |
+| [R49 Backfill下流tail](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339630) | 観測／比較 | §13.3/13.4 |
+| [R50 TEMP_PREPARE並走](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339149) | 観測／比較 | §13.3 |
+| [R51 FULL reconcile占有](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339170) | 観測／比較 | §13.3 |
+| [R52 FULL prune占有](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339197) | 観測／比較 | §13.3 |
+| [R53 RecoveryClaims cold start](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531338969) | 観測／比較 | §13.3 |
+| [R54 LOD append増幅](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339869) | 観測／比較 | §13.5 |
+| [R55 region 2GiB境界](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339880) | 必須契約 | §13.5 |
+| [R56 compactionとstamp失効](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339890) | 観測／比較 | §13.5 |
+| [R57 FileStore/symlink境界](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339905) | 必須契約 | §13.5 |
+| [R58 usableBytes refresh競合](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339134) | 必須契約 | §13.5 |
+| [R59 LOD skip stamp I/O](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531338982) | 観測／比較 | §13.3 |
+| [R60 LOD presence index全失効](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339211) | 観測／比較 | §13.3 |
+| [R61 ownership reflection overhead](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339232) | 観測／比較 | §13.3 |
+| [R62 POI ACTIVE全走査](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339005) | 観測／比較 | §13.3 |
+| [R63 PipelineMetricsロック外化](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339108) | 観測／比較 | §13.3 |
+| [R64 source証明観測可能率](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339346) | 必須契約 | §13.3 |
+| [R65 preflight cgroup資源](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339969) | 修正済（preflight） | §13.7・script |
+| [R66 preflight scope差](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339951) | 修正済（preflight） | §13.7・script |
+| [R67 preflight出力非破壊](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/pull/89#discussion_r4531339983) | 修正済（preflight） | §13.7・script |
+
+制御器・キャッシュのソースコード変更はこのPRではまだ行わない。レビューの設計条件が実装可能かどうかは、native ABI・Minecraft本体の非同期契約・既存ワールドの正本保証を検証して判断する。
