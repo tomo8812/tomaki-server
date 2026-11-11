@@ -1,59 +1,37 @@
 # maki-chunksmith-chunk-cache
 
-## Version 1.4.5: field-based migration for later cache generations
+## Current compatibility boundary (1.4.6)
 
-Cache migration no longer enumerates historical generation IDs or pins exact
-old/new distributed JAR SHA-256 pairs. On generation reconciliation it compares
-the runtime and historical manifest by semantic role and stable serialization
-format. Only the known pregen/LOD/deferred-village roles may change release
-within the same major version; every other generation-relevant binary, seed,
-world generator, level.dat worldgen state, datapack, terrain config and policy
-must still compare equal. Downgrades and unrecognized roles fail closed.
+The FULL cold-cache mod owns reuse of its **FULL** chunk NBT only.
+Chunksmith owns reuse and regeneration of native CSLOD files; the cache
+mod does not compare Chunksmith's LOD implementation to decide compatibility.
 
-Each candidate FULL cache is independently checked on the I/O executor before
-migration: canonical region and coordinate path, compressed NBT readability,
-cache schema 3, completed entities and LOD, accepted stored fingerprint,
-dimension, coordinates, FULL chunk status, current Minecraft DataVersion,
-and absence of serialized Millenaire content. Eligible entries enter the
-current generation without rewriting NBT. Rejected entries remain in the old
-directory and are quarantined by the usual reconciliation path. The same
-validation applies when recovering an equivalent quarantined generation.
+- Ordinary upgrades of Chunksmith, Millenaire's deferred village logic,
+  maki-millenaire-lod-compat, idle pregen, cache/scheduling/diagnostics
+  and non-worldgen MODs/configs do not change FULL cache compatibility.
+- Only Minecraft's chunk DataVersion, world seed/dimension/generator,
+  level.dat worldgen settings, datapacks and declared/recognizable terrain
+  generation MODs and their generation settings are compatibility inputs.
+- Built-in terrain-affecting MODs are zfastnoise, epicterrain,
+  worldgenfeaturefix, terrain_slabs and disabler. Added code-only worldgen
+  MODs must be declared in the existing configuration at installation.
+  Those changes require a fresh compatibility check; old data remains in
+  quarantine when its generated result is not known to be equivalent.
+- Historical manifests can contain entries that older code classified as
+  relevant. The new comparison checks their **actual FULL generation role**
+  rather than accepting that broad historical classification.
+- A compatible old generation uses the existing copy/validated-NBT/commit
+  migration. The original FULL files remain available until the accepted
+  fingerprint is durably recorded. Invalid individual caches are retained
+  for quarantine, without rejecting valid siblings.
+- Per-FULL validation checks schema 3, completed entity/LOD-write metadata,
+  coordinate and region ownership, dimension, FULL status, chunk DataVersion
+  and serialized terrain sections. The `lodCommitted` flag is a FULL-cache
+  publication prerequisite, **not** a decision about LOD file reuse.
 
-This supports previously generated and subsequently generated FULL caches
-as long as their actual schema/fields and environmental inputs satisfy the
-same contract. The original strict fingerprint system continues to protect
-changes in terrain-generating MODs. The native Chunksmith CSLOD store remains
-separate and is not modified.
-
-
-## Version 1.4.4: audited FULL cache migration (4.6.0 / 9.0.3 -> 4.8.1 / 9.1.0)
-
-The existing compatibility-generation migration now accepts the **exact**
-audited distributed Chunksmith/Millenaire upgrade only when all the
-relevant conditions hold:
-
-- Historical and current manifests contain the exact verified old/new JAR
-  pairs, including their filenames, byte sizes and SHA-256 hashes, for
-  Chunksmith, Millenaire, maki-millenaire-lod-compat, maki-idle-pregen
-  and maki-ship-save. Mixed versions and unknown builds fail closed.
-- The policy signature is unchanged and every other compatibility-relevant
-  input remains equivalent: world seed, dimension, generator class,
-  Minecraft data version, worldgen settings, datapacks, other MODs,
-  server settings and configuration inputs.
-- Normal FULL chunk integrity checks still apply to each loaded entry,
-  including schema, entity snapshot, dimension, coordinates and the
-  accepted historical fingerprint.
-
-`GenerationStore` uses its existing conflict-safe migration/merge and
-stored-fingerprint acceptance. Compatible quarantined generations are
-eligible for automatic recovery; incompatible inputs stay quarantined.
-LOD uses native Chunksmith's unchanged `.cslod` format.
-
-This is an exact, one-way upgrade audit, never a blanket exception for
-future or unrelated world-generation binaries. Test it with
-`./gradlew auditedGenerationUpgradeTest`. A server restart with the
-updated JAR is required for the migrated generation to be available.
-
+There are no future-release version tables, special JAR hash pairs or
+Chunksmith LOD bytecode attestations in the FULL cache compatibility
+decision. Test with `./gradlew fullCacheCompatibilityTest`.
 
 Version 1.2.1 combines semantic compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
 
