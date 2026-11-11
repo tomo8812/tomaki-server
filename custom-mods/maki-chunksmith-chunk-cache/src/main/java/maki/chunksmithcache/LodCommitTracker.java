@@ -2,156 +2,147 @@ package maki.chunksmithcache;
 
 import com.kishku7.chunksmith.lod.CsLodChunk;
 import com.kishku7.chunksmith.lod.LodSupport;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.LevelChunk;
 
-/**
- * A logical timeout cannot cancel native CsLodRegionStore.write. Retain the
- * exact record identity until the physical terminal callback, including
- * synchronous store fallback and late acknowledgements.
- */
+/** Correlates the exact native LOD record with its physical writer terminal. */
 public final class LodCommitTracker {
-    private static final int MAX_PHYSICAL = 4096;
-    private static final IdentityHashMap<CsLodChunk, Physical> PHYSICAL = new IdentityHashMap<>();
-    private static final Map<Coordinate, Set<Physical>> BY_COORDINATE = new HashMap<>();
-    private record Coordinate(String dimension,int x,int z) {}
-    private static final ThreadLocal<Request> CURRENT = new ThreadLocal<>();
+    private static final int MAX_PHYSICAL=4096;
+    private static final IdentityHashMap<CsLodChunk,Physical> PHYSICAL=new IdentityHashMap<>();
+    private static final Map<Coordinate,Set<Physical>> BY_COORDINATE=new HashMap<>();
+    private static final Map<CompletableFuture<Boolean>,LodReceipt> RECEIPTS=
+        Collections.synchronizedMap(new WeakHashMap<>());
+    private record Coordinate(String dimension,int x,int z){}
+    private static final ThreadLocal<Request> CURRENT=new ThreadLocal<>();
     private static long unknownPhysical;
 
     private static final class Request {
-        final int x, z;
+        final int x,z;
+        final String sourceToken;
         final CompletableFuture<Boolean> result;
         int registrations;
-        Request(int x, int z, CompletableFuture<Boolean> result) {
-            this.x=x; this.z=z; this.result=result;
+        Request(int x,int z,String sourceToken,CompletableFuture<Boolean> result){
+            this.x=x;this.z=z;this.sourceToken=sourceToken;this.result=result;
         }
     }
     private static final class Physical {
         final CompletableFuture<Boolean> result;
         final Coordinate coordinate;
+        final String sourceToken;
         final long startedNanos;
         boolean collided;
-        Physical(CompletableFuture<Boolean> result, Coordinate coordinate) {
-            this.result=result; this.coordinate=coordinate; this.startedNanos=System.nanoTime();
+        Physical(CompletableFuture<Boolean> result,Coordinate coordinate,String sourceToken){
+            this.result=result;this.coordinate=coordinate;this.sourceToken=sourceToken;this.startedNanos=System.nanoTime();
         }
     }
-    public record PhysicalStatus(int inFlight, long oldestMillis, long unknown) {
-        public boolean reliable() { return unknown == 0; }
-    }
-    private LodCommitTracker() {}
+    public record LodReceipt(String sourceToken,String dimension,int x,int z,String contentSha256,long startedNanos,long completedNanos){}
+    public record PhysicalStatus(int inFlight,long oldestMillis,long unknown){public boolean reliable(){return unknown==0;}}
+    private LodCommitTracker(){}
 
-    public static CompletableFuture<Boolean> offer(ServerLevel level, LevelChunk chunk) {
-        CompletableFuture<Boolean> result = new CompletableFuture<>();
-        Request previous = CURRENT.get();
-        Request request = new Request(chunk.getPos().x, chunk.getPos().z, result);
+    public static CompletableFuture<Boolean> offer(ServerLevel level,LevelChunk chunk){return offer(level,chunk,null);}
+    public static CompletableFuture<Boolean> offer(ServerLevel level,LevelChunk chunk,String sourceToken){
+        CompletableFuture<Boolean> result=new CompletableFuture<>();
+        Request previous=CURRENT.get();
+        Request request=new Request(chunk.getPos().x,chunk.getPos().z,sourceToken,result);
         CURRENT.set(request);
-        try { LodSupport.offer(level, chunk); }
-        catch (Throwable error) { result.completeExceptionally(error); }
-        finally {
-            if (previous == null) CURRENT.remove(); else CURRENT.set(previous);
-        }
-        if (request.registrations != 1 && !result.isDone()) result.complete(false);
-        // Timeout closes the *logical* promise only, never the physical handle.
-        result.orTimeout(30, TimeUnit.SECONDS).whenComplete((ok,error) -> {
-            if (error != null || !Boolean.TRUE.equals(ok)) {
-                try {
-                    var index=LodSupport.presenceIndexFor(level.getServer(), level.dimension().location().toString());
+        try{LodSupport.offer(level,chunk);}
+        catch(Throwable error){result.completeExceptionally(error);}
+        finally{if(previous==null)CURRENT.remove();else CURRENT.set(previous);}
+        if(request.registrations!=1&&!result.isDone())result.complete(false);
+        result.orTimeout(30,TimeUnit.SECONDS).whenComplete((ok,error)->{
+            if(error!=null||!Boolean.TRUE.equals(ok)){
+                try{
+                    var index=LodSupport.presenceIndexFor(level.getServer(),level.dimension().location().toString());
                     if(index!=null)index.invalidate();
-                } catch(Throwable ignored) {
-                    // Failed writes remain retry debt even when invalidation fails.
-                }
+                }catch(Throwable ignored){}
             }
         });
         return result;
     }
 
-    public static void offered(Object value) {
-        if (!(value instanceof CsLodChunk record)) return;
-        Request request = CURRENT.get();
-        if (request != null && record.getChunkX()==request.x && record.getChunkZ()==request.z) {
+    public static void offered(Object value){
+        if(!(value instanceof CsLodChunk record))return;
+        Request request=CURRENT.get();
+        if(request!=null&&record.getChunkX()==request.x&&record.getChunkZ()==request.z){
             request.registrations++;
-            track(record,request.result);
-        } else if (request == null) {
-            // Normal/player LOD writes share this native store. Track their
-            // physical lifetime so overlapping pregen writes fail closed.
-            track(record,null);
-        }
+            track(record,request.result,request.sourceToken);
+        }else if(request==null)track(record,null,null);
     }
 
-    /** Also used by the exact-record lifecycle regression test. */
-    static void track(CsLodChunk record, CompletableFuture<Boolean> future) {
-        Set<CompletableFuture<Boolean>> unsafe = new HashSet<>();
-        boolean overflow=false, overlap=false;
-        synchronized (PHYSICAL) {
+    static void track(CsLodChunk record,CompletableFuture<Boolean> future){track(record,future,null);}
+    static void track(CsLodChunk record,CompletableFuture<Boolean> future,String sourceToken){
+        Set<CompletableFuture<Boolean>> unsafe=new HashSet<>();
+        boolean overflow=false,overlap=false,started=false;
+        synchronized(PHYSICAL){
             Physical duplicate=PHYSICAL.get(record);
-            if (duplicate != null) {
+            if(duplicate!=null){
                 duplicate.collided=true;
-                if(future!=null) unsafe.add(future);
-                if(duplicate.result!=null) unsafe.add(duplicate.result);
-            } else if (PHYSICAL.size() >= MAX_PHYSICAL) {
-                // This untracked native write may still complete much later.
-                // Keep a sticky unknown indication instead of reporting zero WIP.
-                unknownPhysical++;
-                overflow=true;
-                if(future!=null) unsafe.add(future);
-            } else {
+                if(future!=null)unsafe.add(future);
+                if(duplicate.result!=null)unsafe.add(duplicate.result);
+            }else if(PHYSICAL.size()>=MAX_PHYSICAL){
+                unknownPhysical++;overflow=true;if(future!=null)unsafe.add(future);
+            }else{
                 Coordinate coordinate=new Coordinate(record.getDimension(),record.getChunkX(),record.getChunkZ());
-                Physical current=new Physical(future,coordinate);
+                Physical current=new Physical(future,coordinate,sourceToken);
                 Set<Physical> existing=BY_COORDINATE.computeIfAbsent(coordinate,ignored->new HashSet<>());
-                if (!existing.isEmpty()) {
-                    current.collided=true; overlap=true;
-                    for (Physical old:existing) {
-                        old.collided=true;
-                        if(old.result!=null) unsafe.add(old.result);
-                    }
-                    if(future!=null) unsafe.add(future);
+                if(!existing.isEmpty()){
+                    current.collided=true;overlap=true;
+                    for(Physical old:existing){old.collided=true;if(old.result!=null)unsafe.add(old.result);}
+                    if(future!=null)unsafe.add(future);
                 }
-                existing.add(current);
-                PHYSICAL.put(record,current);
+                existing.add(current);PHYSICAL.put(record,current);started=sourceToken!=null;
             }
         }
-        // CompletableFuture callbacks can do I/O. Run them outside the map lock.
-        for (CompletableFuture<Boolean> result:unsafe) result.complete(false);
-        if(overlap) PipelineMetrics.count("lod-physical-coordinate-overlap");
-        if(overflow) PipelineMetrics.count("lod-physical-handle-overflow");
+        if(started)PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.LOD);
+        for(CompletableFuture<Boolean> result:unsafe)result.complete(false);
+        if(overlap)PipelineMetrics.count("lod-physical-coordinate-overlap");
+        if(overflow)PipelineMetrics.count("lod-physical-handle-overflow");
     }
 
-    /** Called after actual native write returns, including late completions. */
-    public static void written(CsLodChunk record, Throwable error) {
+    public static void written(CsLodChunk record,Throwable error){
         Physical work;
-        synchronized (PHYSICAL) {
+        synchronized(PHYSICAL){
             work=PHYSICAL.remove(record);
-            if(work!=null) {
+            if(work!=null){
                 Set<Physical> active=BY_COORDINATE.get(work.coordinate);
-                if(active!=null) {
-                    active.remove(work);
-                    if(active.isEmpty()) BY_COORDINATE.remove(work.coordinate);
-                }
+                if(active!=null){active.remove(work);if(active.isEmpty())BY_COORDINATE.remove(work.coordinate);}
             }
         }
-        if(work==null) return;
-        boolean late=work.result!=null && work.result.isDone();
-        if(work.result!=null) {
-            if(work.collided) work.result.complete(false);
-            else if(error==null) work.result.complete(true);
-            else work.result.completeExceptionally(error);
+        if(work==null)return;
+        long completed=System.nanoTime();
+        boolean safe=error==null&&!work.collided;
+        if(safe&&work.result!=null){
+            try{
+                RECEIPTS.put(work.result,new LodReceipt(work.sourceToken,record.getDimension(),record.getChunkX(),record.getChunkZ(),
+                    PairReceiptStore.lodDigest(record),work.startedNanos,completed));
+            }catch(Throwable digestFailure){safe=false;PipelineMetrics.count("lod-receipt-digest-failed");}
         }
-        PipelineMetrics.count(error==null ? "lod-physical-write-ack" : "lod-physical-write-failed");
-        if(late) PipelineMetrics.count("lod-physical-late-terminal");
+        boolean late=work.result!=null&&work.result.isDone();
+        if(work.result!=null){
+            if(!safe){if(error!=null)work.result.completeExceptionally(error);else work.result.complete(false);}
+            else work.result.complete(true);
+        }
+        if(work.sourceToken!=null)
+            PregenFlowController.physicalTerminal(work.sourceToken,PregenFlowController.Stage.LOD,
+                Math.max(0L,completed-work.startedNanos),safe);
+        PipelineMetrics.count(error==null?"lod-physical-write-ack":"lod-physical-write-failed");
+        if(late)PipelineMetrics.count("lod-physical-late-terminal");
     }
 
-    /** Low-frequency snapshot; never scan the physical map on the writer path. */
-    public static PhysicalStatus physicalStatus() {
-        synchronized (PHYSICAL) {
+    public static LodReceipt receiptOf(CompletableFuture<Boolean> future){return future==null?null:RECEIPTS.get(future);}
+    public static PhysicalStatus physicalStatus(){
+        synchronized(PHYSICAL){
             long now=System.nanoTime(),oldest=0;
-            for(Physical work:PHYSICAL.values()) oldest=Math.max(oldest,Math.max(0,now-work.startedNanos));
+            for(Physical work:PHYSICAL.values())oldest=Math.max(oldest,Math.max(0,now-work.startedNanos));
             return new PhysicalStatus(PHYSICAL.size(),TimeUnit.NANOSECONDS.toMillis(oldest),unknownPhysical);
         }
     }
