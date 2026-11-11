@@ -352,7 +352,10 @@ public final class CacheManager {
             PregenFlowController.uncertain(attemptToken,"receipt-persist");
             return false;
          }
-         if(persisted==PairReceiptStore.PublishResult.EXISTING)return true;
+         if(persisted==PairReceiptStore.PublishResult.EXISTING) {
+            PregenFlowController.pairExisting(attemptToken);
+            return true;
+         }
       }
       PregenFlowController.pairConfirmed(attemptToken,generatedNew);
       return true;
@@ -1142,6 +1145,7 @@ public final class CacheManager {
                }
                if(pair==PairReceiptStore.PublishResult.NEW)
                   PregenFlowController.pairConfirmed(work.sourceToken,true);
+               else PregenFlowController.pairExisting(work.sourceToken);
             }
             work.result.complete(true);
          }
