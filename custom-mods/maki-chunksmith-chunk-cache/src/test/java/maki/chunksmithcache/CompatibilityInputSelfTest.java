@@ -56,7 +56,7 @@ public final class CompatibilityInputSelfTest {
 
         List<FingerprintManifest.Entry> unknownA = configEntries(temp, "u1.properties", "config/unknown.properties", "# one\nx=1\n");
         List<FingerprintManifest.Entry> unknownB = configEntries(temp, "u2.properties", "config/unknown.properties", "# two\nx=1\n");
-        require(!fingerprint(unknownA).equals(fingerprint(unknownB)), "unknown configuration must remain fail-closed because code-driven generation impact is not provably absent");
+        require(fingerprint(unknownA).equals(fingerprint(unknownB)), "non-worldgen config edits must preserve cached FULL terrain");
 
         List<String> ignored = FingerprintManifest.changedInputs(manifest(ea), manifest(eb), FingerprintManifest.Impact.IGNORED, 8);
         require(ignored.stream().anyMatch(v -> v.contains("source-format/comment changed")), "zfastnoise audit must explain source-only changes");
@@ -76,7 +76,7 @@ public final class CompatibilityInputSelfTest {
 
         Path unknownWorldgen = temp.resolve("worldgen.jar");
         writeModJar(unknownWorldgen, "epicterrain", "1.0.1", "terrain-change");
-        require(jarEntries("mods/worldgen.jar", unknownWorldgen).getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
+        require(jarEntries("mods/epicterrain-0.3.0.jar", unknownWorldgen).getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
             "known code-driven worldgen MOD ids must remain relevant");
     }
 
@@ -104,13 +104,12 @@ public final class CompatibilityInputSelfTest {
         Path altered = temp.resolve("jade-altered.jar");
         repack(jade, altered, true);
         List<FingerprintManifest.Entry> alteredEntries = jarEntries("mods/Jade-future.jar", altered);
-        require(alteredEntries.size() == 1 && alteredEntries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            "unknown future bytes of a third-party UI/runtime MOD must fail closed until audited");
+        require(alteredEntries.size() == 1 && alteredEntries.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
+            "new UI-only MOD bytes must preserve cached FULL terrain");
 
         for (String name : List.of(
             "zfastnoise-1.0.13+1.21.1+neoforge.jar",
             "epicterrain-0.3.0-1.21.1.jar",
-            "millenaire-9.1.0.jar",
             "worldgenfeaturefix-neoforge-1.21-1.0.1.jar"
         )) {
             Path jar = mods.resolve(name);
@@ -118,6 +117,9 @@ public final class CompatibilityInputSelfTest {
             require(entries.size() == 1 && entries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
                 name + " must remain fail-closed relevant");
         }
+        require(jarEntries("mods/millenaire-9.1.0.jar", mods.resolve("millenaire-9.1.0.jar"))
+            .getFirst().impact() == FingerprintManifest.Impact.IGNORED,
+            "deferred Millenaire village placement must not invalidate terrain FULL cache");
     }
 
     private static void testHistoricalSemanticRecovery() {
@@ -132,20 +134,20 @@ public final class CompatibilityInputSelfTest {
             AuditedModCompatibility.trustedRawSha("maki_lod_cpu", "load-control-only-v1", 0)));
         old.add(rawJarEntry("mods/maki-diorama-share-1.0.0.jar",
             AuditedModCompatibility.trustedRawSha("maki_diorama_share", "waypoint-sharing-only-v1", 0)));
-        old.add(entry("mods/worldgen.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
+        old.add(entry("mods/epicterrain-0.3.0.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
 
         List<FingerprintManifest.Entry> current = new ArrayList<>();
         current.add(entry("policy:compatibility", "new-policy", FingerprintManifest.Impact.RELEVANT));
         current.add(CompatibilityInput.zfastnoiseCanonicalEntry(true, true));
         current.add(contractEntry("maki_lod_cpu", "load-control-only-v1"));
         current.add(contractEntry("maki_diorama_share", "waypoint-sharing-only-v1"));
-        current.add(entry("mods/worldgen.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
+        current.add(entry("mods/epicterrain-0.3.0.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
 
         require(FingerprintManifest.sameCompatibilityInputsExcept(manifest(old), manifest(current), Set.of("policy:compatibility")),
             "historical manifests for audited neutral updates must be recoverable without hiding worldgen changes");
 
         List<FingerprintManifest.Entry> changedWorldgen = new ArrayList<>(current);
-        changedWorldgen.set(changedWorldgen.size() - 1, entry("mods/worldgen.jar", "changed-worldgen", FingerprintManifest.Impact.RELEVANT));
+        changedWorldgen.set(changedWorldgen.size() - 1, entry("mods/epicterrain-0.3.0.jar", "changed-worldgen", FingerprintManifest.Impact.RELEVANT));
         require(!FingerprintManifest.sameCompatibilityInputsExcept(manifest(old), manifest(changedWorldgen), Set.of("policy:compatibility")),
             "historical recovery must reject real worldgen changes");
 
@@ -182,18 +184,9 @@ public final class CompatibilityInputSelfTest {
     private static void assertAudited(Path jar, String modId) throws Exception {
         require(Files.isRegularFile(jar), "missing installed test JAR " + jar);
         List<FingerprintManifest.Entry> entries = jarEntries("mods/" + jar.getFileName(), jar);
-        if (Set.of("maki_lod_cpu", "maki_diorama_share", "maki_mods_observer").contains(modId)) {
-            require(entries.size() == 1 && entries.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
-                jar.getFileName() + " owned scheduling/UI/diagnostic role must remain generation-neutral across updates");
-            return;
-        }
-        require(entries.size() == 2, jar.getFileName() + " must resolve to audited compatibility contract + raw audit");
-        require(entries.getFirst().key().equals("compat:mod:" + modId)
-            && entries.getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
-            jar.getFileName() + " audited contract key mismatch");
-        require(entries.get(1).key().equals(AuditedModCompatibility.RAW_AUDIT_PREFIX + modId)
-            && entries.get(1).impact() == FingerprintManifest.Impact.IGNORED,
-            jar.getFileName() + " raw audit mismatch");
+        require(entries.size() == 1
+            && entries.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
+            jar.getFileName() + " " + modId + " has no impact on cached terrain");
     }
 
     private static List<FingerprintManifest.Entry> configEntries(Path temp, String fileName, String key, String content) throws Exception {
