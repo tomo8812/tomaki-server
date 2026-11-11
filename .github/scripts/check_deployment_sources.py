@@ -38,11 +38,14 @@ fingerprint_config = (root / "config/maki-chunksmith-chunk-cache.properties").re
 assert "maki_lag_observer" not in fingerprint_config, "Retired observer MOD ID remains in active fingerprint config"
 assert "maki-lag-observer.properties" not in fingerprint_config, "Retired observer config path remains in active fingerprint config"
 assert "fingerprint.observation-only-mod-ids" not in fingerprint_config, "MOD-id-only compatibility exemptions must not be deployed"
-assert "config/maki-mods-observer.properties" in fingerprint_config, "Observer config is not excluded from compatibility fingerprinting"
-audited_mod_source = (
-    root / "custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/AuditedModCompatibility.java"
+assert "fingerprint.audited-neutral-mod-sha256" not in fingerprint_config, "Obsolete future-MOD audit config must be removed"
+assert "fingerprint.generation-sensitive-mod-ids" not in fingerprint_config, "Hypothetical future-MOD policy must not be configured"
+cache_policy = (
+    root / "custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/FingerprintPolicy.java"
 ).read_text(encoding="utf-8")
-assert '"maki_mods_observer"' in audited_mod_source, "Observer JAR is missing its exact audited compatibility attestation"
+assert '"epicterrain-"' in cache_policy and '"zfastnoise-"' in cache_policy, "Known terrain generators are not tracked"
+assert "fingerprint.audited-neutral-mod-sha256" not in cache_policy, "Future-MOD SHA audit remains in FULL policy"
+assert "maki-mods-observer-" not in cache_policy, "Observer role must not need a hardcoded compatibility exception"
 
 seen_ids = {}
 checked_sources = 0
