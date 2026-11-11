@@ -454,7 +454,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !validateBody.contains('PregenBorrowLedger.releaseGeneratedToNormal(level,pos)')
                 || !cache.contains('PregenBorrowLedger.releaseGeneratedToNormal(level,pos);\n         PromotionLedger.normalFullPresent(level,pos);')
                 || !cache.contains('written.whenComplete((ignored,error) -> {')
-                || !cache.contains('PregenBorrowLedger.releaseGeneratedToNormal(level,pos);\n            PREGEN_RETRY.remove(captureKey(level,pos));')) {
+                || !cache.contains('PregenBorrowLedger.releaseGeneratedToNormal(level,pos);\n            PREGEN_RETRY.complete(captureKey(level,pos));')) {
             throw new GradleException('Issue #83 regression: a competing durable normal FULL can leave the generated pregen persistence guard armed')
         }
         def releaseStart = borrow.indexOf('static boolean releaseGeneratedToNormal')
