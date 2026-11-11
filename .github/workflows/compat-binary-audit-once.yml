@@ -87,3 +87,12 @@ jobs:
             print('CLASS_REMOVED',[x for x in removed if x.endswith('.class')][:35])
             print('RESOURCES_CHANGED',[x for x in changed+added+removed if not x.endswith('.class')][:65])
           PY
+
+      - name: Print complete shipped JAR hashes for historical cache manifest comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in mods/*.jar; do
+            printf 'SHIPPED_MOD_SHA %s ' "${file#mods/}"
+            sha256sum "$file" | cut -d' ' -f1
+          done
