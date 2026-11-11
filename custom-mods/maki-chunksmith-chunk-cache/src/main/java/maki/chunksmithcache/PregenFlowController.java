@@ -33,6 +33,8 @@ final class PregenFlowController {
     private static final Map<Key,Attempt> ACTIVE=new HashMap<>();
     private static final Map<String,Attempt> BY_TOKEN=new HashMap<>();
     private static final EnumMap<Stage,StageState> STAGES=new EnumMap<>(Stage.class);
+    private static final int MIN_SERVICE_SAMPLES=3;
+    private static final long SERVICE_SAMPLE_STALE_NANOS=30_000_000_000L;
     private static long pairConfirmedRuntime,pairNew,pairRepair,pairRevalidated,uncertain;
     private static boolean tuningFrozen;
 
@@ -64,6 +66,8 @@ final class PregenFlowController {
         final int safeMin,hardMax;
         final long targetWaitNanos;
         double serviceEwmaNanos;
+        int serviceSamples;
+        long lastServiceSampleNanos;
         long terminals,successes;
         StageState(int initial,int safeMin,int hardMax,long targetWaitNanos) {
             this.window=initial;this.safeMin=safeMin;this.hardMax=hardMax;this.targetWaitNanos=targetWaitNanos;
@@ -72,7 +76,16 @@ final class PregenFlowController {
             terminals++;
             if(success)successes++;
             if(serviceNanos>0) {
+                long now=System.nanoTime();
+                if(lastServiceSampleNanos!=0L&&now>=lastServiceSampleNanos
+                    &&now-lastServiceSampleNanos>SERVICE_SAMPLE_STALE_NANOS) {
+                    serviceEwmaNanos=0;
+                    serviceSamples=0;
+                }
+                lastServiceSampleNanos=now;
                 serviceEwmaNanos=serviceEwmaNanos==0?serviceNanos:serviceEwmaNanos*.8+serviceNanos*.2;
+                serviceSamples=Math.min(Integer.MAX_VALUE,serviceSamples+1);
+                if(serviceSamples<MIN_SERVICE_SAMPLES)return;
                 long proposed=Math.round(Math.ceil(targetWaitNanos/Math.max(1.0,serviceEwmaNanos)));
                 // FAST remains adaptive during c-neighbourhood probes. The
                 // SLOW controller compares (c, the same FAST policy) as a closed
@@ -254,6 +267,8 @@ final class PregenFlowController {
     static synchronized void generationCapChanged(int cap) {
         for(StageState state:STAGES.values()){
             state.serviceEwmaNanos=0;
+            state.serviceSamples=0;
+            state.lastServiceSampleNanos=0;
             state.window=Math.max(state.safeMin,Math.min(state.window,state.safeMin+1));
         }
         PipelineMetrics.gauge("pregen-generation-cap",Math.max(0,cap));
