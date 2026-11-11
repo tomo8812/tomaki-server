@@ -12,6 +12,7 @@ import org.slf4j.LoggerFactory;
 public final class CpuGovernor {
     private static final Logger LOG=LoggerFactory.getLogger("MakiLodCpu");
     private static final Path CONFIG=Path.of("config/maki-lod-cpu.properties");
+    private static final Path PREGEN_PROFILE=Path.of("config/maki-lod-cpu-pregen-profile.properties");
     private static final AdaptivePolicy POLICY=new AdaptivePolicy();
     private static final SharedWorkBudget SHARED_BUDGET=new SharedWorkBudget();
     private static Settings settings=new Settings();
@@ -23,6 +24,9 @@ public final class CpuGovernor {
     private static long lastTime,lastCpu,lastGc=-1,lastOom=-1,lastThrottled=-1,lastStamp=Long.MIN_VALUE,lastReport;
     private static long reportedExperiment;
     private static long previousPairConfirmed=-1,previousPairNew=-1,previousPairRepair=-1,previousUncertain=-1;
+    private static WorkTelemetry profileWork;
+    private static boolean profileDecisionMade;
+    private static long profileNewPairs,profileRepairPairs,lastProfileSavedMillis;
     private static long lastBudgetTransition;
     private static volatile String pipelinePressure;
     private static boolean configGood=true;
@@ -157,7 +161,10 @@ public final class CpuGovernor {
 
         refreshPipelinePressure();
         int previous=cap;
-        if(work!=previousWork){POLICY.reset(settings,"new-generation-task");previousWork=work;}
+        if(work!=previousWork){
+            POLICY.reset(settings,"new-generation-task");previousWork=work;
+            profileWork=work;profileDecisionMade=false;profileNewPairs=profileRepairPairs=0;
+        }
         AdaptiveSample sample=new AdaptiveSample(seconds,used,mspt,heap,gcPercent,budget.headroomMb(),batch.completions(),writes,
             comparable,stateFresh?state.width():0,stateFresh?state.inFlight():0,lod.queue(),stateFresh?state.worldWrites():-1,
             sync,(stateFresh&&state.held()) || pipelinePressure!=null,batch.latencyP95Ms(),oom);
@@ -179,9 +186,25 @@ public final class CpuGovernor {
         previousPairRepair=controller.available()?controller.pairRepair():-1;
         previousUncertain=controller.available()?controller.uncertain():-1;
         boolean pairAvailable=controller.available()&&!controller.sensorUnknown();
+        if(work==profileWork&&controller.available()){
+            profileNewPairs+=newDelta;
+            profileRepairPairs+=repairDelta;
+        }
+        String workClassBand=PregenPerformanceProfile.workClassBand(profileNewPairs,profileRepairPairs);
 
         long budgetTransition=SHARED_BUDGET.transitionSerial();
         boolean sharedBackfillPause=SHARED_BUDGET.reserved()||budgetTransition!=lastBudgetTransition;
+        if(!profileDecisionMade&&active&&players==0&&!sharedBackfillPause&&pairAvailable
+            &&!"UNKNOWN".equals(workClassBand)){
+            PregenPerformanceProfile.Environment environment=performanceEnvironment(controller.fastSignature(),workClassBand);
+            OptionalInt warm=PregenPerformanceProfile.load(PREGEN_PROFILE,environment,settings,System.currentTimeMillis());
+            if(warm.isPresent()){
+                cap=POLICY.warmStart(settings,warm.getAsInt(),"warm-start-profile");
+                LOG.info("Applied pregen c warm-start profile: c={}, workClassBand={}, fastSignature={}",
+                    cap,workClassBand,controller.fastSignature());
+            }
+            profileDecisionMade=true;
+        }
         if(!configGood)cap=POLICY.unavailable(settings,"invalid-config");
         else if(players>0)cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked(),
             controller.fastSignature(),newDelta,repairDelta,uncertainDelta,controller.oldestMillis());
@@ -199,6 +222,14 @@ public final class CpuGovernor {
             LOG.info("LOD c-neighbourhood experiment #{}: {}; decision {}; rate is confirmed runtime FULL+LOD PAIR/s",POLICY.experimentNumber,POLICY.lastExperiment,POLICY.reason);
             reportedExperiment=POLICY.experimentNumber;
         }
+        long wallNow=System.currentTimeMillis();
+        if(active&&players==0&&pairAvailable&&!controller.admissionBlocked()
+            &&!"UNKNOWN".equals(workClassBand)&&"baseline".equals(POLICY.phase)
+            &&wallNow-lastProfileSavedMillis>=300_000L){
+            PregenPerformanceProfile.Environment environment=performanceEnvironment(controller.fastSignature(),workClassBand);
+            if(PregenPerformanceProfile.save(PREGEN_PROFILE,environment,cap,wallNow))
+                lastProfileSavedMillis=wallNow;
+        }
         if(previous!=cap||experimentFinished||now-lastReport>=30_000_000_000L){
             LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); confirmed PAIR {}/s ({} in sample), all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}, admissionBlocked={}, controllerReason={}; shared budget [{}]",
                 previous,cap,fmt(used),fmt(capacity),fmt(mspt),fmt(heap),players,POLICY.reason,
@@ -206,6 +237,46 @@ public final class CpuGovernor {
                 sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase,controller.admissionBlocked(),controller.reason(),SHARED_BUDGET.summary(now));
             lastReport=now;
         }
+    }
+
+    private static PregenPerformanceProfile.Environment performanceEnvironment(long fastSignature,String workClassBand){
+        long heapMax=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax();
+        return new PregenPerformanceProfile.Environment(
+            PregenPerformanceProfile.CONTROLLER_VERSION,cpuAffinity(),cpuQuota(),capacity,heapMax,
+            chunksmithConfigSignature(),cacheControllerVersion(),fastSignature,workClassBand);
+    }
+
+    private static String cpuAffinity(){
+        try{
+            return Files.readAllLines(Path.of("/proc/self/status")).stream()
+                .filter(line->line.startsWith("Cpus_allowed_list:")).findFirst()
+                .map(line->line.substring(line.indexOf(':')+1).trim()).orElse("unknown");
+        }catch(Exception unavailable){return "unknown";}
+    }
+
+    private static String cpuQuota(){
+        try{return Files.readString(Path.of("/sys/fs/cgroup/cpu.max")).trim();}
+        catch(Exception ignored){
+            try{
+                return Files.readString(Path.of("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")).trim()+"/"
+                    +Files.readString(Path.of("/sys/fs/cgroup/cpu/cpu.cfs_period_us")).trim();
+            }catch(Exception unavailable){return "unknown";}
+        }
+    }
+
+    private static String chunksmithConfigSignature(){
+        try{
+            var config=com.kishku7.chunksmith.ChunksmithProvider.get().getConfig();
+            return config.isIoThrottleEnabled()+"|"+config.getThrottleMaxChunkMillis()+"|"+config.getDispatchMaxConcurrent();
+        }catch(Throwable unavailable){return "unknown";}
+    }
+
+    private static String cacheControllerVersion(){
+        try{
+            Package pkg=Class.forName("maki.chunksmithcache.CacheManager").getPackage();
+            String version=pkg==null?null:pkg.getImplementationVersion();
+            return version==null?"unknown":version;
+        }catch(Throwable unavailable){return "absent";}
     }
 
     private static String fmt(double n){return String.format(Locale.ROOT,"%.1f",n);}
@@ -245,6 +316,7 @@ public final class CpuGovernor {
             lastStamp=stamp;
             configGood=true;
             cap=POLICY.reset(settings,"config-reloaded");
+            profileDecisionMade=false;profileNewPairs=profileRepairPairs=0;
             LOG.info("Loaded {}; CPU budget {} cores, ceiling {}..{}; confirmed-PAIR c-neighbourhood window {}s, settle {}s; safe backfill spacing {}..{}s",
                 CONFIG,capacity,fresh.min,fresh.max,fresh.windowSeconds,fresh.settleSeconds,
                 fresh.backfillMinSpacingSeconds,fresh.backfillMaxSafeWaitSeconds);
