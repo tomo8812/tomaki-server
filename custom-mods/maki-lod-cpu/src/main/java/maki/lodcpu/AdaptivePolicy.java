@@ -141,15 +141,20 @@ public final class AdaptivePolicy {
             &&result.oldestWipMillis<=Math.max(15_000,baseline.oldestWipMillis+5_000);
         boolean rateSafe=lower?result.rate>=baseline.rate*.98
             :result.rate>=baseline.rate*(1+s.minimumGainPercent/100.0);
+        boolean quotaSafe=result.throttledMicrosPerSecond
+            <=Math.max(baseline.throttledMicrosPerSecond*1.25,baseline.throttledMicrosPerSecond+10_000.0);
         boolean efficiencyBetter=!Double.isFinite(baseline.cpuPerPair)||!Double.isFinite(result.cpuPerPair)
             ||result.cpuPerPair<=baseline.cpuPerPair||result.queueGrowth<baseline.queueGrowth;
-        boolean accept=tailSafe&&rateSafe&&(!lower||efficiencyBetter);
+        boolean accept=tailSafe&&quotaSafe&&rateSafe&&(!lower||efficiencyBetter);
         cap=accept?candidateCap:baselineCap;
         lastExperiment="c="+baselineCap+" -> "+candidateCap+" pair/s="+round(baseline.rate)+"/"+round(result.rate)
-            +" tailSafe="+tailSafe+" accepted="+accept;
+            +" tailSafe="+tailSafe+" quotaSafe="+quotaSafe+" accepted="+accept;
         experimentNumber++;
         if(accept){failedExperiments=0;reason=lower?"same-goodput-lower-c":"pair-goodput-gain";}
-        else {failedExperiments++;reason=tailSafe?"no-pair-goodput-gain":"tail-debt-regressed";}
+        else {
+            failedExperiments++;
+            reason=!tailSafe?"tail-debt-regressed":!quotaSafe?"cpu-quota-throttle-regressed":"no-pair-goodput-gain";
+        }
         phase="baseline";baseline=null;settle=s.settleSeconds;
         cooldown=Math.min(600,s.retrySeconds*Math.pow(2,Math.min(3,failedExperiments/2)));
         return cap;
@@ -193,10 +198,11 @@ public final class AdaptivePolicy {
 
     private record Result(double rate,long events,double width,double inFlight,double cpu,double cpuPerPair,
                           int queueGrowth,long synchronousWrites,double admissionFraction,long fastSignature,
-                          boolean fastStable,long classifiedEvents,double newRatio,double sourceProofRate,long oldestWipMillis){}
+                          boolean fastStable,long classifiedEvents,double newRatio,double sourceProofRate,long oldestWipMillis,
+                          double throttledMicrosPerSecond){}
     private static final class Window {
         double seconds,widthSeconds,inFlightSeconds,cpuSeconds,cpuKnownSeconds,blockedSeconds;
-        long pairs,synchronousWrites,newPairs,repairPairs,uncertainPairs,oldestWipMillis;
+        long pairs,synchronousWrites,newPairs,repairPairs,uncertainPairs,oldestWipMillis,throttledMicros;
         int firstQueue=-1,lastQueue;
         long fastSignature=Long.MIN_VALUE;
         boolean fastStable=true;
@@ -208,6 +214,7 @@ public final class AdaptivePolicy {
             uncertainPairs+=Math.max(0,uncertain);oldestWipMillis=Math.max(oldestWipMillis,Math.max(0,oldestMillis));
             if(Double.isFinite(x.cpu())){cpuSeconds+=x.cpu()*x.seconds();cpuKnownSeconds+=x.seconds();}
             synchronousWrites+=x.synchronousWrites();
+            throttledMicros+=Math.max(0,x.throttledMicros());
             if(firstQueue<0)firstQueue=x.lodQueue();lastQueue=x.lodQueue();
             if(admissionBlocked)blockedSeconds+=x.seconds();
             if(fastSignature==Long.MIN_VALUE)fastSignature=signature;
@@ -221,7 +228,8 @@ public final class AdaptivePolicy {
                 seconds>0?inFlightSeconds/seconds:0,cpuKnownSeconds>0?cpuSeconds/cpuKnownSeconds:Double.NaN,
                 pairs>0&&cpuKnownSeconds>0?cpuSeconds/pairs:Double.NaN,lastQueue-firstQueue,synchronousWrites,
                 seconds>0?blockedSeconds/seconds:0,fastSignature==Long.MIN_VALUE?0L:fastSignature,fastStable,
-                classified,classified>0?(double)newPairs/classified:0,proofDenominator>0?pairs/proofDenominator:1.0,oldestWipMillis);
+                classified,classified>0?(double)newPairs/classified:0,proofDenominator>0?pairs/proofDenominator:1.0,oldestWipMillis,
+                seconds>0?throttledMicros/seconds:0);
         }
     }
 }
