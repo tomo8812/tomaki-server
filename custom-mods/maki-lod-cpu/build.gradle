@@ -161,10 +161,10 @@ tasks.register('verifyPregenControllerV2') {
          'admissionOpen(GenerationTask task)','server.getPlayerCount()>0','nativeTaskStopping'].each { token ->
             if(!center.contains(token))throw new GradleException('Pregen V2 regression: stop epoch/admission policy missing '+token)
         }
-        ['blockFollowAdmission','followAdmissionEpoch','followAdmissionOpen'].each { token ->
+        ['blockFollowAdmission(GenerationTask task)','followAdmissionEpoch','followAdmissionOpen'].each { token ->
             if(!api.contains(token))throw new GradleException('Pregen V2 regression: admission bridge missing '+token)
         }
-        def gate=mixin.indexOf('ResourceBudgetApi.blockFollowAdmission()')
+        def gate=mixin.indexOf('ResourceBudgetApi.blockFollowAdmission((GenerationTask)(Object)this)')
         def next=mixin.indexOf('Object next=iterator.next()')
         if(gate<0||next<0||gate>next)throw new GradleException('Pregen V2 regression: WIP gate must run before iterator consumption')
         ['candidateCap=cap-1','candidateCap=cap+1','pairCompletions','fastSignature',

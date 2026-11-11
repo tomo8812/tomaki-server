@@ -41,6 +41,7 @@ public abstract class GenerationRequestMixin {
         if(!(world instanceof NeoForgeWorld neoforge))return world.isChunkGenerated(x,z);
         ChunkPos pos=new ChunkPos(x,z);
         if(!CacheManager.reservePregenCandidate(neoforge.getWorld(),pos,sourceTask)) {
+            CacheManager.markPregenProgressRejected(sourceTask,pos);
             PipelineMetrics.count("pregen-candidate-admission-rejected");
             return CompletableFuture.failedFuture(
                 new IllegalStateException("Unified pregen stage WIP admission blocked at "+pos));
@@ -60,6 +61,15 @@ public abstract class GenerationRequestMixin {
         });
     }
 
+    @Inject(method="update(IIZZ)V",at=@At("HEAD"),cancellable=true,require=1)
+    private void maki$preserveRejectedCoordinate(int x,int z,boolean loaded,boolean persisted,CallbackInfo ci) {
+        GenerationTask sourceTask=(GenerationTask)(Object)this;
+        if(CacheManager.consumePregenProgressRejected(sourceTask,x,z)) {
+            PipelineMetrics.count("pregen-progress-update-suppressed");
+            ci.cancel();
+        }
+    }
+
     @Redirect(method="lambda$run$1",at=@At(value="INVOKE",
         target="Lcom/kishku7/chunksmith/platform/World;getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;"),require=2)
     private CompletableFuture<Void> maki$measureRequest(World world,int x,int z) {
@@ -67,7 +77,9 @@ public abstract class GenerationRequestMixin {
         GenerationTask sourceTask=(GenerationTask)(Object)this;
         if(world instanceof NeoForgeWorld neoforge
             &&!CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)) {
-            CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z),sourceTask);
+            ChunkPos pos=new ChunkPos(x,z);
+            CacheManager.markPregenProgressRejected(sourceTask,pos);
+            CacheManager.pregenRequestFailed(neoforge.getWorld(),pos,sourceTask);
             return CompletableFuture.failedFuture(
                 new IllegalStateException("Unified pregen could not acquire final stage/persistence admission for "+x+","+z));
         }

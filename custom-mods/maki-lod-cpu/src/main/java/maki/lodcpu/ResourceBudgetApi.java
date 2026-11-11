@@ -23,8 +23,9 @@ public final class ResourceBudgetApi {
     public static void releaseBackfill(String outcome){CpuGovernor.releaseBackfill(outcome==null?"released":outcome);}
     public static String status(){return CpuGovernor.sharedBudgetStatus();}
 
-    /** Soft stage-WIP pressure waits before the iterator consumes another coordinate. */
-    public static boolean blockFollowAdmission() {
+    /** Stop epoch and stage-WIP pressure both gate before iterator consumption. */
+    public static boolean blockFollowAdmission(GenerationTask task) {
+        if(!PlayerCenter.admissionOpen(task))return true;
         try {
             return Boolean.TRUE.equals(Class.forName("maki.chunksmithcache.CacheManager")
                 .getMethod("admissionBlocked").invoke(null));

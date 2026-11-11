@@ -69,6 +69,8 @@ public final class CacheManager {
    private static final Set<CaptureKey> PREGEN_LOD_RETRY = ConcurrentHashMap.newKeySet();
    private static final ConcurrentHashMap<CaptureKey,Long> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_REQUEST_TARGETS = new ConcurrentHashMap<>();
+   private static final Map<GenerationTask,Set<Long>> PREGEN_PROGRESS_REJECTED =
+      Collections.synchronizedMap(new WeakHashMap<>());
    private static final ThreadLocal<GenerationTask> CHUNKSMITH_REQUEST_TASK = new ThreadLocal<>();
    private static final ConcurrentHashMap<CaptureKey,AtomicInteger> LOD_PENDING = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,Path> CONFIRMED_PREGEN = new ConcurrentHashMap<>();
@@ -101,6 +103,24 @@ public final class CacheManager {
    public static boolean reservePregenCandidate(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
       if(level==null||pos==null||sourceTask==null||!FollowCaptureOwnership.owns(sourceTask))return true;
       return PregenFlowController.reserveCandidate(level,pos,sourceTask);
+   }
+
+   public static void markPregenProgressRejected(GenerationTask sourceTask,ChunkPos pos) {
+      if(sourceTask==null||pos==null||!FollowCaptureOwnership.owns(sourceTask))return;
+      synchronized(PREGEN_PROGRESS_REJECTED) {
+         PREGEN_PROGRESS_REJECTED.computeIfAbsent(sourceTask,ignored->ConcurrentHashMap.newKeySet()).add(pos.toLong());
+      }
+   }
+
+   public static boolean consumePregenProgressRejected(GenerationTask sourceTask,int x,int z) {
+      if(sourceTask==null)return false;
+      synchronized(PREGEN_PROGRESS_REJECTED) {
+         Set<Long> rejected=PREGEN_PROGRESS_REJECTED.get(sourceTask);
+         if(rejected==null)return false;
+         boolean found=rejected.remove(ChunkPos.asLong(x,z));
+         if(rejected.isEmpty())PREGEN_PROGRESS_REJECTED.remove(sourceTask);
+         return found;
+      }
    }
 
    public static void pregenCandidateSkipped(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
@@ -1757,6 +1777,7 @@ public final class CacheManager {
       PregenFlowController.clear(server);
       PairReceiptStore.clear();
       LodRegionCapacity.clear();
+      synchronized(PREGEN_PROGRESS_REJECTED){PREGEN_PROGRESS_REJECTED.clear();}
       PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_LOD_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_NEW_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
