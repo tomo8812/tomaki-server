@@ -700,7 +700,7 @@ public final class CacheManager {
 
    public static void noteObservedLodPresent(ServerLevel level,ChunkPos pos) {
       if(level==null||pos==null||STOPPING.contains(level.getServer())||!FollowCaptureOwnership.owns(level))return;
-      PREGEN_LOD_RETRY.remove(captureKey(level,pos));
+      PREGEN_LOD_RETRY.complete(captureKey(level,pos));
    }
 
    public static boolean chunksmithGeneratedHint(ServerLevel level, ChunkPos pos) {
@@ -1035,7 +1035,7 @@ public final class CacheManager {
          }
          if (normal == NormalChunkStorage.State.FULL) {
             PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
-            PREGEN_RETRY.remove(captureKey(level,pos));
+            PREGEN_RETRY.complete(captureKey(level,pos));
             PipelineMetrics.count("capture-normal-full-won");
             work.result.complete(false);
             return;
@@ -1586,7 +1586,7 @@ public final class CacheManager {
             // pregen guard. Once durable normal FULL wins, normal persistence
             // must no longer be vetoed for this coordinate.
             PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
-            PREGEN_RETRY.remove(captureKey(level,pos));
+            PREGEN_RETRY.complete(captureKey(level,pos));
             retireClaim(file, () -> {});
          }
       });
