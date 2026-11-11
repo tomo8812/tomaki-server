@@ -150,6 +150,8 @@ public final class CpuGovernor {
         long sync=comparable?Math.max(0,lod.synchronousWrites()-previousLod.synchronousWrites()):0;
         previousLod=lod;
         long oom=budget.oomKills()>=0&&lastOom>=0?Math.max(0,budget.oomKills()-lastOom):0;
+        long throttled=budget.throttledMicros()>=0&&lastThrottled>=0
+            ?Math.max(0,budget.throttledMicros()-lastThrottled):0;
         lastOom=budget.oomKills();
         lastThrottled=budget.throttledMicros();
 
@@ -167,7 +169,7 @@ public final class CpuGovernor {
         }
         AdaptiveSample sample=new AdaptiveSample(seconds,used,mspt,heap,gcPercent,budget.headroomMb(),batch.completions(),writes,
             comparable,stateFresh?state.width():0,stateFresh?state.inFlight():0,lod.queue(),stateFresh?state.worldWrites():-1,
-            sync,(stateFresh&&state.held()) || pipelinePressure!=null,batch.latencyP95Ms(),oom);
+            sync,(stateFresh&&state.held()) || pipelinePressure!=null,batch.latencyP95Ms(),oom,throttled);
 
         refreshPipelinePressure();
         SHARED_BUDGET.observe(new SharedWorkBudget.Sample(
