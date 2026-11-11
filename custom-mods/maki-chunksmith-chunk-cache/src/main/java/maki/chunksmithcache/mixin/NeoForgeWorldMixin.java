@@ -32,7 +32,7 @@ public abstract class NeoForgeWorldMixin {
       CompletableFuture<Boolean> lodWritten;
       try { lodWritten=LodCommitTracker.offer(level,chunk,attemptToken); }
       finally { PipelineMetrics.time("lod-offer",System.nanoTime()-started); }
-      CacheManager.captureFromChunksmith(level,chunk,lodWritten,sourceTask);
+      CacheManager.captureFromChunksmith(level,chunk,lodWritten,sourceTask,attemptToken);
    }
 
    @Redirect(method="getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;", at=@At(value="INVOKE",
