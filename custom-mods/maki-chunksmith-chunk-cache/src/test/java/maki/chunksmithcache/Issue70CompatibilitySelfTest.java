@@ -45,17 +45,17 @@ public final class Issue70CompatibilitySelfTest {
 
         List<FingerprintManifest.Entry> currentEntries = List.of(
             CompatibilityInput.zfastnoiseCanonicalEntry(true, true),
-            entry("mods/worldgen.jar", "same-worldgen")
+            entry("mods/epicterrain-0.3.0.jar", "same-worldgen")
         );
         FingerprintManifest.Manifest current = manifest(CURRENT, currentEntries);
 
         FingerprintManifest.Manifest old5688 = manifest(OLD_5688, List.of(
             rawZfastnoise(RAW_5688),
-            entry("mods/worldgen.jar", "same-worldgen")
+            entry("mods/epicterrain-0.3.0.jar", "same-worldgen")
         ));
         FingerprintManifest.Manifest old921 = manifest(OLD_921, List.of(
             rawZfastnoise(RAW_921),
-            entry("mods/worldgen.jar", "same-worldgen")
+            entry("mods/epicterrain-0.3.0.jar", "same-worldgen")
         ));
 
         require(FingerprintManifest.sameCompatibilityInputsExcept(old5688, current, Set.of()),
@@ -168,11 +168,11 @@ public final class Issue70CompatibilitySelfTest {
 
         FingerprintManifest.Manifest changedWorldgen = manifest(CURRENT, List.of(
             CompatibilityInput.zfastnoiseCanonicalEntry(true, true),
-            entry("mods/worldgen.jar", "changed-worldgen")
+            entry("mods/epicterrain-0.3.0.jar", "changed-worldgen")
         ));
         FingerprintManifest.Manifest sameLegacy = manifest(OLD_5688, List.of(
             rawZfastnoise(RAW_5688),
-            entry("mods/worldgen.jar", "old-worldgen")
+            entry("mods/epicterrain-0.3.0.jar", "old-worldgen")
         ));
         require(!FingerprintManifest.sameCompatibilityInputsExcept(sameLegacy, changedWorldgen, Set.of()),
             "a verified zfastnoise migration must never hide a real worldgen change");
