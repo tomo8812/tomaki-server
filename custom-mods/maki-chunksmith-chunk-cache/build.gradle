@@ -597,9 +597,13 @@ tasks.register('verifyPregenControllerV2') {
          'if(!attempt.actualStarted)'].each { token ->
             if(!flow.contains(token))throw new GradleException('Pregen V2 regression: stage/WIP controller missing '+token)
         }
-        if(!cache.contains('pregen-scanned-coordinate') || !cache.contains('pregen-effective-retry-full')
-                || !cache.contains('pregen-effective-retry-lod')) {
-            throw new GradleException('Pregen V2 regression: whole-area retry scans lack scanned/effective diagnostics')
+        if(!cache.contains('PREGEN_SCANNED_COORDINATES.increment()')
+                || !cache.contains('PREGEN_EFFECTIVE_RETRY_FULL.increment()')
+                || !cache.contains('PREGEN_EFFECTIVE_RETRY_LOD.increment()')
+                || !cache.contains('scannedCoordinates=')
+                || !cache.contains('effectiveRetryFull=')
+                || !cache.contains('effectiveRetryLod=')) {
+            throw new GradleException('Pregen V2 regression: whole-area retry scans lack low-cost scanned/effective diagnostics')
         }
         if(!request.contains('reservePregenCandidate') || !request.contains('preparePregenRequest')
                 || !request.contains('markPregenProgressRejected') || !request.contains('update(IIZZ)V')
