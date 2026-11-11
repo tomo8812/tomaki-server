@@ -366,6 +366,14 @@ public final class CacheManager {
          PregenFlowController.candidateFailed(level,pos,sourceTask);
          return false;
       }
+      ResourceStatus finalPressure=resourceStatus();
+      boolean rejectSoft=finalPressure.softBackpressure()
+         && !"stage-wip-window".equals(finalPressure.pressureReason());
+      if(finalPressure.hardBlock()||finalPressure.sensorUnknown()||rejectSoft) {
+         PipelineMetrics.count("pregen-final-admission-pressure-rejected");
+         PregenFlowController.candidateFailed(level,pos,sourceTask);
+         return false;
+      }
       if(!LodRegionCapacity.allowPregen(level,pos)) {
          PipelineMetrics.count("pregen-lod-region-capacity-rejected");
          addRetry(PREGEN_LOD_RETRY,key);

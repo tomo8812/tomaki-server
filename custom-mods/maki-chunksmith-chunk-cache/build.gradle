@@ -591,6 +591,8 @@ tasks.register('verifyPregenControllerV2') {
             if(!receipt.contains(token))throw new GradleException('Pregen V2 regression: durable PAIR receipt/revalidation missing '+token)
         }
         if(!cache.contains('pairReceiptValidIfRequired') || !cache.contains('PairReceiptStore.publish(')
+                || !cache.contains('pregen-final-admission-pressure-rejected')
+                || !cache.contains('!"stage-wip-window".equals(finalPressure.pressureReason())')
                 || !cache.contains('PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.VALIDATE)')
                 || !cache.contains('PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.FULL)')) {
             throw new GradleException('Pregen V2 regression: physical validation/FULL terminals or restart proof missing')
