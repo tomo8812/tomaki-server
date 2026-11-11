@@ -16,10 +16,11 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.security.DigestInputStream;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.UUID;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 
@@ -31,8 +32,14 @@ import net.minecraft.world.level.ChunkPos;
 final class PairReceiptStore {
     enum PublishResult { NEW, EXISTING, FAILED }
     private static final int VERSION=2;
-    private static final Map<Path,ValidationStamp> VALIDATED=new ConcurrentHashMap<>();
-    private static final Set<Path> REVALIDATED=ConcurrentHashMap.newKeySet();
+    private static final int VALIDATION_CACHE_LIMIT=4096;
+    private static final String PROCESS_REVALIDATION_ID=UUID.randomUUID().toString();
+    private static final Map<Path,ValidationStamp> VALIDATED=Collections.synchronizedMap(
+        new LinkedHashMap<Path,ValidationStamp>(256,0.75f,true) {
+            @Override protected boolean removeEldestEntry(Map.Entry<Path,ValidationStamp> eldest) {
+                return size()>VALIDATION_CACHE_LIMIT;
+            }
+        });
     private record FullMetadata(long size,long mtime,String fileKey) {}
     private record FullIdentity(long size,long mtime,String fileKey,String contentSha256) {}
     private record ValidationStamp(long fullSize,long fullMtime,String fullKey,String fullSha256,long lodSize,long lodMtime) {}
@@ -75,6 +82,7 @@ final class PairReceiptStore {
             properties.setProperty("lodSha256",lod.contentSha256());
             properties.setProperty("completion",completion);
             properties.setProperty("confirmedAt",Long.toString(System.currentTimeMillis()));
+            properties.setProperty("revalidatedProcess",PROCESS_REVALIDATION_ID);
             if(!existing || !receiptMetadataMatches(prior,properties))writeReceipt(receipt,properties);
             // The sidecar is the PAIR commit point. Re-check after its atomic
             // publication so a same-coordinate LOD offer/write racing the receipt
@@ -86,7 +94,6 @@ final class PairReceiptStore {
             }
             long finalLodSize=Files.size(region),finalLodMtime=Files.getLastModifiedTime(region).toMillis();
             VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),fullIdentity.contentSha256(),finalLodSize,finalLodMtime));
-            REVALIDATED.add(receipt);
             return existing?PublishResult.EXISTING:PublishResult.NEW;
         } catch(Throwable error) {
             PipelineMetrics.count("pair-receipt-publish-failed");
@@ -123,7 +130,11 @@ final class PairReceiptStore {
             finally{try{store.close();}catch(IOException ignored){}}
             if(record==null||!properties.getProperty("lodSha256","").equals(lodDigest(record)))return false;
             VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),fullIdentity.contentSha256(),lodSize,lodMtime));
-            if(REVALIDATED.add(receipt))PregenFlowController.pairRevalidated();
+            if(!PROCESS_REVALIDATION_ID.equals(properties.getProperty("revalidatedProcess"))) {
+                properties.setProperty("revalidatedProcess",PROCESS_REVALIDATION_ID);
+                writeReceipt(receipt,properties);
+                PregenFlowController.pairRevalidated();
+            }
             return true;
         } catch(Throwable invalid) {
             VALIDATED.remove(receipt);
@@ -131,14 +142,46 @@ final class PairReceiptStore {
         }
     }
 
+    static boolean fullProven(ServerLevel level,ChunkPos pos,String fingerprint,Path full) {
+        if(level==null||pos==null||fingerprint==null||full==null)return false;
+        Path receipt=receipt(full);
+        try {
+            Properties properties=load(receipt);
+            if(!receiptHeaderMatches(level,pos,fingerprint,properties))return false;
+            FullMetadata metadata=fullMetadata(full);
+            ValidationStamp cached=VALIDATED.get(receipt);
+            String expectedHash=properties.getProperty("fullSha256","");
+            if(cached!=null&&cached.fullSize()==metadata.size()&&cached.fullMtime()==metadata.mtime()
+                &&cached.fullKey().equals(metadata.fileKey())&&cached.fullSha256().equals(expectedHash))return true;
+            FullIdentity identity=new FullIdentity(metadata.size(),metadata.mtime(),metadata.fileKey(),fileSha256(full));
+            boolean valid=identity.size()==Long.parseLong(properties.getProperty("fullSize","-1"))
+                &&identity.mtime()==Long.parseLong(properties.getProperty("fullMtime","-1"))
+                &&identity.fileKey().equals(properties.getProperty("fullFileKey",""))
+                &&identity.contentSha256().equals(expectedHash);
+            if(valid)VALIDATED.put(receipt,new ValidationStamp(identity.size(),identity.mtime(),identity.fileKey(),
+                identity.contentSha256(),-1L,-1L));
+            return valid;
+        } catch(Throwable invalid) {
+            VALIDATED.remove(receipt);
+            return false;
+        }
+    }
+
+    private static boolean receiptHeaderMatches(ServerLevel level,ChunkPos pos,String fingerprint,Properties properties) {
+        return properties!=null&&Integer.toString(VERSION).equals(properties.getProperty("version"))
+            &&level.dimension().location().toString().equals(properties.getProperty("dimension"))
+            &&Integer.toString(pos.x).equals(properties.getProperty("x"))
+            &&Integer.toString(pos.z).equals(properties.getProperty("z"))
+            &&fingerprint.equals(properties.getProperty("fingerprint"));
+    }
+
     static void invalidate(Path full){
         if(full==null)return;
         Path sidecar=receipt(full);
         VALIDATED.remove(sidecar);
-        REVALIDATED.remove(sidecar);
         try{Files.deleteIfExists(sidecar);}catch(IOException ignored){}
     }
-    static void clear(){VALIDATED.clear();REVALIDATED.clear();}
+    static void clear(){VALIDATED.clear();}
 
     static String lodDigest(CsLodChunk record) {
         try {
@@ -180,7 +223,7 @@ final class PairReceiptStore {
     private static boolean receiptMetadataMatches(Properties prior,Properties current) {
         if(prior==null||current==null)return false;
         for(String key:new String[]{"version","dimension","x","z","fingerprint","source","fullSize","fullMtime",
-            "fullFileKey","fullSha256","lodSha256","completion"}) {
+            "fullFileKey","fullSha256","lodSha256","completion","revalidatedProcess"}) {
             if(!java.util.Objects.equals(prior.getProperty(key),current.getProperty(key)))return false;
         }
         return true;
