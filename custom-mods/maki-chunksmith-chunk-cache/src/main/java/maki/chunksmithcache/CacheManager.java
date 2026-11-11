@@ -113,7 +113,7 @@ public final class CacheManager {
    public record ControllerStatus(
       long pairConfirmedRuntime,long pairNew,long pairRepair,long pairRevalidated,long uncertain,
       int candidates,int actual,int lodOutstanding,int lodWindow,int validateOutstanding,int validateWindow,
-      int fullOutstanding,int fullWindow,long oldestMillis,boolean admissionBlocked,
+      int fullOutstanding,int fullWindow,long oldestMillis,boolean admissionBlocked,long fastSignature,boolean fastTuningFrozen,
       boolean hardBlock,boolean softBackpressure,boolean sensorUnknown,String reason
    ) {}
 
@@ -125,12 +125,16 @@ public final class CacheManager {
       return new ControllerStatus(
          flow.pairConfirmedRuntime(),flow.pairNew(),flow.pairRepair(),flow.pairRevalidated(),flow.uncertain(),
          flow.candidates(),flow.actual(),flow.lodOutstanding(),flow.lodWindow(),flow.validateOutstanding(),flow.validateWindow(),
-         flow.fullOutstanding(),flow.fullWindow(),flow.oldestMillis(),blocked,
+         flow.fullOutstanding(),flow.fullWindow(),flow.oldestMillis(),blocked,flow.fastSignature(),flow.tuningFrozen(),
          resource.hardBlock(),resource.softBackpressure(),unknown,resource.pressureReason());
    }
 
    public static boolean admissionBlocked() {
       return controllerStatus().admissionBlocked();
+   }
+
+   public static void setFastTuningFrozen(boolean frozen) {
+      PregenFlowController.setTuningFrozen(frozen);
    }
 
    public static <T> T withChunksmithRequestTask(GenerationTask sourceTask, Supplier<T> action) {
@@ -285,7 +289,10 @@ public final class CacheManager {
             PregenFlowController.uncertain(attemptToken,"receipt-persist");
             return false;
          }
-         if(persisted==PairReceiptStore.PublishResult.EXISTING)PregenFlowController.pairRevalidated();
+         if(persisted==PairReceiptStore.PublishResult.EXISTING) {
+            PregenFlowController.pairRevalidated();
+            return true;
+         }
       }
       PregenFlowController.pairConfirmed(attemptToken,generatedNew);
       return true;
@@ -761,6 +768,7 @@ public final class CacheManager {
       if(snapshot!=null&&PairReceiptStore.revalidate(level,pos,snapshot.fingerprint(),full))return true;
       addRetry(PREGEN_RETRY,key);
       addRetry(PREGEN_LOD_RETRY,key);
+      PregenFlowController.uncertain(null,"restart-revalidation");
       PipelineMetrics.count("pair-revalidation-failed");
       return false;
    }
@@ -1007,7 +1015,7 @@ public final class CacheManager {
                   return;
                }
                if(pair==PairReceiptStore.PublishResult.EXISTING)PregenFlowController.pairRevalidated();
-               PregenFlowController.pairConfirmed(work.sourceToken,true);
+               else PregenFlowController.pairConfirmed(work.sourceToken,true);
             }
             work.result.complete(true);
          }

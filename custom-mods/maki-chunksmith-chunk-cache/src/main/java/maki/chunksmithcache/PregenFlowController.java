@@ -29,6 +29,7 @@ final class PregenFlowController {
     private static final Map<String,Attempt> BY_TOKEN=new HashMap<>();
     private static final EnumMap<Stage,StageState> STAGES=new EnumMap<>(Stage.class);
     private static long pairConfirmedRuntime,pairNew,pairRepair,pairRevalidated,uncertain;
+    private static boolean tuningFrozen;
 
     static {
         STAGES.put(Stage.LOD,new StageState(4,2,32,6_000_000_000L));
@@ -68,7 +69,7 @@ final class PregenFlowController {
             if(serviceNanos>0) {
                 serviceEwmaNanos=serviceEwmaNanos==0?serviceNanos:serviceEwmaNanos*.8+serviceNanos*.2;
                 long proposed=Math.round(Math.ceil(targetWaitNanos/Math.max(1.0,serviceEwmaNanos)));
-                window=(int)Math.max(safeMin,Math.min(hardMax,proposed));
+                if(!tuningFrozen)window=(int)Math.max(safeMin,Math.min(hardMax,proposed));
             }
         }
     }
@@ -76,7 +77,7 @@ final class PregenFlowController {
     record Snapshot(
         int candidates,int actual,long pairConfirmedRuntime,long pairNew,long pairRepair,long pairRevalidated,long uncertain,
         int lodOutstanding,int lodWindow,int validateOutstanding,int validateWindow,int fullOutstanding,int fullWindow,
-        long oldestMillis,boolean blocked,boolean sensorUnknown
+        long oldestMillis,boolean blocked,boolean sensorUnknown,long fastSignature,boolean tuningFrozen
     ) {}
 
     private PregenFlowController() {}
@@ -237,7 +238,17 @@ final class PregenFlowController {
         }
         return new Snapshot(candidates,actual,pairConfirmedRuntime,pairNew,pairRepair,pairRevalidated,uncertain,
             lod.outstanding,effectiveWindow(Stage.LOD),validate.outstanding,effectiveWindow(Stage.VALIDATE),
-            full.outstanding,effectiveWindow(Stage.FULL),TimeUnit.NANOSECONDS.toMillis(oldest),admissionBlockedNoPrune(),unknown);
+            full.outstanding,effectiveWindow(Stage.FULL),TimeUnit.NANOSECONDS.toMillis(oldest),admissionBlockedNoPrune(),unknown,
+            fastSignature(),tuningFrozen);
+    }
+
+    static synchronized void setTuningFrozen(boolean frozen){tuningFrozen=frozen;}
+
+    private static long fastSignature(){
+        long lod=STAGES.get(Stage.LOD).window&0xffffL;
+        long validate=STAGES.get(Stage.VALIDATE).window&0xffffL;
+        long full=STAGES.get(Stage.FULL).window&0xffffL;
+        return (lod<<32)|(validate<<16)|full;
     }
 
     static synchronized void clear(MinecraftServer server) {

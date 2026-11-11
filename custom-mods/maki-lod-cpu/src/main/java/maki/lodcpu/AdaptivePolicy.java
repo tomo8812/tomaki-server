@@ -28,6 +28,11 @@ public final class AdaptivePolicy {
     }
 
     public int update(AdaptiveSample x,int players,Settings s,long pairCompletions,boolean pairAvailable,boolean admissionBlocked){
+        return update(x,players,s,pairCompletions,pairAvailable,admissionBlocked,0L);
+    }
+
+    public int update(AdaptiveSample x,int players,Settings s,long pairCompletions,boolean pairAvailable,
+                      boolean admissionBlocked,long fastSignature){
         cap=Math.max(s.min,Math.min(s.max,cap));
         if(players>0){reset(s,"players-online-paused");cap=1;return cap;}
         if(!Double.isFinite(x.seconds())||x.seconds()<=0)return cap;
@@ -73,9 +78,14 @@ public final class AdaptivePolicy {
             experimentNumber++;failedExperiments++;abandon(s,"trial-downstream-constrained",s.retrySeconds);return cap;
         }
 
-        window.add(x,pairCompletions,admissionBlocked);
+        window.add(x,pairCompletions,admissionBlocked,fastSignature);
         if(!window.ready(s)){reason="measure-"+phase;return cap;}
         Result result=window.result();window=new Window();lastWindowRate=result.rate;
+        if(!result.fastStable||(phase.equals("probe")&&baseline!=null&&result.fastSignature!=baseline.fastSignature)){
+            if(phase.equals("probe"))cap=baselineCap;
+            lastExperiment="inconclusive: FAST WIP state changed";
+            experimentNumber++;abandon(s,"fast-state-changed",s.retrySeconds);return cap;
+        }
         if(result.events<s.minimumEvents||result.rate<=0){
             if(phase.equals("probe"))cap=baselineCap;
             lastExperiment="insufficient confirmed PAIR samples at c="+cap;
@@ -152,21 +162,26 @@ public final class AdaptivePolicy {
     }
     private static double round(double v){return Math.rint(v*1000)/1000;}
 
-    private record Result(double rate,long events,double width,double cpu,int queueGrowth,long synchronousWrites,double admissionFraction){}
+    private record Result(double rate,long events,double width,double cpu,int queueGrowth,long synchronousWrites,
+                          double admissionFraction,long fastSignature,boolean fastStable){}
     private static final class Window {
         double seconds,widthSeconds,cpuSeconds,cpuKnownSeconds,blockedSeconds;
         long pairs,synchronousWrites;
         int firstQueue=-1,lastQueue;
-        void add(AdaptiveSample x,long pairCompletions,boolean admissionBlocked){
+        long fastSignature=Long.MIN_VALUE;
+        boolean fastStable=true;
+        void add(AdaptiveSample x,long pairCompletions,boolean admissionBlocked,long signature){
             seconds+=x.seconds();pairs+=Math.max(0,pairCompletions);widthSeconds+=x.nativeWidth()*x.seconds();
             if(Double.isFinite(x.cpu())){cpuSeconds+=x.cpu()*x.seconds();cpuKnownSeconds+=x.seconds();}
             synchronousWrites+=x.synchronousWrites();
             if(firstQueue<0)firstQueue=x.lodQueue();lastQueue=x.lodQueue();
             if(admissionBlocked)blockedSeconds+=x.seconds();
+            if(fastSignature==Long.MIN_VALUE)fastSignature=signature;
+            else if(fastSignature!=signature)fastStable=false;
         }
         boolean ready(Settings s){return seconds>=s.windowSeconds&&(pairs>=s.minimumEvents||seconds>=3.0*s.windowSeconds);}
         Result result(){return new Result(seconds>0?pairs/seconds:0,pairs,seconds>0?widthSeconds/seconds:0,
             cpuKnownSeconds>0?cpuSeconds/cpuKnownSeconds:Double.NaN,lastQueue-firstQueue,synchronousWrites,
-            seconds>0?blockedSeconds/seconds:0);}
+            seconds>0?blockedSeconds/seconds:0,fastSignature==Long.MIN_VALUE?0L:fastSignature,fastStable);}
     }
 }

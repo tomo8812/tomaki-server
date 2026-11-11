@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.util.Map;
@@ -29,7 +30,8 @@ final class PairReceiptStore {
     enum PublishResult { NEW, EXISTING, FAILED }
     private static final int VERSION=1;
     private static final Map<Path,ValidationStamp> VALIDATED=new ConcurrentHashMap<>();
-    private record ValidationStamp(long fullSize,long fullMtime,long lodSize,long lodMtime) {}
+    private record FullIdentity(long size,long mtime,String fileKey) {}
+    private record ValidationStamp(long fullSize,long fullMtime,String fullKey,long lodSize,long lodMtime) {}
     private PairReceiptStore() {}
 
     static PublishResult publish(ServerLevel level,ChunkPos pos,String fingerprint,Path full,String sourceToken,LodCommitTracker.LodReceipt lod) {
@@ -37,15 +39,17 @@ final class PairReceiptStore {
             ||!sourceToken.equals(lod.sourceToken())||lod.x()!=pos.x||lod.z()!=pos.z
             ||!level.dimension().location().toString().equals(lod.dimension()))return PublishResult.FAILED;
         try {
-            long fullSize=Files.size(full),fullMtime=Files.getLastModifiedTime(full).toMillis();
+            FullIdentity fullIdentity=fullIdentity(full);
+            long fullSize=fullIdentity.size(),fullMtime=fullIdentity.mtime();
             Path region=lodRegion(level,pos);
             long lodSize=Files.size(region),lodMtime=Files.getLastModifiedTime(region).toMillis();
             String completion=hex(sha256((level.dimension().location()+"\n"+pos.x+"\n"+pos.z+"\n"+fingerprint+"\n"
-                +fullSize+"\n"+fullMtime+"\n"+lod.contentSha256()).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                +fullSize+"\n"+fullMtime+"\n"+fullIdentity.fileKey()+"\n"+lod.contentSha256())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             Path receipt=receipt(full);
             Properties prior=load(receipt);
             if(prior!=null&&completion.equals(prior.getProperty("completion"))) {
-                VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,lodSize,lodMtime));
+                VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),lodSize,lodMtime));
                 return PublishResult.EXISTING;
             }
             Properties properties=new Properties();
@@ -57,6 +61,7 @@ final class PairReceiptStore {
             properties.setProperty("source",sourceToken);
             properties.setProperty("fullSize",Long.toString(fullSize));
             properties.setProperty("fullMtime",Long.toString(fullMtime));
+            properties.setProperty("fullFileKey",fullIdentity.fileKey());
             properties.setProperty("lodSha256",lod.contentSha256());
             properties.setProperty("completion",completion);
             properties.setProperty("confirmedAt",Long.toString(System.currentTimeMillis()));
@@ -75,7 +80,7 @@ final class PairReceiptStore {
             } finally {
                 Files.deleteIfExists(temporary);
             }
-            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,lodSize,lodMtime));
+            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),lodSize,lodMtime));
             return PublishResult.NEW;
         } catch(Throwable error) {
             PipelineMetrics.count("pair-receipt-publish-failed");
@@ -93,20 +98,23 @@ final class PairReceiptStore {
                 ||pos.x!=Integer.parseInt(properties.getProperty("x","2147483647"))
                 ||pos.z!=Integer.parseInt(properties.getProperty("z","2147483647"))
                 ||!fingerprint.equals(properties.getProperty("fingerprint")))return false;
-            long fullSize=Files.size(full),fullMtime=Files.getLastModifiedTime(full).toMillis();
+            FullIdentity fullIdentity=fullIdentity(full);
+            long fullSize=fullIdentity.size(),fullMtime=fullIdentity.mtime();
             if(fullSize!=Long.parseLong(properties.getProperty("fullSize","-1"))
-                ||fullMtime!=Long.parseLong(properties.getProperty("fullMtime","-1")))return false;
+                ||fullMtime!=Long.parseLong(properties.getProperty("fullMtime","-1"))
+                ||!fullIdentity.fileKey().equals(properties.getProperty("fullFileKey","")))return false;
             Path region=lodRegion(level,pos);
             long lodSize=Files.size(region),lodMtime=Files.getLastModifiedTime(region).toMillis();
             ValidationStamp cached=VALIDATED.get(receipt);
             if(cached!=null&&cached.fullSize()==fullSize&&cached.fullMtime()==fullMtime
+                &&cached.fullKey().equals(fullIdentity.fileKey())
                 &&cached.lodSize()==lodSize&&cached.lodMtime()==lodMtime)return true;
             CsLodRegionStore store=new CsLodRegionStore(CacheManager.lodRoot(level));
             CsLodChunk record;
             try{record=store.read(pos.x,pos.z);}
             finally{try{store.close();}catch(IOException ignored){}}
             if(record==null||!properties.getProperty("lodSha256","").equals(lodDigest(record)))return false;
-            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,lodSize,lodMtime));
+            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),lodSize,lodMtime));
             PregenFlowController.pairRevalidated();
             return true;
         } catch(Throwable invalid) {
@@ -144,6 +152,10 @@ final class PairReceiptStore {
         }
     }
 
+    private static FullIdentity fullIdentity(Path full)throws IOException {
+        BasicFileAttributes attrs=Files.readAttributes(full,BasicFileAttributes.class);
+        return new FullIdentity(attrs.size(),attrs.lastModifiedTime().toMillis(),String.valueOf(attrs.fileKey()));
+    }
     private static Path receipt(Path full){return full.resolveSibling(full.getFileName()+".pair");}
     private static Path lodRegion(ServerLevel level,ChunkPos pos){
         return CacheManager.lodRoot(level).resolve("r."+Math.floorDiv(pos.x,32)+"."+Math.floorDiv(pos.z,32)+".cslod");

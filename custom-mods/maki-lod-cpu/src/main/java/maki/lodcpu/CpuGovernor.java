@@ -70,7 +70,8 @@ public final class CpuGovernor {
         SHARED_BUDGET.pipelinePressure(reason);
     }
 
-    private record ControllerObservation(boolean available,long pairConfirmed,boolean admissionBlocked,boolean sensorUnknown,String reason){}
+    private record ControllerObservation(boolean available,long pairConfirmed,boolean admissionBlocked,boolean sensorUnknown,
+                                         long fastSignature,String reason){}
     private static ControllerObservation controllerObservation(){
         try{
             Object status=Class.forName("maki.chunksmithcache.CacheManager").getMethod("controllerStatus").invoke(null);
@@ -78,12 +79,23 @@ public final class CpuGovernor {
             long pairs=((Number)type.getMethod("pairConfirmedRuntime").invoke(status)).longValue();
             boolean blocked=Boolean.TRUE.equals(type.getMethod("admissionBlocked").invoke(status));
             boolean unknown=Boolean.TRUE.equals(type.getMethod("sensorUnknown").invoke(status));
+            long fastSignature=((Number)type.getMethod("fastSignature").invoke(status)).longValue();
             Object rawReason=type.getMethod("reason").invoke(status);
-            return new ControllerObservation(true,pairs,blocked,unknown,rawReason==null?null:rawReason.toString());
+            return new ControllerObservation(true,pairs,blocked,unknown,fastSignature,rawReason==null?null:rawReason.toString());
         }catch(ClassNotFoundException absent){
-            return new ControllerObservation(false,0,false,false,"cache-controller-absent");
+            return new ControllerObservation(false,0,false,false,0L,"cache-controller-absent");
         }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable){
-            return new ControllerObservation(false,0,true,true,"cache-controller-unavailable");
+            return new ControllerObservation(false,0,true,true,0L,"cache-controller-unavailable");
+        }
+    }
+
+    private static void setFastTuningFrozen(boolean frozen){
+        try{
+            Class.forName("maki.chunksmithcache.CacheManager").getMethod("setFastTuningFrozen",boolean.class).invoke(null,frozen);
+        }catch(ClassNotFoundException absent){
+            // Cache controller is optional.
+        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable){
+            LOG.debug("Could not change FAST tuning freeze",unavailable);
         }
     }
 
@@ -159,13 +171,14 @@ public final class CpuGovernor {
         long budgetTransition=SHARED_BUDGET.transitionSerial();
         boolean sharedBackfillPause=SHARED_BUDGET.reserved()||budgetTransition!=lastBudgetTransition;
         if(!configGood)cap=POLICY.unavailable(settings,"invalid-config");
-        else if(players>0)cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked());
+        else if(players>0)cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked(),controller.fastSignature());
         else if(sharedBackfillPause)cap=POLICY.updateSafetyOnly(sample,players,settings);
         else if(!active)cap=POLICY.reset(settings,"generation-idle");
         else {
-            cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked());
+            cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked(),controller.fastSignature());
             SHARED_BUDGET.noteCleanFollowSample();
         }
+        setFastTuningFrozen("probe".equals(POLICY.phase));
         lastBudgetTransition=budgetTransition;
 
         boolean experimentFinished=reportedExperiment!=POLICY.experimentNumber;
