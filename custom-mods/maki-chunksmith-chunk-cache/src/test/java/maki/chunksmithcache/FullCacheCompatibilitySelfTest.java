@@ -53,12 +53,16 @@ public final class FullCacheCompatibilitySelfTest {
         assertRejected(old, replace(now, "world/datapacks/test/pack.mcmeta", "new-worldgen-datapack"), "datapack");
         assertRejected(old, replace(now, "config/epicterrain.properties", "new-terrain-settings"), "terrain settings");
         assertRejected(old, replace(now, "mods/epicterrain-0.3.0-1.21.1.jar", "new-terrain-jar"), "terrain MOD");
-        List<FingerprintManifest.Entry> extra = new ArrayList<>(current);
-        extra.add(new FingerprintManifest.Entry(
-            "mods/new-worldgen-1.0.jar", 101L, CompatibilityFingerprint.sha256("worldgen"),
-            FingerprintManifest.Impact.RELEVANT,
-            "JAR contains worldgen/structure/dimension datapack resources"));
-        assertRejected(old, manifest(extra), "new generation MOD");
+        List<FingerprintManifest.Entry> unknown = new ArrayList<>(current);
+        unknown.add(value("mods/unlisted-mod-1.0.jar", "not-in-current-config"));
+        require(FingerprintManifest.sameCompatibilityInputsExcept(
+            old, manifest(unknown), Set.of("policy:compatibility")),
+            "future unlisted MOD must not trigger speculative cache invalidation");
+        List<FingerprintManifest.Entry> addedCurrentGenerator = new ArrayList<>(current);
+        addedCurrentGenerator.add(value(
+            "mods/letsdo-brewery-neoforge-2.1.13.jar", "known-terrain-input"));
+        assertRejected(old, manifest(addedCurrentGenerator),
+            "addition of explicitly tracked installed worldgen MOD");
 
         testPerFileFormatAndSelectiveMigration(old);
         System.out.println("FULL cache boundary: terrain changes rejected, LOD/utility changes reused, NBT validated PASS");
