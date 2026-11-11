@@ -127,8 +127,8 @@ tasks.register('verifyIssue83UnifiedFollow') {
                 || ensureBody.contains('resetPregenCacheDimension(')) {
             throw new GradleException('Issue #83 regression: live follow tick can delete an open Chunksmith LOD store')
         }
-        if (!governor.contains('pregenRetryPending') || !governor.contains('pipelinePressure()')
-                || !governor.contains('pregenReady')) {
+        if (!governor.contains('pregenRetryPending') || !governor.contains('pregenDeferredCoordinates')
+                || !governor.contains('pipelinePressure()') || !governor.contains('pregenReady')) {
             throw new GradleException('Issue #83 regression: unified retry/pressure/readiness bridge missing')
         }
         if (!center.contains('waiting-pregen-fingerprint')) {
@@ -167,7 +167,8 @@ tasks.register('verifyPregenControllerV2') {
         def governor=pregenV2Governor.getText('UTF-8')
         def profile=pregenV2Profile.getText('UTF-8')
         ['ADMISSION_EPOCH','admissionClosed','closeAdmission()','admissionEpoch(GenerationTask task)',
-         'admissionOpen(GenerationTask task)','server.getPlayerCount()>0','nativeTaskStopping'].each { token ->
+         'admissionOpen(GenerationTask task)','server.getPlayerCount()>0','nativeTaskStopping',
+         'retrying-admission-deferred','waiting-admission-retry','pregenDeferredCoordinates(lastTask)'].each { token ->
             if(!center.contains(token))throw new GradleException('Pregen V2 regression: stop epoch/admission policy missing '+token)
         }
         ['blockFollowAdmission(GenerationTask task)','followAdmissionEpoch','followAdmissionOpen'].each { token ->
