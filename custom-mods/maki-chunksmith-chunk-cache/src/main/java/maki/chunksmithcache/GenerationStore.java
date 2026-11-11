@@ -163,10 +163,9 @@ final class GenerationStore {
             long cleanedSourceEntries = 0L;
             long retainedSourceEntries = 0L;
             if (Files.isDirectory(source)) {
-                Predicate<Path> sourceVerified = AuditedGenerationUpgrade.eligible(manifest, current)
-                    ? cacheValidator(level, manifest) : null;
-                Predicate<Path> targetVerified = sourceVerified == null
-                    ? null : cacheValidator(level, validationManifest(current, active, manifest));
+                Predicate<Path> sourceVerified = cacheValidator(level, manifest);
+                Predicate<Path> targetVerified = cacheValidator(
+                    level, validationManifest(current, active, manifest));
                 cleanedSourceEntries = CacheDirectoryMerge.cleanupCopiedSources(
                     source, active, sourceVerified, targetVerified);
                 retainedSourceEntries = stats(source).entries();
@@ -260,10 +259,12 @@ final class GenerationStore {
             accepted.addAll(old.storedFingerprints());
             if (existing != null) accepted.addAll(existing.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
-            // The source must survive until the adopted-fingerprint manifest
-            // has been durably committed. If any entry was rejected, leave the
-            // source directory for the normal quarantine pass instead.
-            if (AuditedGenerationUpgrade.eligible(old, current) && merge.rejectedEntries() == 0L) {
+            // Commit the accepted fingerprints before removing any source.
+            // Keep rejected or conflicting files for the normal quarantine pass.
+            CacheDirectoryMerge.cleanupCopiedSources(
+                candidate, active, cacheValidator(level, old),
+                cacheValidator(level, validationManifest(current, active, old)));
+            if (Files.isDirectory(candidate) && stats(candidate).entries() == 0L) {
                 deleteTree(candidate);
                 migrationBudget.deleted(before.bytes());
             }
@@ -520,10 +521,9 @@ final class GenerationStore {
     }
 
     /**
-     * A version-independent role transition must pass the persisted schema
-     * and chunk fields for every file. A rejected file stays at its previous
-     * path for quarantine and is never silently promoted to the new namespace.
-     * Same-fingerprint/reasoned legacy migrations keep their existing rules.
+     * A different FULL generation is adopted only after semantic environment
+     * equivalence and per-file envelope validation. Old files stay until the
+     * accepted-fingerprint manifest is committed.
      */
     private static CacheDirectoryMerge.MergeStats mergeForCompatibility(
         ServerLevel level,
@@ -533,11 +533,6 @@ final class GenerationStore {
         boolean preserveSource,
         CacheDiskBudget migrationBudget
     ) throws IOException {
-        if (!AuditedGenerationUpgrade.eligible(historical, current)) {
-            return preserveSource
-                ? CacheDirectoryMerge.copyCacheEntriesPreservingSource(source, active, migrationBudget)
-                : mergeDirectory(source, active);
-        }
         Predicate<Path> sourceVerified = cacheValidator(level, historical);
         Predicate<Path> targetVerified = cacheValidator(
             level, validationManifest(current, active, historical));
