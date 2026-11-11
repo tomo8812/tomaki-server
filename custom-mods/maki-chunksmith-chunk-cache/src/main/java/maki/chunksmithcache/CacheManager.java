@@ -718,7 +718,7 @@ public final class CacheManager {
          + ",oldestPendingMs=" + status.oldestPendingMillis() + ",writerQueue=" + status.writerQueue()
          + ",writerActive=" + WRITE_IO.getActiveCount() + ",validating=" + status.validationInFlight()
          + ",activeCacheBytes=" + status.activeCacheBytes() + ",usableDiskBytes=" + status.usableDiskBytes()
-         + ",pressure=" + status.pressureReason();
+         + ",pressure=" + status.pressureReason() + ",lodPhysical=" + LodCommitTracker.physicalStatus();
    }
 
    private static CaptureKey captureKey(ServerLevel level,ChunkPos pos) {

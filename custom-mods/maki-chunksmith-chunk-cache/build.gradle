@@ -538,3 +538,10 @@ tasks.register('verifyIssue83UnifiedPregen') {
     }
 }
 tasks.named('check') { dependsOn tasks.named('verifyIssue83UnifiedPregen') }
+
+tasks.register('lodPhysicalTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.LodPhysicalSelfTest'
+}
+tasks.named('check') { dependsOn tasks.named('lodPhysicalTest') }
