@@ -590,7 +590,7 @@ tasks.register('verifyPregenControllerV2') {
         def retryLedger=pregenV2RetryLedger.getText('UTF-8')
         def storage=pregenV2Storage.getText('UTF-8')
         ['enum Stage { LOD, VALIDATE, FULL }','reserveCandidate','beginActual','physicalStart','physicalTerminal',
-         'pairConfirmedRuntime','effectiveWindow','admissionEpoch'].each { token ->
+         'pairConfirmedRuntime','effectiveWindow','admissionEpoch','60_000_000_000L&&!attempt.held.isEmpty()'].each { token ->
             if(!flow.contains(token))throw new GradleException('Pregen V2 regression: stage/WIP controller missing '+token)
         }
         if(!request.contains('reservePregenCandidate') || !request.contains('preparePregenRequest')
