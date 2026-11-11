@@ -287,7 +287,7 @@ final class FingerprintManifest {
                 if (proofs.size() >= limit) break;
             }
         }
-        if (verifiedUpgrade) proofs.addAll(AuditedGenerationUpgrade.proofDetails());
+        if (verifiedUpgrade) proofs.addAll(AuditedGenerationUpgrade.proofDetails(oldManifest, newManifest));
         return List.copyOf(proofs.subList(0, Math.min(limit, proofs.size())));
     }
 
