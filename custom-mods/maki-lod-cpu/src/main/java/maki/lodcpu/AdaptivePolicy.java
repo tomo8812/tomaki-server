@@ -23,6 +23,14 @@ public final class AdaptivePolicy {
     }
     public int unavailable(Settings s,String why){reset(s,why);cap=1;return cap;}
 
+    public int warmStart(Settings s,int storedCap,String why){
+        reset(s,why);
+        cap=Math.max(s.min,Math.min(s.max,storedCap));
+        settle=s.settleSeconds;
+        reason=why;
+        return cap;
+    }
+
     public int update(AdaptiveSample x,int players,Settings s){
         return update(x,players,s,0,false,false);
     }
