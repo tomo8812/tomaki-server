@@ -183,7 +183,6 @@ final class FingerprintManifest {
         Path historicalGeneration
     ) {
         Set<String> provenExcluded = provenCompatibilityExclusions(oldManifest, newManifest, excludedKeys);
-        boolean verifiedUpgrade = AuditedGenerationUpgrade.eligible(oldManifest, newManifest);
         Entry currentRawZfastnoise = findEntry(
             newManifest.entries(),
             CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
@@ -194,10 +193,10 @@ final class FingerprintManifest {
             provenExcluded,
             currentRawZfastnoise,
             currentEffectiveZfastnoise,
-            historicalGeneration, verifiedUpgrade
+            historicalGeneration
         );
         Map<String, Entry> newEntries = compatibilityByKey(
-            newManifest.entries(), provenExcluded, null, null, null, verifiedUpgrade);
+            newManifest.entries(), provenExcluded, null, null, null);
         if (oldEntries == null || newEntries == null || !oldEntries.keySet().equals(newEntries.keySet())) return false;
         for (String key : oldEntries.keySet()) {
             if (!equivalent(oldEntries.get(key), newEntries.get(key))) return false;
@@ -213,7 +212,6 @@ final class FingerprintManifest {
         Path historicalGeneration
     ) {
         Set<String> provenExcluded = provenCompatibilityExclusions(oldManifest, newManifest, excludedKeys);
-        boolean verifiedUpgrade = AuditedGenerationUpgrade.eligible(oldManifest, newManifest);
         Entry currentRawZfastnoise = findEntry(
             newManifest.entries(),
             CompatibilityInput.RAW_AUDIT_PREFIX + CompatibilityInput.ZFASTNOISE_PATH
@@ -221,10 +219,10 @@ final class FingerprintManifest {
         Entry currentEffectiveZfastnoise = findEntry(newManifest.entries(), CompatibilityInput.ZFASTNOISE_PATH);
         Map<String, Entry> oldEntries = compatibilityByKey(
             oldManifest.entries(), provenExcluded, currentRawZfastnoise, currentEffectiveZfastnoise,
-            historicalGeneration, verifiedUpgrade
+            historicalGeneration
         );
         Map<String, Entry> newEntries = compatibilityByKey(
-            newManifest.entries(), provenExcluded, null, null, null, verifiedUpgrade);
+            newManifest.entries(), provenExcluded, null, null, null);
         if (oldEntries == null || newEntries == null) {
             return List.of("manifest normalization conflict; migration proof is ambiguous");
         }
@@ -264,9 +262,8 @@ final class FingerprintManifest {
         int limit,
         Path historicalGeneration
     ) {
-        boolean verifiedUpgrade = AuditedGenerationUpgrade.eligible(oldManifest, newManifest);
         Map<String, Entry> current = compatibilityByKey(
-            newManifest.entries(), excludedKeys, null, null, null, verifiedUpgrade);
+            newManifest.entries(), excludedKeys, null, null, null);
         if (current == null) return List.of();
         Map<String, Entry> newByKey = byKey(newManifest.entries());
         List<String> proofs = new ArrayList<>();
@@ -287,7 +284,6 @@ final class FingerprintManifest {
                 if (proofs.size() >= limit) break;
             }
         }
-        if (verifiedUpgrade) proofs.addAll(AuditedGenerationUpgrade.proofDetails(oldManifest, newManifest));
         return List.copyOf(proofs.subList(0, Math.min(limit, proofs.size())));
     }
 
@@ -322,8 +318,7 @@ final class FingerprintManifest {
         Set<String> excludedKeys,
         Entry currentRawZfastnoise,
         Entry currentEffectiveZfastnoise,
-        Path historicalGeneration,
-        boolean verifiedUpgrade
+        Path historicalGeneration
     ) {
         Map<String, Entry> result = new LinkedHashMap<>();
         for (Entry original : entries) {
@@ -338,8 +333,7 @@ final class FingerprintManifest {
             } else {
                 entry = CompatibilityInput.normalizeHistoricalEntry(original, historicalGeneration);
             }
-            if (entry == null || entry.impact() != Impact.RELEVANT) continue;
-            entry = AuditedGenerationUpgrade.normalize(entry, verifiedUpgrade);
+            if (entry == null || !FingerprintPolicy.affectsCachedFull(entry)) continue;
             Entry previous = result.putIfAbsent(entry.key(), entry);
             if (previous != null && !equivalent(previous, entry)) return null;
         }
