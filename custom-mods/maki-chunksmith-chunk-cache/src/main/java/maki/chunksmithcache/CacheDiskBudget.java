@@ -21,6 +21,7 @@ final class CacheDiskBudget {
     private long usableBytes;
     private long reservedBytes;
     private long additions;
+    private long publications;
     private long inventoryEpoch;
     private long maxBytes = DEFAULT_MAX;
     private long minimumFree = DEFAULT_RESERVE;
@@ -36,6 +37,8 @@ final class CacheDiskBudget {
             long max = positive(properties, "cache.max-active-bytes", DEFAULT_MAX);
             long reserve = positive(properties, "cache.minimum-free-bytes", DEFAULT_RESERVE);
             Files.createDirectories(root);
+            long publicationsBefore;
+            synchronized (this) { publicationsBefore = publications; }
             long free = Files.getFileStore(root).getUsableSpace();
             long now = System.nanoTime();
             boolean inventory;
@@ -62,7 +65,9 @@ final class CacheDiskBudget {
             synchronized (this) {
                 maxBytes = max;
                 minimumFree = reserve;
-                usableBytes = free;
+                // Preserve publications racing a slow FileStore probe. Counting a
+                // write twice when already in the probe is conservative.
+                usableBytes = Math.max(0L,free-Math.max(0L,publications-publicationsBefore));
                 // Inventory is not a filesystem snapshot. Concurrent additions may already be in
                 // it, so count them again conservatively rather than underestimating occupancy.
                 if (inventory) { activeBytes = Math.addExact(bytes, additions-additionsBefore); inventoriedAt = inventoryEpoch==epoch?now:0L; }
@@ -138,6 +143,7 @@ final class CacheDiskBudget {
             synchronized (CacheDiskBudget.this) {
                 activeBytes = Math.max(0, activeBytes + addedBytes);
                 additions += Math.max(0, addedBytes);
+                publications += Math.max(0, addedBytes);
                 usableBytes = Math.max(0, usableBytes - Math.max(0, addedBytes));
             }
         }

@@ -48,8 +48,8 @@ final class PromotionClaim {
     static boolean publish(Path temporary, Path available) throws IOException {
         try(var ignored=CachePathLocks.lock(claimedPath(available))) {
         if (RecoveryClaims.claimExists(claimedPath(available))) return false;
-        try { Files.move(temporary, available, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
-        catch (AtomicMoveNotSupportedException unsupported) { Files.move(temporary, available, StandardCopyOption.REPLACE_EXISTING); }
+        // Fail closed: non-atomic fallback could expose an uncommitted FULL.
+        Files.move(temporary, available, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         return true;
         }
     }
