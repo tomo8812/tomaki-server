@@ -560,9 +560,10 @@ def pregenV2RegionGuard = file('src/main/java/maki/chunksmithcache/mixin/LodRegi
 def pregenV2RegionCapacity = file('src/main/java/maki/chunksmithcache/LodRegionCapacity.java')
 def pregenV2Disk = file('src/main/java/maki/chunksmithcache/CacheDiskBudget.java')
 def pregenV2Cache = file('src/main/java/maki/chunksmithcache/CacheManager.java')
+def pregenV2Promotion = file('src/main/java/maki/chunksmithcache/PromotionClaim.java')
 
 tasks.register('verifyPregenControllerV2') {
-    inputs.files(pregenV2Flow,pregenV2Receipt,pregenV2LodTracker,pregenV2Request,pregenV2Pair,pregenV2World,pregenV2RegionGuard,pregenV2RegionCapacity,pregenV2Disk,pregenV2Cache)
+    inputs.files(pregenV2Flow,pregenV2Receipt,pregenV2LodTracker,pregenV2Request,pregenV2Pair,pregenV2World,pregenV2RegionGuard,pregenV2RegionCapacity,pregenV2Disk,pregenV2Cache,pregenV2Promotion)
     doLast {
         def flow=pregenV2Flow.getText('UTF-8')
         def receipt=pregenV2Receipt.getText('UTF-8')
@@ -574,6 +575,7 @@ tasks.register('verifyPregenControllerV2') {
         def regionCapacity=pregenV2RegionCapacity.getText('UTF-8')
         def disk=pregenV2Disk.getText('UTF-8')
         def cache=pregenV2Cache.getText('UTF-8')
+        def promotion=pregenV2Promotion.getText('UTF-8')
         ['enum Stage { LOD, VALIDATE, FULL }','reserveCandidate','beginActual','physicalStart','physicalTerminal',
          'pairConfirmedRuntime','effectiveWindow','admissionEpoch'].each { token ->
             if(!flow.contains(token))throw new GradleException('Pregen V2 regression: stage/WIP controller missing '+token)
@@ -587,8 +589,13 @@ tasks.register('verifyPregenControllerV2') {
         ['LodReceipt','sourceToken','PHYSICAL','BY_COORDINATE','physicalTerminal'].each { token ->
             if(!lod.contains(token))throw new GradleException('Pregen V2 regression: exact LOD physical/source proof missing '+token)
         }
-        ['completion','lodSha256','ATOMIC_MOVE','channel.force(true)','store.read(pos.x,pos.z)','lodDigest(record)'].each { token ->
+        ['completion','lodSha256','ATOMIC_MOVE','channel.force(true)','store.read(pos.x,pos.z)','lodDigest(record)',
+         'currentLodMatches','CachePathLocks.lock(PromotionClaim.claimedPath(full))'].each { token ->
             if(!receipt.contains(token))throw new GradleException('Pregen V2 regression: durable PAIR receipt/revalidation missing '+token)
+        }
+        if(!lod.contains('coordinateClear(LodReceipt receipt)')
+                || !promotion.contains('PairReceiptStore.invalidate(available)')) {
+            throw new GradleException('Pregen V2 regression: LOD overtaking or promotion can leave a stale PAIR proof')
         }
         if(!cache.contains('pairReceiptValidIfRequired') || !cache.contains('PairReceiptStore.publish(')
                 || !cache.contains('pregen-final-admission-pressure-rejected')
