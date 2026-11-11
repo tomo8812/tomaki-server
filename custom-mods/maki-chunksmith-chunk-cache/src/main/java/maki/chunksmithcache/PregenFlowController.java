@@ -254,7 +254,6 @@ final class PregenFlowController {
     static synchronized void generationCapChanged(int cap) {
         for(StageState state:STAGES.values()){
             state.serviceEwmaNanos=0;
-            state.serviceSamples=0;
             state.window=Math.max(state.safeMin,Math.min(state.window,state.safeMin+1));
         }
         PipelineMetrics.gauge("pregen-generation-cap",Math.max(0,cap));
