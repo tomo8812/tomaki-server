@@ -80,7 +80,7 @@ final class CacheDiskBudget {
                     }
                 }
             }
-            long observedLodBytes=treeBytes(realLodRoot);
+            long observedLodBytes=inventory?treeBytes(realLodRoot):0L;
             synchronized (this) {
                 maxBytes = max;
                 minimumFree = reserve;
@@ -100,8 +100,11 @@ final class CacheDiskBudget {
                 usableBytes=Math.min(cacheUsableBytes,lodUsableBytes);
                 // Inventory is not a filesystem snapshot. Concurrent additions may already be in
                 // it, so count them again conservatively rather than underestimating occupancy.
-                if(inventory){activeBytes=Math.addExact(bytes,additions-additionsBefore);inventoriedAt=inventoryEpoch==epoch?now:0L;}
-                lodBytes=Math.addExact(observedLodBytes,lodAdditions-lodAdditionsBefore);
+                if(inventory){
+                    activeBytes=Math.addExact(bytes,additions-additionsBefore);
+                    lodBytes=Math.addExact(observedLodBytes,lodAdditions-lodAdditionsBefore);
+                    inventoriedAt=inventoryEpoch==epoch?now:0L;
+                }
                 observedAt = now;
                 observationFailure = null;
             }
