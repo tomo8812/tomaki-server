@@ -30,7 +30,7 @@ import net.minecraft.world.level.ChunkPos;
  */
 final class PairReceiptStore {
     enum PublishResult { NEW, EXISTING, FAILED }
-    private static final int VERSION=1;
+    private static final int VERSION=2;
     private static final Map<Path,ValidationStamp> VALIDATED=new ConcurrentHashMap<>();
     private static final Set<Path> REVALIDATED=ConcurrentHashMap.newKeySet();
     private record FullIdentity(long size,long mtime,String fileKey,String contentSha256) {}
