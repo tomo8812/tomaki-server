@@ -91,7 +91,7 @@ jobs:
 
   source-build:
     needs: jar-audit
-    if: needs.jar-audit.outputs.projects != '[]'
+    if: always() && needs.jar-audit.outputs.projects != '[]' && needs.jar-audit.outputs.projects != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -136,6 +136,13 @@ jobs:
               for jar in jars:
                   shutil.copy2(jar, output / jar.name)
           PY
+
+      - name: Upload rebuilt deployment JARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: rebuilt-deployment-jars
+          path: /tmp/maki-rebuilt/*.jar
+          retention-days: 14
 
       - name: Audit rebuilt JARs
         run: |
