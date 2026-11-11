@@ -59,7 +59,7 @@ public final class CacheManager {
    private static volatile List<Path> activeRoots = List.of();
    private static final Map<MinecraftServer, Long> NEXT_DISK_REFRESH = new WeakHashMap<>();
    private static final Set<MinecraftServer> DISK_REFRESHING = ConcurrentHashMap.newKeySet();
-   private static final Set<String> ROTATED = ConcurrentHashMap.newKeySet();
+   private static final ConcurrentHashMap<String, CompletableFuture<Boolean>> ROTATION_RESULTS = new ConcurrentHashMap<>();
    private static final Map<String,Long> ROTATION_RETRY = new ConcurrentHashMap<>();
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
    // FULL/ownership and LOD persistence debt are independent: a normal FULL save
@@ -941,7 +941,13 @@ public final class CacheManager {
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null)return CompletableFuture.completedFuture(Optional.empty());
       String fingerprint=snapshot.fingerprint();
-      rotateGenerations(level,snapshot,"pregen-lod-repair");
+      CompletableFuture<Boolean> rotation=rotateGenerations(level,snapshot,"pregen-lod-repair");
+      if(!rotation.isDone()) {
+         return rotation.thenCompose(ok -> Boolean.TRUE.equals(ok)
+            ? loadForPregenLodRepair(level,pos)
+            : CompletableFuture.completedFuture(Optional.empty()));
+      }
+      if(!Boolean.TRUE.equals(rotation.getNow(false)))return CompletableFuture.completedFuture(Optional.empty());
       Path file=path(level,pos,fingerprint);
       Path dimension=cacheRoot(level).resolve(dimensionKey(level));
       // Repair is a cache load too: prove absence of coordinate ownership in
@@ -1138,7 +1144,15 @@ public final class CacheManager {
          }
          String var2 = snapshot.fingerprint();
 
-         rotateGenerations(var0, snapshot, "load");
+         CompletableFuture<Boolean> rotation=rotateGenerations(var0, snapshot, "load");
+         // Wait asynchronously for an approved historical FULL to be adopted.
+         // Otherwise the first player request can miss the old cache and generate again.
+         if(!rotation.isDone()) {
+            return rotation.thenCompose(ok -> Boolean.TRUE.equals(ok)
+               ? loadReadyCache(var0,var1)
+               : CompletableFuture.completedFuture(Optional.empty()));
+         }
+         if(!Boolean.TRUE.equals(rotation.getNow(false)))return CompletableFuture.completedFuture(Optional.empty());
          Path var3 = path(var0, var1, var2);
          Path claim=PromotionClaim.claimedPath(var3);
          try {
@@ -1370,7 +1384,9 @@ public final class CacheManager {
    static CacheState cacheState(ServerLevel var0, ChunkPos var1, String var2) {
       Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(var0);
       if (snapshot != null && snapshot.fingerprint().equals(var2)) {
-         rotateGenerations(var0, snapshot, "scan");
+         CompletableFuture<Boolean> rotation=rotateGenerations(var0, snapshot, "scan");
+         // Incomplete reconciliation is UNKNOWN, never evidence of an absent FULL.
+         if(!rotation.isDone() || !Boolean.TRUE.equals(rotation.getNow(false)))return CacheState.UNKNOWN;
       }
       Path file = path(var0, var1, var2);
       // A claim blocks generation but does not by itself prove the LOD retry obligation
@@ -1571,24 +1587,44 @@ public final class CacheManager {
       }
    }
 
-   private static void rotateGenerations(ServerLevel var0, Fingerprint.Snapshot snapshot, String trigger) {
-      String var2 = cacheRoot(var0).toAbsolutePath().normalize() + "|" + dimensionKey(var0) + "|" + snapshot.fingerprint();
-      if (System.nanoTime()<ROTATION_RETRY.getOrDefault(var2,0L)) return;
-      if (ROTATED.add(var2)) {
-         try {
-            WRITE_IO.execute(() -> {
-               try {
-                  if (!GenerationStore.reconcile(var0, snapshot, trigger)) {
-                     ROTATION_RETRY.put(var2,System.nanoTime()+60_000_000_000L);
-                     ROTATED.remove(var2);
-                  } else ROTATION_RETRY.remove(var2);
+   private static CompletableFuture<Boolean> rotateGenerations(
+      ServerLevel level, Fingerprint.Snapshot snapshot, String trigger
+   ) {
+      String key=cacheRoot(level).toAbsolutePath().normalize() + "|"
+         + dimensionKey(level) + "|" + snapshot.fingerprint();
+      CompletableFuture<Boolean> current=ROTATION_RESULTS.get(key);
+      if(current!=null)return current;
+      if(System.nanoTime()<ROTATION_RETRY.getOrDefault(key,0L))
+         return CompletableFuture.completedFuture(false);
+
+      CompletableFuture<Boolean> started=new CompletableFuture<>();
+      current=ROTATION_RESULTS.putIfAbsent(key,started);
+      if(current!=null)return current;
+      try {
+         WRITE_IO.execute(() -> {
+            boolean completed=false;
+            try {
+               completed=GenerationStore.reconcile(level,snapshot,trigger);
+            } catch(Throwable failure) {
+               LOG.warn("Chunk cache generation reconciliation failed for {}",
+                  dimensionKey(level),failure);
+            } finally {
+               try { CacheDiskBudget.at(cacheRoot(level)).invalidateInventory(); }
+               catch(Throwable ignored) {}
+               if(completed) {
+                  ROTATION_RETRY.remove(key);
+               } else {
+                  ROTATION_RETRY.put(key,System.nanoTime()+60_000_000_000L);
+                  ROTATION_RESULTS.remove(key,started);
                }
-               finally { CacheDiskBudget.at(cacheRoot(var0)).invalidateInventory(); }
-            });
-         } catch (RejectedExecutionException var5) {
-            ROTATED.remove(var2);
-         }
+               started.complete(completed);
+            }
+         });
+      } catch(RejectedExecutionException rejected) {
+         ROTATION_RESULTS.remove(key,started);
+         started.complete(false);
       }
+      return started;
    }
 
    private static ThreadFactory daemonFactory(String var0) {
