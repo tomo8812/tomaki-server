@@ -192,7 +192,6 @@ public final class CpuGovernor {
                 controller.fastSignature(),newDelta,repairDelta,uncertainDelta,controller.oldestMillis());
             SHARED_BUDGET.noteCleanFollowSample();
         }
-        setFastTuningFrozen("probe".equals(POLICY.phase));
         lastBudgetTransition=budgetTransition;
 
         boolean experimentFinished=reportedExperiment!=POLICY.experimentNumber;
