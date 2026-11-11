@@ -39,3 +39,5 @@ jobs:
 # Recheck after fixing sensitivity matching for historical MOD paths.
 
 # Re-run after replacing obsolete unknown-MOD fail-closed tests.
+
+# Verify semantic/legacy tests against the FULL-only policy.
