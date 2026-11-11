@@ -525,7 +525,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
         def stopBody = cache.substring(cache.indexOf('public static void stop(MinecraftServer server)'),
             cache.indexOf('public static void stopped(MinecraftServer server)'))
         def stoppedBody = cache.substring(cache.indexOf('public static void stopped(MinecraftServer server)'),
-            cache.indexOf('private static void rotateGenerations'))
+            cache.indexOf('private static CompletableFuture<Boolean> rotateGenerations'))
         if (stopBody.contains('PregenBorrowLedger.clear(server)') || stopBody.contains('PromotionLedger.clear(server)')
                 || !stoppedBody.contains('PregenBorrowLedger.clear(server)')
                 || !stoppedBody.contains('PromotionLedger.clear(server)')
