@@ -1,6 +1,10 @@
 package maki.chunksmithcache;
 
 import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Set;
 
@@ -93,7 +97,25 @@ public final class AuditedGenerationUpgradeSelfTest {
             updated, old, Set.of("policy:compatibility")),
             "downgrade cannot be admitted by this transition");
 
-        System.out.println("Audited generation upgrade: positive + 11 negative scenarios PASS");
+        verifyShippedArtifacts();
+        System.out.println("Audited generation upgrade: positive + fail-closed scenarios PASS");
+    }
+
+    private static void verifyShippedArtifacts() {
+        String dir = System.getProperty("auditedUpgrade.modsDir");
+        if (dir == null || dir.isBlank()) return;
+        for (Artifact pair : PAIRS) {
+            Path file = Path.of(dir).resolve(pair.newName());
+            try {
+                require(Files.isRegularFile(file), "missing shipped JAR " + file);
+                require(Files.size(file) == pair.newSize(), "shipped JAR size changed: " + file);
+                byte[] data = Files.readAllBytes(file);
+                String sha = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(data));
+                require(sha.equals(pair.newSha()), "unreviewed shipped JAR hash: " + file);
+            } catch (Exception e) {
+                throw new AssertionError("Unable to verify exact distributed JAR " + file, e);
+            }
+        }
     }
 
     private static void assertRejected(FingerprintManifest.Manifest old,
