@@ -41,3 +41,5 @@ jobs:
 # Re-run after replacing obsolete unknown-MOD fail-closed tests.
 
 # Verify semantic/legacy tests against the FULL-only policy.
+
+# Verify current-only generator configuration and no hypothetical future MOD rules.
