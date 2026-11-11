@@ -33,6 +33,7 @@ final class PairReceiptStore {
     private static final int VERSION=2;
     private static final Map<Path,ValidationStamp> VALIDATED=new ConcurrentHashMap<>();
     private static final Set<Path> REVALIDATED=ConcurrentHashMap.newKeySet();
+    private record FullMetadata(long size,long mtime,String fileKey) {}
     private record FullIdentity(long size,long mtime,String fileKey,String contentSha256) {}
     private record ValidationStamp(long fullSize,long fullMtime,String fullKey,String fullSha256,long lodSize,long lodMtime) {}
     private PairReceiptStore() {}
@@ -117,19 +118,19 @@ final class PairReceiptStore {
                 ||pos.x!=Integer.parseInt(properties.getProperty("x","2147483647"))
                 ||pos.z!=Integer.parseInt(properties.getProperty("z","2147483647"))
                 ||!fingerprint.equals(properties.getProperty("fingerprint")))return false;
-            FullIdentity fullIdentity=fullIdentity(full);
-            long fullSize=fullIdentity.size(),fullMtime=fullIdentity.mtime();
-            if(fullSize!=Long.parseLong(properties.getProperty("fullSize","-1"))
-                ||fullMtime!=Long.parseLong(properties.getProperty("fullMtime","-1"))
-                ||!fullIdentity.fileKey().equals(properties.getProperty("fullFileKey",""))
-                ||!fullIdentity.contentSha256().equals(properties.getProperty("fullSha256","")))return false;
+            FullMetadata metadata=fullMetadata(full);
+            long fullSize=metadata.size(),fullMtime=metadata.mtime();
             Path region=lodRegion(level,pos);
             long lodSize=Files.size(region),lodMtime=Files.getLastModifiedTime(region).toMillis();
             ValidationStamp cached=VALIDATED.get(receipt);
             if(cached!=null&&cached.fullSize()==fullSize&&cached.fullMtime()==fullMtime
-                &&cached.fullKey().equals(fullIdentity.fileKey())
-                &&cached.fullSha256().equals(fullIdentity.contentSha256())
+                &&cached.fullKey().equals(metadata.fileKey())
                 &&cached.lodSize()==lodSize&&cached.lodMtime()==lodMtime)return true;
+            FullIdentity fullIdentity=new FullIdentity(fullSize,fullMtime,metadata.fileKey(),fileSha256(full));
+            if(fullSize!=Long.parseLong(properties.getProperty("fullSize","-1"))
+                ||fullMtime!=Long.parseLong(properties.getProperty("fullMtime","-1"))
+                ||!fullIdentity.fileKey().equals(properties.getProperty("fullFileKey",""))
+                ||!fullIdentity.contentSha256().equals(properties.getProperty("fullSha256","")))return false;
             CsLodRegionStore store=new CsLodRegionStore(CacheManager.lodRoot(level));
             CsLodChunk record;
             try{record=store.read(pos.x,pos.z);}
@@ -190,9 +191,13 @@ final class PairReceiptStore {
         }
     }
 
-    private static FullIdentity fullIdentity(Path full)throws IOException {
+    private static FullMetadata fullMetadata(Path full)throws IOException {
         BasicFileAttributes attrs=Files.readAttributes(full,BasicFileAttributes.class);
-        return new FullIdentity(attrs.size(),attrs.lastModifiedTime().toMillis(),String.valueOf(attrs.fileKey()),fileSha256(full));
+        return new FullMetadata(attrs.size(),attrs.lastModifiedTime().toMillis(),String.valueOf(attrs.fileKey()));
+    }
+    private static FullIdentity fullIdentity(Path full)throws IOException {
+        FullMetadata metadata=fullMetadata(full);
+        return new FullIdentity(metadata.size(),metadata.mtime(),metadata.fileKey(),fileSha256(full));
     }
     private static String fileSha256(Path file)throws IOException {
         try {
