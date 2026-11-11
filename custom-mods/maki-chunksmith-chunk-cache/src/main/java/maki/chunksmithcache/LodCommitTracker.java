@@ -139,6 +139,21 @@ public final class LodCommitTracker {
     }
 
     public static LodReceipt receiptOf(CompletableFuture<Boolean> future){return future==null?null:RECEIPTS.get(future);}
+
+    /**
+     * A PAIR receipt may only be published while no newer queued/running write
+     * for the same dimension/coordinate exists. offer() tracks records before
+     * they enter the native writer, so this also covers queued and synchronous
+     * fallback work.
+     */
+    static boolean coordinateClear(LodReceipt receipt){
+        if(receipt==null)return false;
+        Coordinate coordinate=new Coordinate(receipt.dimension(),receipt.x(),receipt.z());
+        synchronized(PHYSICAL){
+            Set<Physical> active=BY_COORDINATE.get(coordinate);
+            return active==null||active.isEmpty();
+        }
+    }
     public static PhysicalStatus physicalStatus(){
         synchronized(PHYSICAL){
             long now=System.nanoTime(),oldest=0;
