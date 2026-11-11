@@ -22,7 +22,7 @@ public final class CpuGovernor {
     private static LodCounters previousLod;
     private static long lastTime,lastCpu,lastGc=-1,lastOom=-1,lastThrottled=-1,lastStamp=Long.MIN_VALUE,lastReport;
     private static long reportedExperiment;
-    private static long previousPairConfirmed=-1;
+    private static long previousPairConfirmed=-1,previousPairNew=-1,previousPairRepair=-1,previousUncertain=-1;
     private static long lastBudgetTransition;
     private static volatile String pipelinePressure;
     private static boolean configGood=true;
@@ -70,22 +70,28 @@ public final class CpuGovernor {
         SHARED_BUDGET.pipelinePressure(reason);
     }
 
-    private record ControllerObservation(boolean available,long pairConfirmed,boolean admissionBlocked,boolean sensorUnknown,
+    private record ControllerObservation(boolean available,long pairConfirmed,long pairNew,long pairRepair,long uncertain,
+                                         long oldestMillis,boolean admissionBlocked,boolean sensorUnknown,
                                          long fastSignature,String reason){}
     private static ControllerObservation controllerObservation(){
         try{
             Object status=Class.forName("maki.chunksmithcache.CacheManager").getMethod("controllerStatus").invoke(null);
             Class<?> type=status.getClass();
             long pairs=((Number)type.getMethod("pairConfirmedRuntime").invoke(status)).longValue();
+            long pairNew=((Number)type.getMethod("pairNew").invoke(status)).longValue();
+            long pairRepair=((Number)type.getMethod("pairRepair").invoke(status)).longValue();
+            long uncertain=((Number)type.getMethod("uncertain").invoke(status)).longValue();
+            long oldest=((Number)type.getMethod("oldestMillis").invoke(status)).longValue();
             boolean blocked=Boolean.TRUE.equals(type.getMethod("admissionBlocked").invoke(status));
             boolean unknown=Boolean.TRUE.equals(type.getMethod("sensorUnknown").invoke(status));
             long fastSignature=((Number)type.getMethod("fastSignature").invoke(status)).longValue();
             Object rawReason=type.getMethod("reason").invoke(status);
-            return new ControllerObservation(true,pairs,blocked,unknown,fastSignature,rawReason==null?null:rawReason.toString());
+            return new ControllerObservation(true,pairs,pairNew,pairRepair,uncertain,oldest,blocked,unknown,fastSignature,
+                rawReason==null?null:rawReason.toString());
         }catch(ClassNotFoundException absent){
-            return new ControllerObservation(false,0,false,false,0L,"cache-controller-absent");
+            return new ControllerObservation(false,0,0,0,0,0,false,false,0L,"cache-controller-absent");
         }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable){
-            return new ControllerObservation(false,0,true,true,0L,"cache-controller-unavailable");
+            return new ControllerObservation(false,0,0,0,0,0,true,true,0L,"cache-controller-unavailable");
         }
     }
 
@@ -165,17 +171,25 @@ public final class CpuGovernor {
         ControllerObservation controller=controllerObservation();
         long pairDelta=controller.available()&&previousPairConfirmed>=0
             ?Math.max(0,controller.pairConfirmed()-previousPairConfirmed):0;
+        long newDelta=controller.available()&&previousPairNew>=0?Math.max(0,controller.pairNew()-previousPairNew):0;
+        long repairDelta=controller.available()&&previousPairRepair>=0?Math.max(0,controller.pairRepair()-previousPairRepair):0;
+        long uncertainDelta=controller.available()&&previousUncertain>=0?Math.max(0,controller.uncertain()-previousUncertain):0;
         previousPairConfirmed=controller.available()?controller.pairConfirmed():-1;
+        previousPairNew=controller.available()?controller.pairNew():-1;
+        previousPairRepair=controller.available()?controller.pairRepair():-1;
+        previousUncertain=controller.available()?controller.uncertain():-1;
         boolean pairAvailable=controller.available()&&!controller.sensorUnknown();
 
         long budgetTransition=SHARED_BUDGET.transitionSerial();
         boolean sharedBackfillPause=SHARED_BUDGET.reserved()||budgetTransition!=lastBudgetTransition;
         if(!configGood)cap=POLICY.unavailable(settings,"invalid-config");
-        else if(players>0)cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked(),controller.fastSignature());
+        else if(players>0)cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked(),
+            controller.fastSignature(),newDelta,repairDelta,uncertainDelta,controller.oldestMillis());
         else if(sharedBackfillPause)cap=POLICY.updateSafetyOnly(sample,players,settings);
         else if(!active)cap=POLICY.reset(settings,"generation-idle");
         else {
-            cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked(),controller.fastSignature());
+            cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked(),
+                controller.fastSignature(),newDelta,repairDelta,uncertainDelta,controller.oldestMillis());
             SHARED_BUDGET.noteCleanFollowSample();
         }
         setFastTuningFrozen("probe".equals(POLICY.phase));

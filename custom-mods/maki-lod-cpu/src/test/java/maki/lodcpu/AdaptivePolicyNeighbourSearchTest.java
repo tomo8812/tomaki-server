@@ -58,6 +58,26 @@ final class AdaptivePolicyNeighbourSearchTest {
     }
 
     @Test
+    void unchangedActualDispatchMakesProbeInconclusive() {
+        AdaptivePolicy policy=new AdaptivePolicy();
+        Settings s=settings();
+        policy.cap=2;
+        assertEquals(3,policy.update(sample(2),0,s,5,true,false,13L));
+        assertEquals(2,policy.update(sample(2),0,s,6,true,false,13L));
+        assertEquals("native-dispatch-unchanged",policy.reason);
+    }
+
+    @Test
+    void changedWorkClassMixMakesProbeInconclusive() {
+        AdaptivePolicy policy=new AdaptivePolicy();
+        Settings s=settings();
+        policy.cap=2;
+        assertEquals(3,policy.update(sample(2),0,s,5,true,false,17L,5,0,0,100));
+        assertEquals(2,policy.update(sample(3),0,s,6,true,false,17L,0,6,0,100));
+        assertEquals("work-class-mix-changed",policy.reason);
+    }
+
+    @Test
     void unavailablePairProofDoesNotLearn() {
         AdaptivePolicy policy=new AdaptivePolicy();
         Settings s=settings();

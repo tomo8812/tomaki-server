@@ -33,6 +33,13 @@ public final class AdaptivePolicy {
 
     public int update(AdaptiveSample x,int players,Settings s,long pairCompletions,boolean pairAvailable,
                       boolean admissionBlocked,long fastSignature){
+        return update(x,players,s,pairCompletions,pairAvailable,admissionBlocked,fastSignature,
+            pairCompletions,0,0,0);
+    }
+
+    public int update(AdaptiveSample x,int players,Settings s,long pairCompletions,boolean pairAvailable,
+                      boolean admissionBlocked,long fastSignature,long newPairs,long repairPairs,
+                      long uncertainPairs,long oldestWipMillis){
         cap=Math.max(s.min,Math.min(s.max,cap));
         if(players>0){reset(s,"players-online-paused");cap=1;return cap;}
         if(!Double.isFinite(x.seconds())||x.seconds()<=0)return cap;
@@ -78,7 +85,7 @@ public final class AdaptivePolicy {
             experimentNumber++;failedExperiments++;abandon(s,"trial-downstream-constrained",s.retrySeconds);return cap;
         }
 
-        window.add(x,pairCompletions,admissionBlocked,fastSignature);
+        window.add(x,pairCompletions,admissionBlocked,fastSignature,newPairs,repairPairs,uncertainPairs,oldestWipMillis);
         if(!window.ready(s)){reason="measure-"+phase;return cap;}
         Result result=window.result();window=new Window();lastWindowRate=result.rate;
         if(!result.fastStable||(phase.equals("probe")&&baseline!=null&&result.fastSignature!=baseline.fastSignature)){
@@ -108,12 +115,26 @@ public final class AdaptivePolicy {
 
         probeRate=result.rate;
         boolean lower=candidateCap<baselineCap;
+        if(Math.abs(result.inFlight-baseline.inFlight)<0.15){
+            cap=baselineCap;lastExperiment="c="+baselineCap+" -> "+candidateCap+" inconclusive: actual in-flight unchanged";
+            experimentNumber++;abandon(s,"native-dispatch-unchanged",s.retrySeconds);return cap;
+        }
+        if(result.classifiedEvents>=s.minimumEvents&&baseline.classifiedEvents>=s.minimumEvents
+            &&Math.abs(result.newRatio-baseline.newRatio)>.20){
+            cap=baselineCap;lastExperiment="c="+baselineCap+" -> "+candidateCap+" inconclusive: NEW/REPAIR mix changed";
+            experimentNumber++;abandon(s,"work-class-mix-changed",s.retrySeconds);return cap;
+        }
+        if(result.sourceProofRate+.05<baseline.sourceProofRate){
+            cap=baselineCap;lastExperiment="c="+baselineCap+" -> "+candidateCap+" rejected: source proof rate regressed";
+            experimentNumber++;abandon(s,"source-proof-regressed",s.retrySeconds);return cap;
+        }
         boolean tailSafe=result.queueGrowth<=Math.max(16,baseline.queueGrowth+16)
-            &&result.synchronousWrites<=baseline.synchronousWrites;
+            &&result.synchronousWrites<=baseline.synchronousWrites
+            &&result.oldestWipMillis<=Math.max(15_000,baseline.oldestWipMillis+5_000);
         boolean rateSafe=lower?result.rate>=baseline.rate*.98
             :result.rate>=baseline.rate*(1+s.minimumGainPercent/100.0);
-        boolean efficiencyBetter=!Double.isFinite(baseline.cpu)||!Double.isFinite(result.cpu)
-            ||result.cpu<=baseline.cpu||result.queueGrowth<baseline.queueGrowth;
+        boolean efficiencyBetter=!Double.isFinite(baseline.cpuPerPair)||!Double.isFinite(result.cpuPerPair)
+            ||result.cpuPerPair<=baseline.cpuPerPair||result.queueGrowth<baseline.queueGrowth;
         boolean accept=tailSafe&&rateSafe&&(!lower||efficiencyBetter);
         cap=accept?candidateCap:baselineCap;
         lastExperiment="c="+baselineCap+" -> "+candidateCap+" pair/s="+round(baseline.rate)+"/"+round(result.rate)
@@ -162,16 +183,21 @@ public final class AdaptivePolicy {
     }
     private static double round(double v){return Math.rint(v*1000)/1000;}
 
-    private record Result(double rate,long events,double width,double cpu,int queueGrowth,long synchronousWrites,
-                          double admissionFraction,long fastSignature,boolean fastStable){}
+    private record Result(double rate,long events,double width,double inFlight,double cpu,double cpuPerPair,
+                          int queueGrowth,long synchronousWrites,double admissionFraction,long fastSignature,
+                          boolean fastStable,long classifiedEvents,double newRatio,double sourceProofRate,long oldestWipMillis){}
     private static final class Window {
-        double seconds,widthSeconds,cpuSeconds,cpuKnownSeconds,blockedSeconds;
-        long pairs,synchronousWrites;
+        double seconds,widthSeconds,inFlightSeconds,cpuSeconds,cpuKnownSeconds,blockedSeconds;
+        long pairs,synchronousWrites,newPairs,repairPairs,uncertainPairs,oldestWipMillis;
         int firstQueue=-1,lastQueue;
         long fastSignature=Long.MIN_VALUE;
         boolean fastStable=true;
-        void add(AdaptiveSample x,long pairCompletions,boolean admissionBlocked,long signature){
+        void add(AdaptiveSample x,long pairCompletions,boolean admissionBlocked,long signature,
+                 long newPairCompletions,long repairPairCompletions,long uncertain,long oldestMillis){
             seconds+=x.seconds();pairs+=Math.max(0,pairCompletions);widthSeconds+=x.nativeWidth()*x.seconds();
+            inFlightSeconds+=x.inFlight()*x.seconds();
+            newPairs+=Math.max(0,newPairCompletions);repairPairs+=Math.max(0,repairPairCompletions);
+            uncertainPairs+=Math.max(0,uncertain);oldestWipMillis=Math.max(oldestWipMillis,Math.max(0,oldestMillis));
             if(Double.isFinite(x.cpu())){cpuSeconds+=x.cpu()*x.seconds();cpuKnownSeconds+=x.seconds();}
             synchronousWrites+=x.synchronousWrites();
             if(firstQueue<0)firstQueue=x.lodQueue();lastQueue=x.lodQueue();
@@ -180,8 +206,14 @@ public final class AdaptivePolicy {
             else if(fastSignature!=signature)fastStable=false;
         }
         boolean ready(Settings s){return seconds>=s.windowSeconds&&(pairs>=s.minimumEvents||seconds>=3.0*s.windowSeconds);}
-        Result result(){return new Result(seconds>0?pairs/seconds:0,pairs,seconds>0?widthSeconds/seconds:0,
-            cpuKnownSeconds>0?cpuSeconds/cpuKnownSeconds:Double.NaN,lastQueue-firstQueue,synchronousWrites,
-            seconds>0?blockedSeconds/seconds:0,fastSignature==Long.MIN_VALUE?0L:fastSignature,fastStable);}
+        Result result(){
+            long classified=newPairs+repairPairs;
+            double proofDenominator=pairs+uncertainPairs;
+            return new Result(seconds>0?pairs/seconds:0,pairs,seconds>0?widthSeconds/seconds:0,
+                seconds>0?inFlightSeconds/seconds:0,cpuKnownSeconds>0?cpuSeconds/cpuKnownSeconds:Double.NaN,
+                pairs>0&&cpuKnownSeconds>0?cpuSeconds/pairs:Double.NaN,lastQueue-firstQueue,synchronousWrites,
+                seconds>0?blockedSeconds/seconds:0,fastSignature==Long.MIN_VALUE?0L:fastSignature,fastStable,
+                classified,classified>0?(double)newPairs/classified:0,proofDenominator>0?pairs/proofDenominator:1.0,oldestWipMillis);
+        }
     }
 }

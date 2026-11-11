@@ -20,10 +20,14 @@ final class CacheDiskBudget {
     private long activeBytes;
     private long lodBytes;
     private long usableBytes;
+    private long cacheUsableBytes;
+    private long lodUsableBytes;
+    private boolean sharedFileStore=true;
     private long reservedBytes;
     private long additions;
     private long lodAdditions;
-    private long publications;
+    private long cachePublications;
+    private long lodPublications;
     private long inventoryEpoch;
     private long maxBytes = DEFAULT_MAX;
     private long minimumFree = DEFAULT_RESERVE;
@@ -45,9 +49,14 @@ final class CacheDiskBudget {
             Path realLodRoot=lodRoot.toRealPath();
             FileStore cacheStore=Files.getFileStore(realRoot);
             FileStore lodStore=Files.getFileStore(realLodRoot);
-            long publicationsBefore;
-            synchronized(this){publicationsBefore=publications;}
-            long free=Math.min(cacheStore.getUsableSpace(),lodStore.getUsableSpace());
+            boolean sameStore=samePhysicalStore(realRoot,cacheStore,realLodRoot,lodStore);
+            long cachePublicationsBefore,lodPublicationsBefore;
+            synchronized(this){
+                cachePublicationsBefore=cachePublications;
+                lodPublicationsBefore=lodPublications;
+            }
+            long freeCache=cacheStore.getUsableSpace();
+            long freeLod=lodStore.getUsableSpace();
             long now=System.nanoTime();
             boolean inventory;
             long additionsBefore,lodAdditionsBefore;
@@ -77,7 +86,18 @@ final class CacheDiskBudget {
                 minimumFree = reserve;
                 // Preserve publications racing a slow FileStore probe. Counting a
                 // write twice when already in the probe is conservative.
-                usableBytes = Math.max(0L,free-Math.max(0L,publications-publicationsBefore));
+                long cacheDelta=Math.max(0L,cachePublications-cachePublicationsBefore);
+                long lodDelta=Math.max(0L,lodPublications-lodPublicationsBefore);
+                sharedFileStore=sameStore;
+                if(sameStore){
+                    long shared=Math.max(0L,Math.min(freeCache,freeLod)-cacheDelta-lodDelta);
+                    cacheUsableBytes=shared;
+                    lodUsableBytes=shared;
+                }else{
+                    cacheUsableBytes=Math.max(0L,freeCache-cacheDelta);
+                    lodUsableBytes=Math.max(0L,freeLod-lodDelta);
+                }
+                usableBytes=Math.min(cacheUsableBytes,lodUsableBytes);
                 // Inventory is not a filesystem snapshot. Concurrent additions may already be in
                 // it, so count them again conservatively rather than underestimating occupancy.
                 if(inventory){activeBytes=Math.addExact(bytes,additions-additionsBefore);inventoriedAt=inventoryEpoch==epoch?now:0L;}
@@ -88,6 +108,16 @@ final class CacheDiskBudget {
         } catch (Exception error) {
             synchronized (this) { observationFailure = "cache-disk-unavailable"; }
         }
+    }
+
+    private static boolean samePhysicalStore(Path cacheRoot,FileStore cacheStore,Path lodRoot,FileStore lodStore) {
+        if(cacheStore.equals(lodStore))return true;
+        try{
+            Object cacheDev=Files.getAttribute(cacheRoot,"unix:dev");
+            Object lodDev=Files.getAttribute(lodRoot,"unix:dev");
+            if(cacheDev!=null&&lodDev!=null)return cacheDev.equals(lodDev);
+        }catch(Exception|UnsupportedOperationException ignored){}
+        return cacheStore.name().equals(lodStore.name())&&cacheStore.type().equals(lodStore.type());
     }
 
     private static long treeBytes(Path tree) throws IOException {
@@ -112,16 +142,22 @@ final class CacheDiskBudget {
         if(observationFailure!=null)return observationFailure;
         if(System.nanoTime()-observedAt>60_000_000_000L)return "cache-disk-measurement-stale";
         long lodProjection;
-        try{lodProjection=Math.multiplyExact((long)LodCommitTracker.physicalStatus().inFlight(),32L<<20);}
+        try{lodProjection=Math.multiplyExact((long)PregenFlowController.snapshot().lodOutstanding(),32L<<20);}
         catch(ArithmeticException overflow){lodProjection=Long.MAX_VALUE;}
         long committed;
         try{committed=Math.addExact(Math.addExact(activeBytes,lodBytes),Math.addExact(reservedBytes,lodProjection));}
         catch(ArithmeticException overflow){return "pregen-combined-capacity";}
         if(additional>maxBytes-committed)return "pregen-combined-capacity";
-        long diskDebt;
-        try{diskDebt=Math.addExact(reservedBytes,lodProjection);}
-        catch(ArithmeticException overflow){return "cache-disk-reserve";}
-        if(additional>usableBytes-minimumFree-diskDebt)return "cache-disk-reserve";
+        try{
+            long fullDebt=Math.addExact(reservedBytes,additional);
+            if(sharedFileStore){
+                long sharedDebt=Math.addExact(fullDebt,lodProjection);
+                if(sharedDebt>Math.max(0L,cacheUsableBytes-minimumFree))return "cache-disk-reserve";
+            }else{
+                if(fullDebt>Math.max(0L,cacheUsableBytes-minimumFree))return "cache-disk-reserve";
+                if(lodProjection>Math.max(0L,lodUsableBytes-minimumFree))return "lod-disk-reserve";
+            }
+        }catch(ArithmeticException overflow){return "cache-disk-reserve";}
         return null;
     }
 
@@ -145,8 +181,10 @@ final class CacheDiskBudget {
         if(bytes<=0)return;
         lodBytes=Math.max(0,lodBytes+bytes);
         lodAdditions+=bytes;
-        publications+=bytes;
-        usableBytes=Math.max(0,usableBytes-bytes);
+        lodPublications+=bytes;
+        lodUsableBytes=Math.max(0,lodUsableBytes-bytes);
+        if(sharedFileStore)cacheUsableBytes=Math.max(0,cacheUsableBytes-bytes);
+        usableBytes=Math.min(cacheUsableBytes,lodUsableBytes);
     }
     synchronized void deleted(long bytes) { activeBytes = Math.max(0, activeBytes - bytes); }
     synchronized void invalidateInventory() { inventoryEpoch++; inventoriedAt=0L; }
@@ -168,9 +206,12 @@ final class CacheDiskBudget {
         void published(long addedBytes) {
             synchronized (CacheDiskBudget.this) {
                 activeBytes = Math.max(0, activeBytes + addedBytes);
-                additions += Math.max(0, addedBytes);
-                publications += Math.max(0, addedBytes);
-                usableBytes = Math.max(0, usableBytes - Math.max(0, addedBytes));
+                long published=Math.max(0,addedBytes);
+                additions+=published;
+                cachePublications+=published;
+                cacheUsableBytes=Math.max(0,cacheUsableBytes-published);
+                if(sharedFileStore)lodUsableBytes=Math.max(0,lodUsableBytes-published);
+                usableBytes=Math.min(cacheUsableBytes,lodUsableBytes);
             }
         }
         public void close() {
