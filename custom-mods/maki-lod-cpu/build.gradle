@@ -57,7 +57,10 @@ tasks.register('verifyIssue66SharedScheduling') {
         ['maki$sharedBackfillBarrier', 'ResourceBudgetApi.blockFollowDispatch', 'LockSupport.parkNanos'].each { token ->
             if (!mixin.contains(token)) throw new GradleException('Issue #66 regression: non-stopping follow dispatch barrier missing ' + token)
         }
-        if (api.contains('requestBackfillExclusivePause') || api.contains('PlayerCenter.')) {
+        def reserveStart=api.indexOf('public static String reserveBackfill')
+        def reserveEnd=api.indexOf('public static boolean backfillReservationHeld',reserveStart)
+        def reserveBody=api.substring(reserveStart,reserveEnd)
+        if (api.contains('requestBackfillExclusivePause') || reserveBody.contains('PlayerCenter.')) {
             throw new GradleException('Issue #66 regression: Backfill must not stop/restart the follow task lifecycle')
         }
     }
@@ -139,3 +142,37 @@ tasks.register('verifyIssue83UnifiedFollow') {
     }
 }
 tasks.named('check') { dependsOn tasks.named('verifyIssue83UnifiedFollow') }
+
+def pregenV2PlayerCenter = file('src/main/java/maki/lodcpu/PlayerCenter.java')
+def pregenV2ResourceApi = file('src/main/java/maki/lodcpu/ResourceBudgetApi.java')
+def pregenV2GenerationMixin = file('src/main/java/maki/lodcpu/mixin/GenerationTaskMixin.java')
+def pregenV2Policy = file('src/main/java/maki/lodcpu/AdaptivePolicy.java')
+def pregenV2Governor = file('src/main/java/maki/lodcpu/CpuGovernor.java')
+
+tasks.register('verifyPregenControllerV2') {
+    inputs.files(pregenV2PlayerCenter,pregenV2ResourceApi,pregenV2GenerationMixin,pregenV2Policy,pregenV2Governor)
+    doLast {
+        def center=pregenV2PlayerCenter.getText('UTF-8')
+        def api=pregenV2ResourceApi.getText('UTF-8')
+        def mixin=pregenV2GenerationMixin.getText('UTF-8')
+        def policy=pregenV2Policy.getText('UTF-8')
+        def governor=pregenV2Governor.getText('UTF-8')
+        ['ADMISSION_EPOCH','admissionClosed','closeAdmission()','admissionEpoch(GenerationTask task)',
+         'admissionOpen(GenerationTask task)','server.getPlayerCount()>0','nativeTaskStopping'].each { token ->
+            if(!center.contains(token))throw new GradleException('Pregen V2 regression: stop epoch/admission policy missing '+token)
+        }
+        ['blockFollowAdmission','followAdmissionEpoch','followAdmissionOpen'].each { token ->
+            if(!api.contains(token))throw new GradleException('Pregen V2 regression: admission bridge missing '+token)
+        }
+        def gate=mixin.indexOf('ResourceBudgetApi.blockFollowAdmission()')
+        def next=mixin.indexOf('Object next=iterator.next()')
+        if(gate<0||next<0||gate>next)throw new GradleException('Pregen V2 regression: WIP gate must run before iterator consumption')
+        ['candidateCap=cap-1','candidateCap=cap+1','pairCompletions','fastSignature',
+         'fast-state-changed','trial-downstream-constrained'].each { token ->
+            if(!policy.contains(token))throw new GradleException('Pregen V2 regression: c-neighbourhood policy missing '+token)
+        }
+        if(!governor.contains('pairConfirmedRuntime')||!governor.contains('setFastTuningFrozen("probe".equals(POLICY.phase))'))
+            throw new GradleException('Pregen V2 regression: confirmed PAIR objective/FAST trial freeze missing')
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifyPregenControllerV2') }
