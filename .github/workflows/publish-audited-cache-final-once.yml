@@ -35,3 +35,5 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "build(cache): include asynchronous cache migration load race fix in 1.4.4 JAR"
           git push origin HEAD:compat/chunksmith-4.8.1-millenaire-9.1.0
+
+# Rerun after updating source-level regression's asynchronous rotation boundary.
