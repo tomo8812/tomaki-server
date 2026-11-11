@@ -116,7 +116,7 @@ final class CacheDiskBudget {
             Object cacheDev=Files.getAttribute(cacheRoot,"unix:dev");
             Object lodDev=Files.getAttribute(lodRoot,"unix:dev");
             if(cacheDev!=null&&lodDev!=null)return cacheDev.equals(lodDev);
-        }catch(Exception|UnsupportedOperationException ignored){}
+        }catch(Exception ignored){}
         return cacheStore.name().equals(lodStore.name())&&cacheStore.type().equals(lodStore.type());
     }
 

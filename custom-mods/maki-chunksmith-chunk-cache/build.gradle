@@ -592,7 +592,7 @@ tasks.register('verifyPregenControllerV2') {
             throw new GradleException('Pregen V2 regression: physical validation/FULL terminals or restart proof missing')
         }
         if(!disk.contains('toRealPath()') || !disk.contains('Math.min(cacheStore.getUsableSpace(),lodStore.getUsableSpace())')
-                || !disk.contains('LodCommitTracker.physicalStatus().inFlight()')) {
+                || !disk.contains('PregenFlowController.snapshot().lodOutstanding()')) {
             throw new GradleException('Pregen V2 regression: physical FileStore/projected LOD disk guard missing')
         }
         if(!region.contains('Integer.MAX_VALUE-MAX_RECORD_BYTES') || !region.contains('RandomAccessFile;length()J')) {
