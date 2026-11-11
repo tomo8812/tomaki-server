@@ -1,174 +1,276 @@
 package maki.chunksmithcache;
 
-import java.util.ArrayList;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.util.HexFormat;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtIo;
 
 /**
- * Regression of the actual audited old/new distribution identity contract.
- * Other terrain inputs remain immutable even for this approved JAR bundle.
+ * Dynamic (no historical SHA allowlist) format/field migration regressions.
+ * Tests future minor releases, unrelated worldgen changes, bad FULL payloads
+ * and preservation of invalid files during a mixed generation transfer.
  */
 public final class AuditedGenerationUpgradeSelfTest {
-    private record Artifact(String oldName, long oldSize, String oldSha,
-                            String newName, long newSize, String newSha) {}
+    private static final int DATA_VERSION = 3955;
 
-    private static final List<Artifact> PAIRS = List.of(
-        new Artifact("chunksmith-4.6.0+1.21.1-neoforge.jar", 700128L,
-            "0bf37facd76117b1e6a1b638232d840b60c1da5a2f74bb52d15e7c2e80011646",
-            "chunksmith-4.8.1+1.21.1-neoforge.jar", 707645L,
-            "bf6371873cb78f2a7645001eb1ef0f7f6d7e5e80c51a52667b7d37ee898888ca"),
-        new Artifact("millenaire-9.0.3.jar", 18506464L,
-            "5882528027ac67e8759db3926ebef36abe2300029526582f80c7a988b583ec62",
-            "millenaire-9.1.0.jar", 18988125L,
-            "79932591423c867bada662827a984c52bd355525358b215fe31a5413897708ce"),
-        new Artifact("maki-millenaire-lod-compat-1.0.6.jar", 106228L,
-            "27d466ac52e1bbb510ee639294ab6713fdebac16597f146affa3d9d6660dfc52",
-            "maki-millenaire-lod-compat-1.0.8.jar", 116616L,
-            "b468365be07ac1829acbe1e1a366298ca6faffafb40f10658516a3694ee75af4"),
-        new Artifact("maki-idle-pregen-1.1.1.jar", 54977L,
-            "85edab9fbce7fd0a643aead86577e269037fc39fe84606c229f1d446441a5f12",
-            "maki-idle-pregen-1.1.2.jar", 54977L,
-            "95f1178e70c852982faf9200db3fbf19754b5ff9807e2b391382fae7436e2181"),
-        new Artifact("maki-ship-save-1.0.2.jar", 11013L,
-            "a62a206c33995e141e8e365c0766867b98be6e636001007f30591b05d196eb32",
-            "maki-ship-save-1.0.3.jar", 11012L,
-            "1775a10df3660e68901dd510798b4a159f6a15df9efbf188f07ee30d40777801")
+    private record Pair(String oldName, String newName) {}
+
+    // Concrete examples are test fixtures only; production accepts versioned
+    // role names rather than enumerating these releases or their SHA digests.
+    private static final List<Pair> PAIRS = List.of(
+        new Pair("chunksmith-4.6.0+1.21.1-neoforge.jar",
+                 "chunksmith-4.8.1+1.21.1-neoforge.jar"),
+        new Pair("millenaire-9.0.3.jar", "millenaire-9.1.0.jar"),
+        new Pair("maki-millenaire-lod-compat-1.0.6.jar",
+                 "maki-millenaire-lod-compat-1.0.8.jar"),
+        new Pair("maki-idle-pregen-1.1.1.jar", "maki-idle-pregen-1.1.2.jar"),
+        new Pair("maki-ship-save-1.0.2.jar", "maki-ship-save-1.0.3.jar")
     );
 
     private AuditedGenerationUpgradeSelfTest() {}
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         List<FingerprintManifest.Entry> oldEntries = baseline();
         List<FingerprintManifest.Entry> newEntries = baseline();
-        for (Artifact pair : PAIRS) {
-            oldEntries.add(jar(pair.oldName(), pair.oldSize(), pair.oldSha()));
-            newEntries.add(jar(pair.newName(), pair.newSize(), pair.newSha()));
+        for (Pair pair : PAIRS) {
+            oldEntries.add(jar(pair.oldName()));
+            newEntries.add(jar(pair.newName()));
         }
-
         FingerprintManifest.Manifest old = manifest(oldEntries);
-        FingerprintManifest.Manifest updated = manifest(newEntries);
-        require(!old.fingerprint().equals(updated.fingerprint()),
-            "real artifact upgrade must still rotate the current fingerprint");
-        require(AuditedGenerationUpgrade.eligible(old, updated), "audited exact distribution should be eligible");
+        FingerprintManifest.Manifest current = manifest(newEntries);
+        require(AuditedGenerationUpgrade.eligible(old, current),
+            "role-based migration must not rely on JAR SHA allowlists");
         require(FingerprintManifest.sameCompatibilityInputsExcept(
-            old, updated, Set.of("policy:compatibility")),
-            "verified old bundle must adopt as current generation without modifying cache NBT");
+            old, current, Set.of("policy:compatibility")),
+            "same FULL schema and unchanged terrain inputs permit upgraded cache");
         require(FingerprintManifest.changedCompatibilityInputs(
-            old, updated, Set.of("policy:compatibility"), 20, null).isEmpty(),
-            "verified JAR changes must be normalized in the migration diagnostic");
+            old, current, Set.of("policy:compatibility"), 20, null).isEmpty(),
+            "approved role transition must normalize into identical format contracts");
         require(FingerprintManifest.compatibilityProofs(
-            old, updated, Set.of("policy:compatibility"), 20, null).size() >= PAIRS.size(),
-            "audit proof must explain exactly which artifact upgrades were accepted");
+            old, current, Set.of("policy:compatibility"), 20, null).size() >= PAIRS.size(),
+            "role transitions must be auditable");
 
-        assertRejected(old, replace(updated, "mods/" + PAIRS.getFirst().newName(), "changed-chunksmith"),
-            "changed Chunksmith byte payload");
-        assertRejected(old, replace(updated, "mods/" + PAIRS.get(1).newName(), "changed-millenaire"),
-            "changed Millenaire byte payload");
-        assertRejected(old, remove(updated, "mods/" + PAIRS.get(2).newName()),
-            "missing compatibility bridge");
-        assertRejected(old, replace(old, "mods/" + PAIRS.get(3).oldName(), "fake-historical-sha"),
-            "unaudited old idle-pregen binary");
-        assertRejected(old, replace(updated, "level:seed", "different-seed"),
-            "world seed changed");
-        assertRejected(old, replace(updated, "level:generator-class", "different-generator"),
-            "generator implementation changed");
-        assertRejected(old, replace(updated, "world/datapacks/example/pack.mcmeta", "different-data"),
-            "datapack changed");
-        assertRejected(old, replace(updated, "config/epicterrain.properties", "different-terrain-setting"),
-            "terrain config changed");
-        assertRejected(old, replace(updated, "policy:compatibility", "different-policy"),
-            "compatibility policy changed");
+        List<FingerprintManifest.Entry> later = new ArrayList<>(newEntries);
+        later.replaceAll(e -> e.key().equals("mods/chunksmith-4.8.1+1.21.1-neoforge.jar")
+            ? jar("chunksmith-4.9.7+1.21.1-neoforge.jar") : e);
+        later.replaceAll(e -> e.key().equals("mods/millenaire-9.1.0.jar")
+            ? jar("millenaire-9.4.2.jar") : e);
+        later.replaceAll(e -> e.key().equals("mods/maki-millenaire-lod-compat-1.0.8.jar")
+            ? jar("maki-millenaire-lod-compat-1.0.9.jar") : e);
+        FingerprintManifest.Manifest future = manifest(later);
+        require(AuditedGenerationUpgrade.eligible(current, future),
+            "later generated FULL cache generations must be eligible by field/schema, not known version pair");
+        require(FingerprintManifest.sameCompatibilityInputsExcept(
+            current, future, Set.of("policy:compatibility")),
+            "future minor-role releases with unchanged worldgen inputs must not be rejected by release age");
+
+        assertRejected(current, old, "downgrade");
+        assertRejected(old, replace(current, "mods/" + PAIRS.getFirst().newName(),
+            "chunksmith-5.0.0+1.21.1-neoforge.jar", "major-new"), "unknown major upgrade");
+        assertRejected(old, replace(current, "mods/" + PAIRS.getFirst().newName(),
+            PAIRS.getFirst().newName(), "changed-hash"), "same-version JAR mutation");
+        assertRejected(old, remove(current, "mods/" + PAIRS.get(2).newName()),
+            "removed versioned role");
+        assertRejected(old, replace(current, "level:seed", "seed-different"),
+            "world seed");
+        assertRejected(old, replace(current, "level:generator-class", "generator-different"),
+            "generator implementation");
+        assertRejected(old, replace(current, "world/datapacks/test/pack.mcmeta", "datapack-different"),
+            "datapack");
+        assertRejected(old, replace(current, "config/epicterrain.properties", "terrain-settings-different"),
+            "terrain config");
+        assertRejected(old, replace(current, "policy:compatibility", "policy-different"),
+            "fingerprint policy");
 
         List<FingerprintManifest.Entry> extra = new ArrayList<>(newEntries);
-        extra.add(value("mods/unverified-worldgen.jar", "new-code"));
-        assertRejected(old, manifest(extra), "unreviewed added generation MOD");
+        extra.add(value("mods/new-unknown-terrain.jar", "unreviewed-worldgen"));
+        assertRejected(old, manifest(extra), "added generation-sensitive MOD");
 
         List<FingerprintManifest.Entry> two = new ArrayList<>(newEntries);
-        two.add(jar(PAIRS.getFirst().oldName(), PAIRS.getFirst().oldSize(), PAIRS.getFirst().oldSha()));
-        assertRejected(old, manifest(two), "two Chunksmith versions installed together");
+        two.add(jar(PAIRS.getFirst().oldName()));
+        assertRejected(old, manifest(two), "duplicate role");
 
-        require(!AuditedGenerationUpgrade.eligible(updated, old),
-            "approval is one-way, not permission to downgrade");
-        require(!FingerprintManifest.sameCompatibilityInputsExcept(
-            updated, old, Set.of("policy:compatibility")),
-            "downgrade cannot be admitted by this transition");
-
-        verifyShippedArtifacts();
-        System.out.println("Audited generation upgrade: positive + fail-closed scenarios PASS");
+        testPerFileFormatAndSelectiveMigration(old);
+        System.out.println("Format-based cache migration: dynamic releases + field validation + selective transfer PASS");
     }
 
-    private static void verifyShippedArtifacts() {
-        String dir = System.getProperty("auditedUpgrade.modsDir");
-        if (dir == null || dir.isBlank()) return;
-        for (Artifact pair : PAIRS) {
-            Path file = Path.of(dir).resolve(pair.newName());
-            try {
-                require(Files.isRegularFile(file), "missing shipped JAR " + file);
-                require(Files.size(file) == pair.newSize(), "shipped JAR size changed: " + file);
-                byte[] data = Files.readAllBytes(file);
-                String sha = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(data));
-                require(sha.equals(pair.newSha()), "unreviewed shipped JAR hash: " + file);
-            } catch (Exception e) {
-                throw new AssertionError("Unable to verify exact distributed JAR " + file, e);
+    private static void testPerFileFormatAndSelectiveMigration(
+        FingerprintManifest.Manifest historical
+    ) throws Exception {
+        Path directory = Files.createTempDirectory("maki-cache-format-upgrade");
+        try {
+            Path old = directory.resolve("previous");
+            Path current = directory.resolve("new");
+            Path valid = old.resolve("r.11.-2/c.383.-61.nbt.gz");
+            Path invalid = old.resolve("r.11.-2/c.382.-61.nbt.gz");
+            Files.createDirectories(valid.getParent());
+
+            CompoundTag good = envelope(historical.fingerprint(), 383, -61);
+            NbtIo.writeCompressed(good, valid);
+            require(CacheFormatValidator.rejectReason(
+                valid, historical, "minecraft:overworld", DATA_VERSION) == null,
+                "a complete v3 FULL with identical DataVersion must pass");
+
+            CompoundTag bad = envelope(historical.fingerprint(), 382, -61);
+            bad.putBoolean("entitiesComplete", false);
+            NbtIo.writeCompressed(bad, invalid);
+            require("entities-or-lod-incomplete".equals(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                "incomplete entities must remain old/quarantined");
+
+            CacheDirectoryMerge.MergeStats stats = CacheDirectoryMerge.mergeValidated(
+                old, current,
+                p -> CacheFormatValidator.rejectReason(
+                    p, historical, "minecraft:overworld", DATA_VERSION) == null);
+            require(stats.sourceEntries() == 2 && stats.adoptedEntries() == 1
+                && stats.rejectedEntries() == 1,
+                "only the format-valid FULL should migrate");
+            require(Files.isRegularFile(current.resolve("r.11.-2/c.383.-61.nbt.gz")),
+                "valid cache moved into the new generation");
+            require(Files.isRegularFile(invalid), "invalid FULL must survive for quarantine");
+            require(!Files.exists(valid), "validated original was moved");
+
+            NbtIo.writeCompressed(envelope(historical.fingerprint(), 382, -61), invalid);
+            CompoundTag village = envelope(historical.fingerprint(), 382, -61);
+            CompoundTag villageEntity = new CompoundTag();
+            villageEntity.putString("id", "millenaire:villager");
+            ListTag entities = new ListTag();
+            entities.add(villageEntity);
+            village.getCompound("chunk").put("entities", entities);
+            NbtIo.writeCompressed(village, invalid);
+            require("contains-millenaire-content".equals(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                "serialized village content must not be imported blindly");
+
+            village = envelope(historical.fingerprint(), 382, -61);
+            village.getCompound("chunk").putInt("DataVersion", DATA_VERSION+1);
+            NbtIo.writeCompressed(village, invalid);
+            require("data-version-mismatch".equals(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                "data version mismatch must reject");
+
+            village = envelope(historical.fingerprint(), 382, -61);
+            village.putInt("schema", CacheEnvelope.SCHEMA+1);
+            NbtIo.writeCompressed(village, invalid);
+            require("cache-schema".equals(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                "new/unsupported serialization must reject");
+
+            village = envelope("aaaaaaaaaaaaaaaaaaaaaaaa", 382, -61);
+            NbtIo.writeCompressed(village, invalid);
+            require("unaccepted-stored-fingerprint".equals(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                "untrusted stored generation marker must reject");
+
+            village = envelope(historical.fingerprint(), 381, -61);
+            NbtIo.writeCompressed(village, invalid);
+            require("coordinates-mismatch".equals(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                "mismatched coordinates must reject");
+
+            village = envelope(historical.fingerprint(), 382, -61);
+            village.putBoolean("lodCommitted", false);
+            NbtIo.writeCompressed(village, invalid);
+            require("entities-or-lod-incomplete".equals(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                "incomplete LOD must reject");
+
+            Files.writeString(invalid, "not-gzip");
+            require(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld", DATA_VERSION) != null,
+                "corrupt GZIP/NBT must reject");
+        } finally {
+            try (var files = Files.walk(directory)) {
+                for (Path path : files.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                    Files.deleteIfExists(path);
+                }
             }
         }
     }
 
+    private static CompoundTag envelope(String fingerprint, int x, int z) {
+        CompoundTag e = new CompoundTag();
+        e.putInt("schema", CacheEnvelope.SCHEMA);
+        e.putBoolean("entitiesComplete", true);
+        e.putBoolean("lodCommitted", true);
+        e.putString("fingerprint", fingerprint);
+        e.putString("dimension", "minecraft:overworld");
+        e.putInt("x", x);
+        e.putInt("z", z);
+        CompoundTag chunk = new CompoundTag();
+        chunk.putString("Status", "minecraft:full");
+        chunk.putInt("DataVersion", DATA_VERSION);
+        chunk.putInt("xPos", x);
+        chunk.putInt("zPos", z);
+        chunk.put("entities", new ListTag());
+        e.put("chunk", chunk);
+        return e;
+    }
+
     private static void assertRejected(FingerprintManifest.Manifest old,
-                                       FingerprintManifest.Manifest current, String scenario) {
+                                       FingerprintManifest.Manifest current, String message) {
         require(!FingerprintManifest.sameCompatibilityInputsExcept(
-            old, current, Set.of("policy:compatibility")), scenario + " must fail closed");
+            old, current, Set.of("policy:compatibility")),
+            message + " must reject migration");
     }
 
     private static List<FingerprintManifest.Entry> baseline() {
         return new ArrayList<>(List.of(
-            value("policy:compatibility", "policy-v9 example"),
-            value("level:seed", "real-seed"),
+            value("policy:compatibility", "policy-v9"),
+            value("level:seed", "original-seed"),
             value("level:dimension", "minecraft:overworld"),
-            value("level:generator-class", "net.minecraft.world.level.levelgen.NoiseBasedChunkGenerator"),
-            value("minecraft:data-version", "3955"),
-            value("level.dat:WorldGenSettings", "worldgen-settings"),
-            value("world/datapacks/example/pack.mcmeta", "source-datapack"),
-            value("config/epicterrain.properties", "terrain-settings"),
-            value("mods/epicterrain-0.3.0-1.21.1.jar", "same-epicterrain-jar")
+            value("level:generator-class", "NoiseBasedChunkGenerator"),
+            value("minecraft:data-version", Integer.toString(DATA_VERSION)),
+            value("level.dat:WorldGenSettings", "worldgen-still-same"),
+            value("world/datapacks/test/pack.mcmeta", "datapack-still-same"),
+            value("config/epicterrain.properties", "terrain-options"),
+            value("mods/epicterrain-0.3.0-1.21.1.jar", "terrain-binary")
         ));
     }
 
-    private static FingerprintManifest.Manifest replace(FingerprintManifest.Manifest original,
-                                                         String key, String text) {
+    private static FingerprintManifest.Manifest replace(
+        FingerprintManifest.Manifest original, String from, String newKey, String text
+    ) {
         List<FingerprintManifest.Entry> entries = new ArrayList<>();
-        boolean found = false;
+        boolean changed = false;
         for (FingerprintManifest.Entry entry : original.entries()) {
-            if (entry.key().equals(key)) { entries.add(value(key, text)); found = true; }
-            else entries.add(entry);
+            if (entry.key().equals(from)) {
+                entries.add(value(newKey, text));
+                changed = true;
+            } else entries.add(entry);
         }
-        require(found, "test setup missing key " + key);
+        require(changed, "test setup missing " + from);
         return manifest(entries);
     }
+
+    private static FingerprintManifest.Manifest replace(
+        FingerprintManifest.Manifest original, String key, String text
+    ) { return replace(original, key, key, text); }
 
     private static FingerprintManifest.Manifest remove(FingerprintManifest.Manifest original, String key) {
         List<FingerprintManifest.Entry> entries = new ArrayList<>(original.entries());
-        require(entries.removeIf(entry -> entry.key().equals(key)), "test setup missing key " + key);
+        require(entries.removeIf(e -> e.key().equals(key)), "test setup missing " + key);
         return manifest(entries);
     }
 
-    private static FingerprintManifest.Entry jar(String name, long size, String sha) {
-        return new FingerprintManifest.Entry("mods/" + name, size, sha,
-            FingerprintManifest.Impact.RELEVANT, "exact audited source");
+    private static FingerprintManifest.Entry jar(String name) {
+        return value("mods/" + name, "SHA-example-" + name);
     }
 
-    private static FingerprintManifest.Entry value(String key, String text) {
-        return new FingerprintManifest.Entry(key, text.length(), CompatibilityFingerprint.sha256(text),
-            FingerprintManifest.Impact.RELEVANT, "test input");
+    private static FingerprintManifest.Entry value(String key, String value) {
+        return new FingerprintManifest.Entry(key, value.length(),
+            CompatibilityFingerprint.sha256(value),
+            FingerprintManifest.Impact.RELEVANT, "test semantic input");
     }
 
     private static FingerprintManifest.Manifest manifest(List<FingerprintManifest.Entry> entries) {
         return new FingerprintManifest.Manifest(
-            CompatibilityFingerprint.compute(entries), 1L, Set.of(), entries);
+            CompatibilityFingerprint.compute(entries), 1L, Set.of(
+                CompatibilityFingerprint.compute(entries)), entries);
     }
 
     private static void require(boolean condition, String message) {
