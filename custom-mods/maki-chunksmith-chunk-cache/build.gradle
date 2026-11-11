@@ -589,7 +589,7 @@ tasks.register('verifyPregenControllerV2') {
         ['LodReceipt','sourceToken','PHYSICAL','BY_COORDINATE','physicalTerminal'].each { token ->
             if(!lod.contains(token))throw new GradleException('Pregen V2 regression: exact LOD physical/source proof missing '+token)
         }
-        ['completion','lodSha256','ATOMIC_MOVE','channel.force(true)','store.read(pos.x,pos.z)','lodDigest(record)',
+        ['completion','fullSha256','lodSha256','ATOMIC_MOVE','channel.force(true)','store.read(pos.x,pos.z)','lodDigest(record)',
          'currentLodMatches','CachePathLocks.lock(PromotionClaim.claimedPath(full))'].each { token ->
             if(!receipt.contains(token))throw new GradleException('Pregen V2 regression: durable PAIR receipt/revalidation missing '+token)
         }
