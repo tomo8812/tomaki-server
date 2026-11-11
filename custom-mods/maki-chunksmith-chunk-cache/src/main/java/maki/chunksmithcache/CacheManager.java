@@ -1819,8 +1819,8 @@ public final class CacheManager {
       PairReceiptStore.clear();
       LodRegionCapacity.clear();
       synchronized(PREGEN_PROGRESS_REJECTED){PREGEN_PROGRESS_REJECTED.clear();}
-      PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
-      PREGEN_LOD_RETRY.removeIf(key -> key.level().getServer()==server);
+      PREGEN_RETRY.clear();
+      PREGEN_LOD_RETRY.clear();
       PREGEN_NEW_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
       PREGEN_REQUEST_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
       LOD_PENDING.keySet().removeIf(key -> key.level().getServer()==server);
