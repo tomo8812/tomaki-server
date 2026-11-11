@@ -42,6 +42,7 @@ public abstract class GenerationRequestMixin {
         ChunkPos pos=new ChunkPos(x,z);
         if(!CacheManager.reservePregenCandidate(neoforge.getWorld(),pos,sourceTask)) {
             CacheManager.markPregenProgressRejected(sourceTask,pos);
+            CacheManager.deferPregenAdmissionRetry(neoforge.getWorld(),pos);
             PipelineMetrics.count("pregen-candidate-admission-rejected");
             return CompletableFuture.failedFuture(
                 new IllegalStateException("Unified pregen stage WIP admission blocked at "+pos));
