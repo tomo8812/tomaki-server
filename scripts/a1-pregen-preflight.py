@@ -30,6 +30,39 @@ def read_text(path):
         return None
 
 
+def cgroup_v2_root():
+    # Mount namespace paths vary. /sys/fs/cgroup typically exposes the current
+    # hierarchy inside the container; do not assume an SSH unit equals JVM unit.
+    own = read_text('/proc/self/cgroup') or ''
+    for line in own.splitlines():
+        if line.startswith('0::'):
+            path = line.partition('0::')[2]
+            return '/sys/fs/cgroup', path
+    return None, None
+
+
+def cgroup_cpu_stat():
+    text = read_text('/sys/fs/cgroup/cpu.stat')
+    if not text:
+        return None
+    result = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            try:
+                result[parts[0]] = int(parts[1])
+            except ValueError:
+                pass
+    return result
+
+
+def stat_delta(before, after):
+    if not before or not after:
+        return None
+    return {key: after[key] - value for key, value in before.items()
+            if key in after and after[key] >= value}
+
+
 def meminfo_kib(name):
     for line in (read_text('/proc/meminfo') or '').splitlines():
         if line.startswith(name + ':'):
@@ -126,8 +159,14 @@ def main():
         parser.error('--dir must be an existing directory')
     du = shutil.disk_usage(workdir)
     # A low-space VM still gets a useful read-only host report.
+    root, hierarchy = cgroup_v2_root()
     report = {
-        'profile_version': 1,
+        'profile_version': 2,
+        'measurement_scope': 'ssh-python-process',
+        'target_runtime_limits': 'unverified; confirm Minecraft JVM process/cgroup at runtime',
+        'proc_self_cgroup': read_text('/proc/self/cgroup'),
+        'cgroup_v2_mount': root,
+        'cgroup_self_hierarchy': hierarchy,
         'target': 'Oracle VM.Standard.A1.Flex 2 OCPU / 12 GB (expected; verify below)',
         'architecture': platform.machine(),
         'logical_cpus_visible': os.cpu_count(),
@@ -138,14 +177,22 @@ def main():
         'mem_available_mib': round((meminfo_kib('MemAvailable') or 0) / 1024),
         'disk_free_gib': round(du.free / 1024**3, 2),
         'cpu_psi_avg10_pct': pressure('cpu'),
+        'psi_scope': 'system /proc/pressure (not necessarily JVM cgroup)',
+        'cgroup_cpu_pressure': read_text('/sys/fs/cgroup/cpu.pressure'),
+        'cgroup_memory_pressure': read_text('/sys/fs/cgroup/memory.pressure'),
+        'cgroup_io_pressure': read_text('/sys/fs/cgroup/io.pressure'),
         'memory_psi_avg10_pct': pressure('memory'),
         'io_psi_avg10_pct': pressure('io'),
     }
     total0, idle0 = cpu_sample()
+    cgroup0 = cgroup_cpu_stat()
     time.sleep(1)
+    cgroup1 = cgroup_cpu_stat()
     total1, idle1 = cpu_sample()
     dt = total1 - total0
     report['system_cpu_utilization_1s_pct'] = round(100 * (1 - (idle1-idle0)/dt), 1) if dt > 0 else None
+    report['system_cpu_utilization_scope'] = 'system /proc/stat'
+    report['cgroup_cpu_stat_delta_1s'] = stat_delta(cgroup0, cgroup1)
     report['cpu_microbenchmark'] = benchmark_cpu()
     try:
         report['disk_microbenchmark'] = benchmark_disk(workdir)
@@ -165,9 +212,22 @@ def main():
             if available < DISK_RESERVE_BYTES + DISK_SAFETY_MARGIN_BYTES + 64 * 1024:
                 report['output_skipped_reason'] = 'insufficient-free-space-for-json-preserving-reserve'
             else:
-                with open(args.output, 'w', encoding='utf-8') as f:
-                    f.write(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                if hasattr(os, 'O_NOFOLLOW'):
+                    flags |= os.O_NOFOLLOW
+                fd = os.open(args.output, flags, 0o600)
+                try:
+                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                        f.write(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+                except BaseException:
+                    try:
+                        os.unlink(args.output)
+                    except OSError:
+                        pass
+                    raise
                 report['output_written'] = args.output
+                report['output_filesystem_path'] = parent
+                report['output_filesystem_device'] = os.stat(parent).st_dev
         except OSError as exc:
             report['output_skipped_reason'] = str(exc)
     print(json.dumps(report, ensure_ascii=False, indent=2))
