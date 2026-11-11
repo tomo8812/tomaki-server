@@ -7,7 +7,10 @@ import java.util.concurrent.CompletableFuture;
 /** Native physical handles must outlive logical deadlines and never alias coordinates. */
 public final class LodPhysicalSelfTest {
     private static CsLodChunk record(int x,int z) {
-        return new CsLodChunk("minecraft:overworld",x,z,0,List.of(),List.of(),List.of());
+        return record("minecraft:overworld",x,z);
+    }
+    private static CsLodChunk record(String dimension,int x,int z) {
+        return new CsLodChunk(dimension,x,z,0,List.of(),List.of(),List.of());
     }
     private static void require(boolean condition,String message) {
         if(!condition)throw new AssertionError(message);
@@ -39,6 +42,22 @@ public final class LodPhysicalSelfTest {
         LodCommitTracker.written(fresh,null);
         LodCommitTracker.written(fresh,null);
         require(Boolean.TRUE.equals(good.join()),"uncontended ACK should succeed exactly once");
+        CsLodChunk external=record(74,13),owned=record(74,13);
+        CompletableFuture<Boolean> overlap=new CompletableFuture<>();
+        LodCommitTracker.track(external,null);
+        LodCommitTracker.track(owned,overlap);
+        require(overlap.isDone()&&!overlap.join(),"player write overlap fails closed");
+        LodCommitTracker.written(external,null);
+        LodCommitTracker.written(owned,null);
+
+        CsLodChunk overworld=record(75,13),nether=record("minecraft:the_nether",75,13);
+        CompletableFuture<Boolean> a=new CompletableFuture<>(),b=new CompletableFuture<>();
+        LodCommitTracker.track(overworld,a);
+        LodCommitTracker.track(nether,b);
+        LodCommitTracker.written(overworld,null);
+        LodCommitTracker.written(nether,null);
+        require(a.join() && b.join(),"independent dimensions do not collide");
+
         require(LodCommitTracker.physicalStatus().reliable(),"no native record identities were lost");
         System.out.println("LodPhysicalSelfTest passed");
     }

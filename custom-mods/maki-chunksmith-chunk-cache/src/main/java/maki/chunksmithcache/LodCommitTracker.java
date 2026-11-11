@@ -20,7 +20,8 @@ import net.minecraft.world.level.chunk.LevelChunk;
 public final class LodCommitTracker {
     private static final int MAX_PHYSICAL = 4096;
     private static final IdentityHashMap<CsLodChunk, Physical> PHYSICAL = new IdentityHashMap<>();
-    private static final Map<Long, Set<Physical>> BY_COORDINATE = new HashMap<>();
+    private static final Map<Coordinate, Set<Physical>> BY_COORDINATE = new HashMap<>();
+    private record Coordinate(String dimension,int x,int z) {}
     private static final ThreadLocal<Request> CURRENT = new ThreadLocal<>();
     private static long unknownPhysical;
 
@@ -34,9 +35,10 @@ public final class LodCommitTracker {
     }
     private static final class Physical {
         final CompletableFuture<Boolean> result;
-        final long coordinate, startedNanos;
+        final Coordinate coordinate;
+        final long startedNanos;
         boolean collided;
-        Physical(CompletableFuture<Boolean> result, long coordinate) {
+        Physical(CompletableFuture<Boolean> result, Coordinate coordinate) {
             this.result=result; this.coordinate=coordinate; this.startedNanos=System.nanoTime();
         }
     }
@@ -71,11 +73,15 @@ public final class LodCommitTracker {
     }
 
     public static void offered(Object value) {
+        if (!(value instanceof CsLodChunk record)) return;
         Request request = CURRENT.get();
-        if (request != null && value instanceof CsLodChunk record
-            && record.getChunkX() == request.x && record.getChunkZ() == request.z) {
+        if (request != null && record.getChunkX()==request.x && record.getChunkZ()==request.z) {
             request.registrations++;
-            track(record, request.result);
+            track(record,request.result);
+        } else if (request == null) {
+            // Normal/player LOD writes share this native store. Track their
+            // physical lifetime so overlapping pregen writes fail closed.
+            track(record,null);
         }
     }
 
@@ -87,25 +93,25 @@ public final class LodCommitTracker {
             Physical duplicate=PHYSICAL.get(record);
             if (duplicate != null) {
                 duplicate.collided=true;
-                unsafe.add(future);
-                unsafe.add(duplicate.result);
+                if(future!=null) unsafe.add(future);
+                if(duplicate.result!=null) unsafe.add(duplicate.result);
             } else if (PHYSICAL.size() >= MAX_PHYSICAL) {
                 // This untracked native write may still complete much later.
                 // Keep a sticky unknown indication instead of reporting zero WIP.
                 unknownPhysical++;
                 overflow=true;
-                unsafe.add(future);
+                if(future!=null) unsafe.add(future);
             } else {
-                long coordinate=((long)record.getChunkX()<<32) | (record.getChunkZ() & 0xffffffffL);
+                Coordinate coordinate=new Coordinate(record.getDimension(),record.getChunkX(),record.getChunkZ());
                 Physical current=new Physical(future,coordinate);
                 Set<Physical> existing=BY_COORDINATE.computeIfAbsent(coordinate,ignored->new HashSet<>());
                 if (!existing.isEmpty()) {
                     current.collided=true; overlap=true;
                     for (Physical old:existing) {
                         old.collided=true;
-                        unsafe.add(old.result);
+                        if(old.result!=null) unsafe.add(old.result);
                     }
-                    unsafe.add(future);
+                    if(future!=null) unsafe.add(future);
                 }
                 existing.add(current);
                 PHYSICAL.put(record,current);
@@ -131,10 +137,12 @@ public final class LodCommitTracker {
             }
         }
         if(work==null) return;
-        boolean late=work.result.isDone();
-        if(work.collided) work.result.complete(false);
-        else if(error==null) work.result.complete(true);
-        else work.result.completeExceptionally(error);
+        boolean late=work.result!=null && work.result.isDone();
+        if(work.result!=null) {
+            if(work.collided) work.result.complete(false);
+            else if(error==null) work.result.complete(true);
+            else work.result.completeExceptionally(error);
+        }
         PipelineMetrics.count(error==null ? "lod-physical-write-ack" : "lod-physical-write-failed");
         if(late) PipelineMetrics.count("lod-physical-late-terminal");
     }

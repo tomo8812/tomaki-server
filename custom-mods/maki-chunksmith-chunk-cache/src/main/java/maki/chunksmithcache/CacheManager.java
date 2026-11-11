@@ -365,7 +365,8 @@ public final class CacheManager {
    }
 
    public static boolean pregenReady(MinecraftServer server) {
-      return server!=null && Fingerprint.snapshotForLevel(server.overworld())!=null;
+      return server!=null && Fingerprint.snapshotForLevel(server.overworld())!=null
+         && LodCommitTracker.physicalStatus().reliable();
    }
 
    private static boolean anyInRange(MinecraftServer server,Iterable<CaptureKey> keys,int centerX,int centerZ,long radiusSquared) {
@@ -799,7 +800,8 @@ public final class CacheManager {
          submitted = true;
          // The validation operation may remain queued in native I/O. Expiring our detached work
          // drops its NBT, but its inspection permit remains held until the actual native completion.
-         result.completeOnTimeout(false, 30L, TimeUnit.SECONDS);
+         // The timeout must synchronize with the final atomic publication.
+         CompletableFuture.delayedExecutor(30L,TimeUnit.SECONDS).execute(work::timeout);
       } finally {
          if (!submitted) inspection.close();
       }
@@ -860,11 +862,16 @@ public final class CacheManager {
          Files.createDirectories(file.getParent());
          long previous = Files.isRegularFile(file) ? Files.size(file) : 0L;
          NbtIo.writeCompressed(envelope, temporary);
-         if (work.result.isDone() || STOPPING.contains(server)) return;
-         if (!PromotionClaim.publish(temporary,file)) { work.result.complete(false); return; }
-         work.storage.published(Files.size(file)-previous);
-         PipelineMetrics.time("cache-write", System.nanoTime()-started);
-         work.result.complete(true);
+         long newSize=Files.size(temporary);
+         // timeout() and the atomic rename use the same commitment lock:
+         // an expired capture cannot publish after its logical failure.
+         synchronized (work) {
+            if (work.result.isDone() || STOPPING.contains(server)) return;
+            if (!PromotionClaim.publish(temporary,file)) { work.result.complete(false); return; }
+            work.storage.published(newSize-previous);
+            PipelineMetrics.time("cache-write", System.nanoTime()-started);
+            work.result.complete(true);
+         }
       } catch (Throwable error) {
          LOG.warn("Could not write chunk cache {}", file, error);
          work.result.complete(false);
@@ -886,6 +893,7 @@ public final class CacheManager {
          this.memory=memory; this.storage=storage; this.result=result; this.inspection=inspection;
          this.lodCommitted=lodCommitted;
       }
+      synchronized void timeout() { if (!result.isDone()) result.complete(false); }
       synchronized CompoundTag beginWrite() {
          if (result.isDone()) return null;
          CompoundTag tag=snapshot.getAndSet(null);
