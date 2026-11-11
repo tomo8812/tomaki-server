@@ -4,15 +4,14 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Properties;
 
 final class FingerprintPolicy {
     static final String CONFIG_RELATIVE = "config/maki-chunksmith-chunk-cache.properties";
     private static final long DEFAULT_MAX_BYTES = 50L * 1024L * 1024L * 1024L;
 
-    // Code-driven generation inputs that are known to affect generated results even
-    // when their JAR contains no datapack worldgen resources.
-    // These are the known current generation-affecting distributions. When
+    // Current deployment's generation-affecting MODs. When
     // installing another generation MOD, update this code as part of that change.
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_JAR_PREFIXES = List.of(
         "zfastnoise-", "epicterrain-", "worldgenfeaturefix-", "terrain_slabs-", "disabler-",
@@ -74,7 +73,6 @@ final class FingerprintPolicy {
         if (isGenerationSensitivePath(normalized)) return FingerprintManifest.Impact.RELEVANT;
 
         if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
-            if (isCacheNeutralJarName(normalized)) return FingerprintManifest.Impact.IGNORED;
             if (isGenerationSensitiveJarName(physicalPath.getFileName().toString())) {
                 return FingerprintManifest.Impact.RELEVANT;
             }
@@ -154,18 +152,6 @@ final class FingerprintPolicy {
             return false;
         }
         return entry.impact() == FingerprintManifest.Impact.RELEVANT;
-    }
-
-    private static boolean isCacheNeutralJarName(String name) {
-        String lower = name.toLowerCase(Locale.ROOT);
-        return lower.startsWith("mods/chunksmith-")
-            || lower.startsWith("mods/millenaire-")
-            || lower.startsWith("mods/maki-millenaire-lod-compat-")
-            || lower.startsWith("mods/maki-idle-pregen-")
-            || lower.startsWith("mods/maki-ship-save-")
-            || lower.startsWith("mods/maki-chunksmith-chunk-cache-")
-            || lower.startsWith("mods/maki-lod-cpu-")
-            || lower.startsWith("mods/maki-mods-observer-");
     }
 
     private static boolean matchesRule(String logicalPath, String rule) {
