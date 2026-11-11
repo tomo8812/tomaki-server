@@ -84,7 +84,7 @@ final class PregenFlowController {
                 }
                 lastServiceSampleNanos=now;
                 serviceEwmaNanos=serviceEwmaNanos==0?serviceNanos:serviceEwmaNanos*.8+serviceNanos*.2;
-                serviceSamples=Math.min(Integer.MAX_VALUE,serviceSamples+1);
+                if(serviceSamples<Integer.MAX_VALUE)serviceSamples++;
                 if(serviceSamples<MIN_SERVICE_SAMPLES)return;
                 long proposed=Math.round(Math.ceil(targetWaitNanos/Math.max(1.0,serviceEwmaNanos)));
                 // FAST remains adaptive during c-neighbourhood probes. The
