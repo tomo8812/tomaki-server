@@ -7,20 +7,30 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 final class CacheDirectoryMerge {
     private CacheDirectoryMerge() {}
 
     static MergeStats merge(Path source, Path target) throws IOException {
-        return transferCacheEntries(source, target, false);
+        return transferCacheEntries(source, target, false, null);
     }
 
     static MergeStats copyCacheEntriesPreservingSource(Path source, Path target) throws IOException {
-        return transferCacheEntries(source, target, true);
+        return transferCacheEntries(source, target, true, null);
     }
 
-    private static MergeStats transferCacheEntries(Path source, Path target, boolean preserveSource) throws IOException {
+    static MergeStats mergeValidated(Path source, Path target, Predicate<Path> verified) throws IOException {
+        return transferCacheEntries(source, target, false, verified);
+    }
+
+    static MergeStats copyValidatedPreservingSource(Path source, Path target, Predicate<Path> verified) throws IOException {
+        return transferCacheEntries(source, target, true, verified);
+    }
+
+    private static MergeStats transferCacheEntries(Path source, Path target,
+                                                     boolean preserveSource, Predicate<Path> verified) throws IOException {
         Files.createDirectories(target);
         List<Path> files;
         try (Stream<Path> stream = Files.walk(source)) {
@@ -35,7 +45,12 @@ final class CacheDirectoryMerge {
 
         long adopted = 0L;
         long duplicates = 0L;
+        long rejected = 0L;
         for (Path path : files) {
+            if (verified != null && !verified.test(path)) {
+                rejected++;
+                continue;
+            }
             Path destination = target.resolve(source.relativize(path));
             Files.createDirectories(destination.getParent());
             if (Files.exists(destination)) {
@@ -51,9 +66,12 @@ final class CacheDirectoryMerge {
         }
 
         if (!preserveSource) {
-            deleteTree(source);
+            // A failed format check must never be removed alongside approved
+            // files. The caller quarantines the remaining old generation.
+            if (rejected == 0L) deleteTree(source);
+            else deleteEmptyDirectories(source);
         }
-        return new MergeStats(files.size(), adopted, duplicates);
+        return new MergeStats(files.size(), adopted, duplicates, rejected);
     }
 
     private static void move(Path source, Path target) throws IOException {
@@ -72,5 +90,15 @@ final class CacheDirectoryMerge {
         }
     }
 
-    record MergeStats(long sourceEntries, long adoptedEntries, long duplicateEntries) {}
+    private static void deleteEmptyDirectories(Path root) throws IOException {
+        try (Stream<Path> stream = Files.walk(root)) {
+            for (Path directory : stream.sorted(Comparator.reverseOrder()).filter(Files::isDirectory).toList()) {
+                try (Stream<Path> contents = Files.list(directory)) {
+                    if (contents.findAny().isEmpty()) Files.deleteIfExists(directory);
+                }
+            }
+        }
+    }
+
+    record MergeStats(long sourceEntries, long adoptedEntries, long duplicateEntries, long rejectedEntries) {}
 }
