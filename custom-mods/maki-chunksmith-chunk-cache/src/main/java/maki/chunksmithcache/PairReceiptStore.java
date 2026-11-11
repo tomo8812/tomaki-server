@@ -40,7 +40,7 @@ final class PairReceiptStore {
         if(level==null||pos==null||fingerprint==null||full==null||sourceToken==null||lod==null
             ||!sourceToken.equals(lod.sourceToken())||lod.x()!=pos.x||lod.z()!=pos.z
             ||!level.dimension().location().toString().equals(lod.dimension()))return PublishResult.FAILED;
-        try {
+        try(var ignored=CachePathLocks.lock(PromotionClaim.claimedPath(full))) {
             FullIdentity fullIdentity=fullIdentity(full);
             long fullSize=fullIdentity.size(),fullMtime=fullIdentity.mtime();
             if(!currentLodMatches(level,pos,lod)) {
