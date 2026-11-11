@@ -17,6 +17,7 @@ import java.security.DigestOutputStream;
 import java.security.MessageDigest;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -30,6 +31,7 @@ final class PairReceiptStore {
     enum PublishResult { NEW, EXISTING, FAILED }
     private static final int VERSION=1;
     private static final Map<Path,ValidationStamp> VALIDATED=new ConcurrentHashMap<>();
+    private static final Set<Path> REVALIDATED=ConcurrentHashMap.newKeySet();
     private record FullIdentity(long size,long mtime,String fileKey) {}
     private record ValidationStamp(long fullSize,long fullMtime,String fullKey,long lodSize,long lodMtime) {}
     private PairReceiptStore() {}
@@ -54,6 +56,7 @@ final class PairReceiptStore {
             Properties prior=load(receipt);
             if(prior!=null&&completion.equals(prior.getProperty("completion"))) {
                 VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),lodSize,lodMtime));
+                REVALIDATED.add(receipt);
                 return PublishResult.EXISTING;
             }
             Properties properties=new Properties();
@@ -94,6 +97,7 @@ final class PairReceiptStore {
             }
             long finalLodSize=Files.size(region),finalLodMtime=Files.getLastModifiedTime(region).toMillis();
             VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),finalLodSize,finalLodMtime));
+            REVALIDATED.add(receipt);
             return PublishResult.NEW;
         } catch(Throwable error) {
             PipelineMetrics.count("pair-receipt-publish-failed");
@@ -128,7 +132,7 @@ final class PairReceiptStore {
             finally{try{store.close();}catch(IOException ignored){}}
             if(record==null||!properties.getProperty("lodSha256","").equals(lodDigest(record)))return false;
             VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),lodSize,lodMtime));
-            PregenFlowController.pairRevalidated();
+            if(REVALIDATED.add(receipt))PregenFlowController.pairRevalidated();
             return true;
         } catch(Throwable invalid) {
             VALIDATED.remove(receipt);
@@ -140,9 +144,10 @@ final class PairReceiptStore {
         if(full==null)return;
         Path sidecar=receipt(full);
         VALIDATED.remove(sidecar);
+        REVALIDATED.remove(sidecar);
         try{Files.deleteIfExists(sidecar);}catch(IOException ignored){}
     }
-    static void clear(){VALIDATED.clear();}
+    static void clear(){VALIDATED.clear();REVALIDATED.clear();}
 
     static String lodDigest(CsLodChunk record) {
         try {
