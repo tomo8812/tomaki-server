@@ -89,10 +89,8 @@ final class CompatibilityInput {
         }
 
         FingerprintManifest.Impact impact = policy.classify(key, file);
-        FingerprintManifest.Entry primary = new FingerprintManifest.Entry(
-            key, rawSize, rawSha256, impact, policy.reason(key, file, impact));
-        FingerprintManifest.Entry evidence = GenerationRoleEvidence.inspect(key, file);
-        return evidence == null ? List.of(primary) : List.of(primary, evidence);
+        return List.of(new FingerprintManifest.Entry(
+            key, rawSize, rawSha256, impact, policy.reason(key, file, impact)));
     }
 
     /**
@@ -115,9 +113,7 @@ final class CompatibilityInput {
     }
 
     static String policySignature() {
-        return "semantic-v2"
-            + "|zfastnoise=" + String.join(",", ZFASTNOISE_KEYS)
-            + "|" + AuditedModCompatibility.policySignature();
+        return "effective-zfastnoise-v1|zfastnoise=" + String.join(",", ZFASTNOISE_KEYS);
     }
 
     static FingerprintManifest.Entry normalizeHistoricalEntry(FingerprintManifest.Entry entry) {
