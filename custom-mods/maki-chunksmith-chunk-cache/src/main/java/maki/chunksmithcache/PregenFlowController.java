@@ -243,6 +243,15 @@ final class PregenFlowController {
         finishIfDone(attempt);
     }
 
+    static synchronized void pairExisting(String token) {
+        Attempt attempt=BY_TOKEN.get(token);
+        if(attempt==null||attempt.pairResolved)return;
+        attempt.pairResolved=true;
+        attempt.pairReported=true;
+        PipelineMetrics.count("pair-confirmed-existing");
+        finishIfDone(attempt);
+    }
+
     static synchronized void pairRevalidated() {
         pairRevalidated++;
         PipelineMetrics.count("pair-revalidated-after-restart");
