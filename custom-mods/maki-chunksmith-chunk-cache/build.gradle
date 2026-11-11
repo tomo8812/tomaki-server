@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.4.3'
+version = '1.4.4'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -538,3 +538,11 @@ tasks.register('verifyIssue83UnifiedPregen') {
     }
 }
 tasks.named('check') { dependsOn tasks.named('verifyIssue83UnifiedPregen') }
+
+tasks.register('auditedGenerationUpgradeTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.AuditedGenerationUpgradeSelfTest'
+    systemProperty 'auditedUpgrade.modsDir', file('../../mods').absolutePath
+}
+tasks.named('check') { dependsOn tasks.named('auditedGenerationUpgradeTest') }
