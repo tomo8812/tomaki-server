@@ -19,7 +19,8 @@ final class FingerprintPolicy {
     static final String UNKNOWN_MOD_REASON = "unknown code-driven generation impact; fail-closed until audited";
     private static final String OWN_MOD_ID = "maki_chunksmith_chunk_cache";
     private static final Set<String> BUILTIN_GENERATION_NEUTRAL_MOD_IDS = Set.of(
-        OWN_MOD_ID, "maki_lod_cpu", "maki_mods_observer", "maki_diorama_share"
+        OWN_MOD_ID, "maki_lod_cpu", "maki_mods_observer", "maki_diorama_share",
+        "chunksmith", "millenaire", "maki_millenaire_lod", "maki_idle_pregen", "maki_ship_save"
     );
     private static final String DEFAULT_IGNORED_PATHS =
         "config/maki-mods-observer.properties,config/maki-lod-cpu.properties,config/maki-diorama-share-client.toml,"
@@ -29,18 +30,15 @@ final class FingerprintPolicy {
     // Code-driven generation inputs that are known to affect generated results even
     // when their JAR contains no datapack worldgen resources.
     private static final Set<String> BUILTIN_GENERATION_SENSITIVE_MOD_IDS = Set.of(
-        "chunksmith", "zfastnoise", "epicterrain", "millenaire", "worldgenfeaturefix",
-        "maki_millenaire_lod", "terrain_slabs", "disabler"
+        "zfastnoise", "epicterrain", "worldgenfeaturefix", "terrain_slabs", "disabler"
     );
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_JAR_PREFIXES = List.of(
-        "chunksmith-", "zfastnoise-", "epicterrain-", "millenaire-", "worldgenfeaturefix-",
-        "maki-millenaire-lod-compat-", "terrain_slabs-", "disabler-"
+        "zfastnoise-", "epicterrain-", "worldgenfeaturefix-",
+        "terrain_slabs-", "disabler-"
     );
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_PATHS = List.of(
         "config/zfastnoise.mixin.properties",
         "config/disabler-server.json",
-        "serverconfig/millenaire-*.toml",
-        "world/serverconfig/millenaire-*.toml",
         "config/epicterrain*",
         "serverconfig/epicterrain*",
         "world/serverconfig/epicterrain*",
@@ -126,23 +124,25 @@ final class FingerprintPolicy {
 
         if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
             Set<String> ids = readTopLevelModIds(physicalPath);
+            // These roles schedule generation, preserve FULLs or defer villages.
+            // They do not own the terrain data stored by this cache.
+            if (ids.size() == 1 && BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())) {
+                return FingerprintManifest.Impact.IGNORED;
+            }
+            if (isCacheNeutralJarName(normalized)) return FingerprintManifest.Impact.IGNORED;
             if (ids.stream().anyMatch(this::isGenerationSensitiveModId)
                 || isGenerationSensitiveJarName(physicalPath.getFileName().toString())
                 || containsWorldgenResources(physicalPath)) {
                 return FingerprintManifest.Impact.RELEVANT;
             }
-            if (ids.size() == 1 && BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())) {
-                return FingerprintManifest.Impact.IGNORED;
-            }
-            // Absence of recognizable worldgen resources is not proof that code cannot
-            // alter generation. Unknown/new MODs therefore stay fail-closed; exact
-            // audited neutral artifacts are normalized later by CompatibilityInput.
-            return FingerprintManifest.Impact.RELEVANT;
+            // A newly installed code-only worldgen MOD must be marked sensitive
+            // when it is added, rather than anticipating every future MOD here.
+            return FingerprintManifest.Impact.IGNORED;
         }
 
-        // Unknown configuration can drive code-based generation too. Only explicit
-        // ignored paths and known semantic generation inputs are classified specially.
-        return FingerprintManifest.Impact.RELEVANT;
+        // Only configuration inputs which actually control terrain generation
+        // participate in FULL cache compatibility.
+        return FingerprintManifest.Impact.IGNORED;
     }
 
     boolean allowsAuditedNeutral(String logicalPath, Path physicalPath, String rawSha256) {
@@ -169,6 +169,7 @@ final class FingerprintPolicy {
         if (matchesIgnoredPath(normalized)) return "explicit generation-neutral path policy";
         if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
             Set<String> ids = readTopLevelModIds(physicalPath);
+            if (isCacheNeutralJarName(normalized)) return "generation scheduling or deferred village role, FULL terrain unchanged";
             if (impact == FingerprintManifest.Impact.RELEVANT) {
                 if (ids.stream().anyMatch(this::isGenerationSensitiveModId)) {
                     return "generation-sensitive MOD id=" + String.join(",", ids);
@@ -186,7 +187,7 @@ final class FingerprintPolicy {
             }
             return "explicit generation-neutral MOD input";
         }
-        if (isConfigurationPath(normalized)) return "unknown configuration impact; fail-closed until explicitly classified";
+        if (isConfigurationPath(normalized)) return "does not participate in FULL terrain generation";
         return impact == FingerprintManifest.Impact.RELEVANT ? "generation compatibility input" : "generation-neutral input";
     }
 
@@ -194,15 +195,11 @@ final class FingerprintPolicy {
         List<String> ignored = ignoredPaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
         List<String> sensitivePaths = generationSensitivePaths.stream().map(FingerprintPolicy::normalize).sorted().toList();
         List<String> sensitiveMods = generationSensitiveModIds.stream().sorted().toList();
-        return "policy-v9|self-mod-id=" + OWN_MOD_ID
-            + "|ignored-paths=" + String.join(",", ignored)
+        return "full-worldgen-inputs-v1"
             + "|generation-sensitive-mod-ids=" + String.join(",", sensitiveMods)
             + "|generation-sensitive-paths=" + String.join(",", sensitivePaths)
-            + "|generation-neutral-owned-mod-ids=" + BUILTIN_GENERATION_NEUTRAL_MOD_IDS.stream().sorted().toList()
-            + "|default-mod-policy=unknown-fail-closed-v1"
-            + "|default-config-policy=unknown-fail-closed-v1"
             + "|worldgen-resource-detection=v1"
-            + "|" + CompatibilityInput.policySignature();
+            + "|effective-zfastnoise=" + CompatibilityInput.policySignature();
     }
 
     int retentionDays() { return retentionDays; }
@@ -257,6 +254,47 @@ final class FingerprintPolicy {
             // Unreadable/corrupt JARs never become generation-neutral.
             return true;
         }
+    }
+
+    /**
+     * Compatibility is the responsibility of the FULL cache. Existing manifests
+     * from older policy revisions may call unrelated files RELEVANT; those
+     * historical classifications must not reject otherwise valid terrain.
+     * Actual generation inputs still compare by path, size and content SHA.
+     */
+    static boolean affectsCachedFull(FingerprintManifest.Entry entry) {
+        String key = normalize(entry.key());
+        if (key.equals("policy:compatibility") || key.startsWith("audit:")) return false;
+        if (key.startsWith("compat:mod:")) return false;
+        if (key.startsWith("mods/") && key.endsWith(".jar")) {
+            if (isCacheNeutralJarName(key)) return false;
+            if (isGenerationSensitiveJarName(key)) return true;
+            String reason = entry.reason();
+            return reason.contains("generation-sensitive MOD")
+                || reason.contains("worldgen/structure/dimension datapack")
+                || reason.contains("indirect zfastnoise generation override")
+                || reason.contains("generation override");
+        }
+        if (isConfigurationPath(key)) {
+            if (key.startsWith("world/datapacks/")) return true;
+            for (String rule : BUILTIN_GENERATION_SENSITIVE_PATHS)
+                if (matchesRule(key, rule)) return true;
+            return entry.reason().contains("declared/effective world-generation configuration");
+        }
+        if (key.startsWith("compat:")) return false;
+        return entry.impact() == FingerprintManifest.Impact.RELEVANT;
+    }
+
+    private static boolean isCacheNeutralJarName(String name) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.startsWith("mods/chunksmith-")
+            || lower.startsWith("mods/millenaire-")
+            || lower.startsWith("mods/maki-millenaire-lod-compat-")
+            || lower.startsWith("mods/maki-idle-pregen-")
+            || lower.startsWith("mods/maki-ship-save-")
+            || lower.startsWith("mods/maki-chunksmith-chunk-cache-")
+            || lower.startsWith("mods/maki-lod-cpu-")
+            || lower.startsWith("mods/maki-mods-observer-");
     }
 
     private boolean matchesIgnoredPath(String logicalPath) {
