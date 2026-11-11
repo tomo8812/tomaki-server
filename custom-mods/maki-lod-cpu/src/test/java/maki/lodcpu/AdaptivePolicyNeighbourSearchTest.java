@@ -22,7 +22,11 @@ final class AdaptivePolicyNeighbourSearchTest {
     }
 
     private static AdaptiveSample sample(int width) {
-        return new AdaptiveSample(5,50,12,40,1,4096,0,0,true,width,width,0,-1,0,false,0,0,0);
+        return sample(width,0);
+    }
+
+    private static AdaptiveSample sample(int width,long throttledMicros) {
+        return new AdaptiveSample(5,50,12,40,1,4096,0,0,true,width,width,0,-1,0,false,0,0,throttledMicros);
     }
 
     @Test
@@ -75,6 +79,16 @@ final class AdaptivePolicyNeighbourSearchTest {
         assertEquals(3,policy.update(sample(2),0,s,5,true,false,17L,5,0,0,100));
         assertEquals(2,policy.update(sample(3),0,s,6,true,false,17L,0,6,0,100));
         assertEquals("work-class-mix-changed",policy.reason);
+    }
+
+    @Test
+    void quotaThrottleRegressionRejectsFasterProbe() {
+        AdaptivePolicy policy=new AdaptivePolicy();
+        Settings s=settings();
+        policy.cap=2;
+        assertEquals(3,policy.update(sample(2,0),0,s,5,true,false,19L));
+        assertEquals(2,policy.update(sample(3,250_000),0,s,7,true,false,19L));
+        assertEquals("cpu-quota-throttle-regressed",policy.reason);
     }
 
     @Test
