@@ -19,6 +19,7 @@ public abstract class LodStoreCommitMixin {
     }
     @Redirect(method="persist", at=@At(value="INVOKE", target="Lcom/kishku7/chunksmith/lod/CsLodRegionStore;write(Lcom/kishku7/chunksmith/lod/CsLodChunk;)I"), require=1)
     private int maki$acknowledge(CsLodRegionStore store, CsLodChunk record) throws IOException {
+        LodCommitTracker.writing(record);
         try {
             int bytes=store.write(record);
             CacheManager.noteLodPhysicalBytes(record,bytes);
