@@ -394,7 +394,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !world.contains('runWithChunksmithRequestTask(sourceTask')
                 || !world.contains('pregenAttemptToken(level,chunk.getPos(),sourceTask)')
                 || !world.contains('LodCommitTracker.offer(level,chunk,attemptToken)')
-                || !world.contains('captureFromChunksmith(level,chunk,lodWritten,sourceTask)')
+                || !world.contains('captureFromChunksmith(level,chunk,lodWritten,sourceTask,attemptToken)')
                 || !world.contains('result.ifSuccess')
                 || !world.contains('chunk instanceof LevelChunk')
                 || !world.contains('CompletableFuture.failedFuture')) {
@@ -590,7 +590,8 @@ tasks.register('verifyPregenControllerV2') {
         def retryLedger=pregenV2RetryLedger.getText('UTF-8')
         def storage=pregenV2Storage.getText('UTF-8')
         ['enum Stage { LOD, VALIDATE, FULL }','reserveCandidate','beginActual','physicalStart','physicalTerminal',
-         'pairConfirmedRuntime','effectiveWindow','admissionEpoch','60_000_000_000L&&!attempt.held.isEmpty()',
+         'pairConfirmedRuntime','pairResolved','releaseTaskGenerationIfUnused','stageUnavailable',
+         'effectiveWindow','admissionEpoch','60_000_000_000L&&!attempt.held.isEmpty()',
          'generationCapChanged','pregen-service-model-reset','MIN_SERVICE_SAMPLES=3',
          'SERVICE_SAMPLE_STALE_NANOS','serviceSamples<MIN_SERVICE_SAMPLES',
          'stageMetric(stage,"physical-start")','stageMetric(stage,"terminal")',
@@ -619,7 +620,8 @@ tasks.register('verifyPregenControllerV2') {
             throw new GradleException('Pregen V2 regression: LOD service-rate learning includes queue wait or lacks actual writer start')
         }
         ['completion','fullSha256','lodSha256','ATOMIC_MOVE','channel.force(true)','store.read(pos.x,pos.z)','lodDigest(record)',
-         'currentLodMatches','CachePathLocks.lock(PromotionClaim.claimedPath(full))'].each { token ->
+         'currentLodMatches','CachePathLocks.lock(PromotionClaim.claimedPath(full))','VALIDATION_CACHE_LIMIT=4096',
+         'revalidatedProcess','fullProven'].each { token ->
             if(!receipt.contains(token))throw new GradleException('Pregen V2 regression: durable PAIR receipt/revalidation missing '+token)
         }
         def completionStart=receipt.indexOf('String completion=')
@@ -634,6 +636,10 @@ tasks.register('verifyPregenControllerV2') {
             throw new GradleException('Pregen V2 regression: LOD overtaking or promotion can leave a stale PAIR proof')
         }
         if(!cache.contains('pairReceiptValidIfRequired') || !cache.contains('PairReceiptStore.publish(')
+                || !cache.contains('pairProofValidIfRequired') || !cache.contains('"pairRequired"')
+                || !cache.contains('pregen-full-retry-hint-deferred')
+                || !cache.contains('deferPregenAdmissionRetry')
+                || !cache.contains('return resource.hardBlock()||resource.softBackpressure()||resource.sensorUnknown()')
                 || !cache.contains('pregen-final-admission-pressure-rejected')
                 || !cache.contains('!"stage-wip-window".equals(finalPressure.pressureReason())')
                 || !cache.contains('PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.VALIDATE)')
