@@ -40,3 +40,5 @@ jobs:
 # Final current-only FULL cache compatibility verification.
 
 # Recheck raw configuration byte digest in rewritten tests.
+
+# Validate logical MOD path based classification after regression fix.
