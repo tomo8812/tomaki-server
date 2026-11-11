@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>生成済みチャンク図 | Chunksmith</title>
+<style>
+:root{color-scheme:dark;--bg:#0a1020;--panel:#141e31;--edge:#293a52;--text:#eaf0f9;--muted:#98aac4;--accent:#64c5ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{padding:23px 26px 15px;display:flex;align-items:end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+header small{color:var(--accent);letter-spacing:.13em;font-weight:700}h1{margin:2px 0;font-size:24px;letter-spacing:.02em}
+.sub{color:var(--muted);font-size:13px}main{max-width:1550px;margin:auto;padding:0 23px 30px}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:13px;padding:16px}
+.uploads,.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.upload-box{border:1px dashed #455a76;background:#111b2e;border-radius:10px;padding:12px;min-width:0}
+.upload-box label{display:block;font-weight:700;margin-bottom:5px}.upload-box input{max-width:100%;font-size:12px}
+.hint,.status{color:var(--muted);font-size:12px;margin-top:5px;overflow-wrap:anywhere}
+.stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.stat .num{font-size:25px;font-weight:750;font-variant-numeric:tabular-nums}.stat .desc{color:var(--muted);font-size:12px}
+.bar{height:5px;background:#28374d;border-radius:8px;overflow:hidden;margin:13px 0}.bar>div{height:100%;background:#61d3ad;width:0%;transition:width .18s}
+.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:10px 0}
+button{background:#233c61;border:1px solid #45638e;color:#e9f4ff;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit}
+button:hover{background:#345582}button:disabled{opacity:.42;cursor:not-allowed}
+button.primary{background:#246c9e;border-color:#3c91c9}input[type=number]{background:#101b2b;border:1px solid #415670;border-radius:7px;padding:7px;color:var(--text);width:94px}
+input[type=checkbox]{accent-color:var(--accent)}
+.layout{display:grid;grid-template-columns:minmax(0,1fr) 265px;gap:12px}
+#mapWrap{position:relative;border-radius:9px;border:1px solid #34475e;overflow:hidden;background:#0c1526}
+canvas{display:block;width:100%;height:min(67vh,770px);min-height:420px;cursor:grab;touch-action:none}
+canvas.drag{cursor:grabbing}#reticle{position:absolute;top:12px;left:12px;background:#111e30d9;border:1px solid #40516d;border-radius:8px;padding:6px 10px;font:12px ui-monospace,monospace;pointer-events:none}
+#foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:12px;padding-top:9px}
+h3{font-size:14px;margin:0 0 12px}.legend{display:grid;gap:8px}.legend-row{display:flex;align-items:center;gap:9px;justify-content:space-between}
+.swatch{width:14px;height:14px;border-radius:3px;flex:none}.legend-left{display:flex;align-items:center;gap:7px}
+.count{color:var(--muted);font-variant-numeric:tabular-nums}
+.side-section{border-bottom:1px solid var(--edge);padding-bottom:16px;margin-bottom:16px}
+.side-section:last-child{border-bottom:none;margin-bottom:0;padding:0}
+.warn{background:#3b2d1b;border:1px solid #6d5226;padding:10px;border-radius:8px;color:#ebc68d;font-size:12px;display:none;margin-top:8px}
+#selection{font:12px ui-monospace,monospace;white-space:pre-line;overflow-wrap:anywhere}
+#message{font-size:12px;color:#b9cde2;min-height:18px;margin:8px 0}
+details{margin-top:12px;color:var(--muted)}details summary{cursor:pointer}
+@media(max-width:960px){.layout{grid-template-columns:1fr}.uploads{grid-template-columns:1fr}.stats{grid-template-columns:repeat(2,minmax(0,1fr))}main{padding:0 12px 20px}header{padding:16px}}
+</style>
+</head>
+<body>
+<header>
+ <div><small>MINECRAFT 1.21.1 · CHUNK COVERAGE</small><h1>生成済みチャンク図</h1><div class="sub">実チャンク / Chunksmithキャッシュ / CSLOD を同じ座標上に重ねる</div></div>
+ <div class="sub">オフライン解析 · ZIPを展開しない · 解析データは外部送信しない</div>
+</header>
+<main>
+<section class="card" style="margin-bottom:12px">
+ <div class="uploads">
+  <div class="upload-box"><label style="color:#ffb55d">① 実チャンク（region 2.zip）</label><input id="fileR" type="file" accept=".zip"><div class="hint" id="infoR">.mcaの保存スロットを確認</div></div>
+  <div class="upload-box"><label style="color:#61b6ff">② キャッシュ（overworld 2.zip）</label><input id="fileC" type="file" accept=".zip"><div class="hint" id="infoC">c.X.Z.nbt.gz の座標を抽出</div></div>
+  <div class="upload-box"><label style="color:#bf9aff">③ LOD（lod 2.zip）</label><input id="fileL" type="file" accept=".zip"><div class="hint" id="infoL">.cslodの保存スロットを確認</div></div>
+ </div>
+ <div class="controls">
+  <button class="primary" id="run">3つのZIPを解析</button><button id="export" disabled>座標入りHTMLを書き出す</button><button id="csv" disabled>座標CSV</button>
+  <label><input type="checkbox" id="layerR" checked> 実チャンク</label>
+  <label><input type="checkbox" id="layerC" checked> キャッシュ</label>
+  <label><input type="checkbox" id="layerL" checked> LOD</label>
+ </div>
+ <div id="message">3つのZIPを選択して「解析」を押してください。単独のZIPでも解析できます。</div>
+ <div class="bar"><div id="progress"></div></div>
+ <div id="warn" class="warn"></div>
+</section>
+<section class="stats">
+ <div class="card stat"><div class="desc">実チャンク（region）</div><div class="num" id="nR">—</div><div class="desc">Anvil保存スロットあり</div></div>
+ <div class="card stat"><div class="desc">Chunksmithキャッシュ</div><div class="num" id="nC">—</div><div class="desc">ファイル名による登録数</div></div>
+ <div class="card stat"><div class="desc">LODデータ（CSLOD）</div><div class="num" id="nL">—</div><div class="desc">CSLOD保存スロットあり</div></div>
+ <div class="card stat"><div class="desc">座標の総和集合</div><div class="num" id="nU">—</div><div class="desc">3種類の重複を除く</div></div>
+</section>
+<div class="layout">
+ <section class="card">
+  <div class="controls" style="margin-top:0">
+   <button id="fit">全体表示</button><button id="zin">拡大 ＋</button><button id="zout">縮小 −</button>
+   <span style="flex:1"></span><span class="sub">中心</span>
+   <input type="number" id="jumpX" placeholder="X (chunk)" value="0"><input type="number" id="jumpZ" placeholder="Z (chunk)" value="0">
+   <button id="jump">移動</button>
+  </div>
+  <div id="mapWrap"><canvas id="map"></canvas><div id="reticle">座標: X 0 / Z 0</div></div>
+  <div id="foot"><span>ドラッグ：移動 / ホイール：ズーム / クリック：チャンク詳細</span><span id="scale">倍率: —</span></div>
+ </section>
+ <aside class="card">
+  <div class="side-section"><h3>重複区分</h3><div class="legend" id="legend"></div></div>
+  <div class="side-section"><h3>選択座標</h3><div id="selection">地図をクリックしてください。</div></div>
+  <div class="side-section"><h3>読み取り方法</h3><div class="sub">ZIP中央ディレクトリからファイル名と格納位置を取得。ZIP全体を展開せずに、.mcaと.cslodの先頭8KBを解凍してインデックスを判定します。</div></div>
+ </aside>
+</div>
+<details><summary>判定基準と注意事項</summary>
+ <p>「実チャンク」は.mcaの位置テーブルに存在するチャンクです。個々のNBTを展開してFULL状態を検査したものではありません。「キャッシュ」は現行ディレクトリのc.X.Z.nbt.gzファイル存在判定で、内容のNBT整合性までは未検査です。「LOD」は.cslodの有効な格納オフセットと長さを持つレコード数で、各レコードの展開検査までは未実施です。ZIP内の .quarantine / .tmp / .stale / .corrupt は集計から除外します。これらは保存データの所在図であり、プレイヤーのゲーム内描画結果を保証するものではありません。</p>
+</details>
+</main>
+<script id="embedded-coordinates" type="application/json"></script>
+<script>
+(function(){
+'use strict';
+const R=1,C=2,L=4, colors={1:'#ffb55d',2:'#61b6ff',3:'#66e4a2',4:'#bf9aff',5:'#ff79b9',6:'#55d8de',7:'#f5f7fc'};
+const names={1:'実チャンクのみ',2:'キャッシュのみ',3:'実＋キャッシュ',4:'LODのみ',5:'実＋LOD',6:'キャッシュ＋LOD',7:'すべて'};
+const $=id=>document.getElementById(id), fmt=n=>n.toLocaleString('ja-JP');
+let map=new Map(),pts=[],bounds=null,centerX=0,centerZ=0,scale=1,visible=7,busy=false,drag=null,didMove=false;
+const canvas=$('map'),ctx=canvas.getContext('2d'),input={R:$('fileR'),C:$('fileC'),L:$('fileL')};
+const text=(id,str)=>{$(id).textContent=str};
+function message(str){text('message',str)}
+function warn(str){text('warn',str);$('warn').style.display=str?'block':'none'}
+function tick(){return new Promise(resolve=>setTimeout(resolve,0))}
+function add(x,z,bit){if(!Number.isFinite(x)||!Number.isFinite(z))return;const key=x+','+z;map.set(key,(map.get(key)||0)|bit)}
+function parseCoords(){pts=Array.from(map,(entry)=>{const sep=entry[0].indexOf(',');return [+entry[0].slice(0,sep),+entry[0].slice(sep+1),entry[1]]});
+ if(!pts.length){bounds=null;render();return}
+ let minX=Infinity,maxX=-Infinity,minZ=Infinity,maxZ=-Infinity;
+ for(const p of pts){if(p[0]<minX)minX=p[0];if(p[0]>maxX)maxX=p[0];if(p[1]<minZ)minZ=p[1];if(p[1]>maxZ)maxZ=p[1]}
+ bounds={minX,maxX,minZ,maxZ};updateStats();fit();
+}
+function updateStats(){let arr=new Array(8).fill(0),r=0,c=0,l=0;for(const p of pts){let m=p[2];arr[m]++;if(m&R)r++;if(m&C)c++;if(m&L)l++}
+ text('nR',fmt(r));text('nC',fmt(c));text('nL',fmt(l));text('nU',fmt(pts.length));
+ $('legend').replaceChildren(...[1,2,3,4,5,6,7].map(m=>{const d=document.createElement('div');d.className='legend-row';
+ const left=document.createElement('div');left.className='legend-left';const sw=document.createElement('span');sw.className='swatch';sw.style.background=colors[m];left.append(sw,document.createTextNode(names[m]));const n=document.createElement('span');n.className='count';n.textContent=fmt(arr[m]);d.append(left,n);return d}));
+ $('export').disabled=!pts.length;$('csv').disabled=!pts.length;
+}
+function ensureCanvas(){const rect=canvas.getBoundingClientRect();const dpr=Math.min(devicePixelRatio||1,2),w=Math.max(200,Math.round(rect.width)),h=Math.max(200,Math.round(rect.height));if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr)}ctx.setTransform(dpr,0,0,dpr,0,0);return {w,h}}
+function fit(){if(!bounds)return;const {w,h}=ensureCanvas();centerX=(bounds.minX+bounds.maxX)/2;centerZ=(bounds.minZ+bounds.maxZ)/2;scale=Math.min((w-55)/(bounds.maxX-bounds.minX+1),(h-55)/(bounds.maxZ-bounds.minZ+1),35);scale=Math.max(.005,scale);render()}
+let redraw=0;function render(){if(redraw)return;redraw=requestAnimationFrame(draw)}
+function draw(){redraw=0;const {w,h}=ensureCanvas();ctx.fillStyle='#0c1526';ctx.fillRect(0,0,w,h);
+ const worldToX=x=>w/2+(x-centerX)*scale,worldToY=z=>h/2+(z-centerZ)*scale;
+ const cell=Math.max(1,scale),minX=centerX-w/(2*scale)-1,maxX=centerX+w/(2*scale)+1,minZ=centerZ-h/(2*scale)-1,maxZ=centerZ+h/(2*scale)+1;
+ if(pts.length){ctx.globalAlpha=.85;let color='';for(const p of pts){if(p[0]<minX||p[0]>maxX||p[1]<minZ||p[1]>maxZ)continue;const m=p[2]&visible;if(!m)continue;const col=colors[m];if(col!==color){ctx.fillStyle=col;color=col}ctx.fillRect(worldToX(p[0]),worldToY(p[1]),cell,cell)}ctx.globalAlpha=1}
+ if(scale>=2){const step=scale>=12?16:32,fromX=Math.floor(minX/step)*step,toX=Math.ceil(maxX/step)*step,fromZ=Math.floor(minZ/step)*step,toZ=Math.ceil(maxZ/step)*step;
+ ctx.beginPath();ctx.strokeStyle='rgba(150,185,228,.13)';ctx.lineWidth=1;for(let x=fromX;x<=toX;x+=step){const xx=Math.floor(worldToX(x))+.5;ctx.moveTo(xx,0);ctx.lineTo(xx,h)}for(let z=fromZ;z<=toZ;z+=step){const yy=Math.floor(worldToY(z))+.5;ctx.moveTo(0,yy);ctx.lineTo(w,yy)}ctx.stroke()}
+ const x0=worldToX(0),z0=worldToY(0);if(x0>-10&&x0<w+10&&z0>-10&&z0<h+10){ctx.strokeStyle='#fa6a72';ctx.lineWidth=1.4;ctx.beginPath();ctx.moveTo(x0-7,z0);ctx.lineTo(x0+7,z0);ctx.moveTo(x0,z0-7);ctx.lineTo(x0,z0+7);ctx.stroke()}
+ text('scale',scale>=1?'1チャンク = '+scale.toFixed(1)+'px':'1px ≈ '+(1/scale).toFixed(1)+'チャンク');
+}
+function screenChunk(x,y){const {w,h}=ensureCanvas();return [centerX+(x-w/2)/scale,centerZ+(y-h/2)/scale]}
+canvas.addEventListener('wheel',e=>{e.preventDefault();let [x,z]=screenChunk(e.offsetX,e.offsetY);const next=Math.min(100,Math.max(.003,scale*Math.exp(-e.deltaY*.00125)));const ratio=scale/next;centerX=x-(x-centerX)*ratio;centerZ=z-(z-centerZ)*ratio;scale=next;render()},{passive:false});
+canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,cx:centerX,cz:centerZ};didMove=false;canvas.classList.add('drag')});
+canvas.addEventListener('pointermove',e=>{const rc=canvas.getBoundingClientRect();let [x,z]=screenChunk(e.clientX-rc.left,e.clientY-rc.top);text('reticle','座標: X '+Math.floor(x)+' / Z '+Math.floor(z));if(drag){const dx=e.clientX-drag.x,dz=e.clientY-drag.y;if(Math.abs(dx)+Math.abs(dz)>3)didMove=true;centerX=drag.cx-dx/scale;centerZ=drag.cz-dz/scale;render()}});
+canvas.addEventListener('pointerup',e=>{canvas.classList.remove('drag');if(!didMove){const rect=canvas.getBoundingClientRect();const [a,b]=screenChunk(e.clientX-rect.left,e.clientY-rect.top);const x=Math.floor(a),z=Math.floor(b),m=map.get(x+','+z)||0;
+ text('selection','chunk X: '+x+'\nchunk Z: '+z+'\nblock X: '+(x*16)+' ～ '+(x*16+15)+'\nblock Z: '+(z*16)+' ～ '+(z*16+15)+'\n実チャンク: '+(m&R?'あり':'なし')+'\nキャッシュ: '+(m&C?'あり':'なし')+'\nLOD: '+(m&L?'あり':'なし'))}drag=null});
+canvas.addEventListener('pointercancel',()=>{drag=null;canvas.classList.remove('drag')});
+window.addEventListener('resize',render);
+$('fit').onclick=fit;$('zin').onclick=()=>{scale=Math.min(100,scale*1.7);render()};$('zout').onclick=()=>{scale=Math.max(.003,scale/1.7);render()};
+$('jump').onclick=()=>{centerX=Number($('jumpX').value)||0;centerZ=Number($('jumpZ').value)||0;scale=Math.max(scale,1);render()};
+[['layerR',1],['layerC',2],['layerL',4]].forEach(([id,bit])=>$(id).addEventListener('change',()=>{visible=(visible&~bit)|($(id).checked?bit:0);render()}));
+const validName=name=>!/(^|\/)(\.quarantine|\.tmp|\.stale|\.corrupt|quarantine)(\/|$)/i.test(name);
+async function zipIndex(file){
+ const endBytes=new Uint8Array(await file.slice(Math.max(0,file.size-65557)).arrayBuffer());const endView=new DataView(endBytes.buffer);
+ let eocd=-1;for(let i=endBytes.length-22;i>=0;i--){if(endView.getUint32(i,true)===0x06054b50){eocd=i;break}}
+ if(eocd<0)throw Error('ZIPの中央ディレクトリがありません');
+ const entriesN=endView.getUint16(eocd+10,true),dirSize=endView.getUint32(eocd+12,true),dirOff=endView.getUint32(eocd+16,true);
+ if(entriesN===65535||dirSize===0xffffffff||dirOff===0xffffffff)throw Error('ZIP64形式は未対応です');
+ const raw=new Uint8Array(await file.slice(dirOff,dirOff+dirSize).arrayBuffer()),v=new DataView(raw.buffer),decode=new TextDecoder('utf-8');let pos=0,entries=[];
+ while(pos+46<=raw.length){if(v.getUint32(pos,true)!==0x02014b50)break;const nameLen=v.getUint16(pos+28,true),extraLen=v.getUint16(pos+30,true),commentLen=v.getUint16(pos+32,true);
+ const end=pos+46+nameLen+extraLen+commentLen;if(end>raw.length)throw Error('ZIP中央ディレクトリが途中で途切れています');
+ entries.push({name:decode.decode(raw.subarray(pos+46,pos+46+nameLen)),method:v.getUint16(pos+10,true),
+ compressedSize:v.getUint32(pos+20,true),uncompressedSize:v.getUint32(pos+24,true),offset:v.getUint32(pos+42,true)});
+ pos=end}
+ if(entries.length!==entriesN)message('注意: ZIPの記録件数と解析件数が異なります ('+entries.length+' / '+entriesN+')');
+ return entries;
+}
+async function readHeader(file,entry,want){
+ const head=new DataView(await file.slice(entry.offset,entry.offset+30).arrayBuffer());if(head.byteLength<30||head.getUint32(0,true)!==0x04034b50)throw Error('ZIPのファイルヘッダーが不正: '+entry.name);
+ const off=entry.offset+30+head.getUint16(26,true)+head.getUint16(28,true),len=Math.min(want,entry.uncompressedSize);
+ if(entry.method===0)return new Uint8Array(await file.slice(off,off+len).arrayBuffer());
+ if(entry.method!==8)throw Error('ZIPの圧縮方式 '+entry.method+' は非対応: '+entry.name);
+ if(!('DecompressionStream' in window))throw Error('このブラウザーはDecompressionStreamをサポートしていません。最新版Chromeを使用してください。');
+ let ds;try{ds=new DecompressionStream('deflate-raw')}catch(e){throw Error('deflate-rawの展開に非対応です。最新版Chromeを使用してください。')}
+ const reader=file.slice(off,off+entry.compressedSize).stream().pipeThrough(ds).getReader(),out=new Uint8Array(len);let got=0;
+ try{while(got<len){const next=await reader.read();if(next.done)break;const n=Math.min(next.value.length,len-got);out.set(next.value.subarray(0,n),got);got+=n}}finally{reader.cancel().catch(()=>{})}
+ return out.subarray(0,got);
+}
+const findRegion=(name,ext)=>{const re=new RegExp('(?:^|/)r\\.(-?\\d+)\\.(-?\\d+)\\.'+ext+'$','i');const m=name.match(re);return m?[+m[1],+m[2]]:null};
+function addMca(u,rx,rz){if(u.length<4096)return 0;let n=0;for(let i=0;i<1024;i++){const j=i*4,off=(u[j]<<16)|(u[j+1]<<8)|u[j+2],sectors=u[j+3];if(off>=2&&sectors>0){add(rx*32+(i%32),rz*32+Math.floor(i/32),R);n++}}return n}
+function addCslod(u,rx,rz,size){if(u.length<8192)return 0;const v=new DataView(u.buffer,u.byteOffset,u.byteLength);let n=0;for(let i=0;i<1024;i++){const off=v.getInt32(i*8,false),len=v.getInt32(i*8+4,false);if(off>=8192&&len>0&&off+len<=size){add(rx*32+(i%32),rz*32+Math.floor(i/32),L);n++}}return n}
+async function processZip(file,kind,progress){
+ const entries=await zipIndex(file);let relevant=0,count=0,issues=0;const jobs=[];
+ for(const entry of entries){if(!validName(entry.name))continue;if(kind==='C'){const m=entry.name.match(/(?:^|\/)c\.(-?\d+)\.(-?\d+)\.nbt\.gz$/i);if(m){add(+m[1],+m[2],C);relevant++;count++}}
+ else{const rg=findRegion(entry.name,kind==='R'?'mca':'cslod');if(rg){relevant++;jobs.push([entry,rg])}}}
+ const total=kind==='C'?relevant:jobs.length;
+ if(kind!=='C'){for(let i=0;i<jobs.length;i++){const [entry,rg]=jobs[i];try{const u=await readHeader(file,entry,kind==='R'?4096:8192);count+=(kind==='R'?addMca(u,rg[0],rg[1]):addCslod(u,rg[0],rg[1],entry.uncompressedSize))}catch(e){issues++;if(issues<=3)warn(($('warn').textContent?$('warn').textContent+'\n':'')+entry.name+': '+e.message)}
+ if(i%8===0||i===jobs.length-1){progress((i+1)/(jobs.length||1));message((kind==='R'?'region':'LOD')+'インデックス: '+fmt(i+1)+'/'+fmt(jobs.length)+' / '+fmt(count)+'チャンク');await tick()}}}
+ else progress(1);
+ text('info'+kind,fmt(relevant)+'ファイル / '+fmt(count)+'チャンク'+(issues?' / 読み取り失敗'+issues+'件':''));
+ return {count,relevant,issues};
+}
+$('run').onclick=async()=>{
+ if(busy)return;const files=[['R',input.R.files[0]],['C',input.C.files[0]],['L',input.L.files[0]]].filter(a=>a[1]);
+ if(!files.length){warn('ZIPを1つ以上選択してください。');return}
+ busy=true;$('run').disabled=true;$('export').disabled=true;$('csv').disabled=true;warn('');map.clear();pts=[];bounds=null;render();
+ for(const k of ['R','C','L'])text('info'+k,'未解析');
+ try{for(let i=0;i<files.length;i++){const [kind,file]=files[i];message(file.name+' を読み取っています...');await processZip(file,kind,p=>{$('progress').style.width=((i+p)/files.length*100).toFixed(2)+'%'});await tick()}
+ parseCoords();message('解析完了: '+fmt(pts.length)+'座標 / '+files.map(a=>a[1].name).join(' · '));
+ }catch(e){warn('解析エラー: '+e.message);message('一部のデータを解析できませんでした。')}finally{busy=false;$('run').disabled=false;updateStats()}
+};
+function saveBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10000)}
+$('export').onclick=()=>{
+ if(!pts.length)return;const tag=$('embedded-coordinates');tag.textContent=JSON.stringify(pts);
+ const source='<!doctype html>\n'+document.documentElement.outerHTML;saveBlob(new Blob([source],{type:'text/html;charset=utf-8'}),'minecraft-generated-chunk-map.html');
+ tag.textContent='';message('座標入りHTMLを出力しました ('+fmt(pts.length)+'チャンク座標)。ZIPがなくても閲覧できます。');
+};
+$('csv').onclick=()=>{const rows=['chunk_x,chunk_z,region,cache,lod'];for(const p of pts)rows.push([p[0],p[1],+(!!(p[2]&1)),+(!!(p[2]&2)),+(!!(p[2]&4))].join(','));saveBlob(new Blob([rows.join('\n')],{type:'text/csv;charset=utf-8'}),'minecraft-chunk-coordinates.csv')};
+try{const raw=$('embedded-coordinates').textContent.trim();if(raw){pts=JSON.parse(raw);map=new Map(pts.map(p=>[p[0]+','+p[1],p[2]]));parseCoords();message('保存済み座標データを読み込みました: '+fmt(pts.length)+'チャンク座標');$('progress').style.width='100%';}}catch(e){warn('埋め込み座標の復元に失敗: '+e.message)}
+updateStats();render();
+})();
+</script>
+</body>
+</html>
