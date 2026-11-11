@@ -109,6 +109,16 @@ public final class CpuGovernor {
         }
     }
 
+    private static void notifyGenerationCapChanged(int nextCap){
+        try{
+            Class.forName("maki.chunksmithcache.CacheManager").getMethod("generationCapChanged",int.class).invoke(null,nextCap);
+        }catch(ClassNotFoundException absent){
+            // Cache controller is optional.
+        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable){
+            LOG.debug("Could not reset pregen stage service model after c change",unavailable);
+        }
+    }
+
     static SharedWorkBudget.Decision reserveBackfill(String taskMode){
         if(!configGood)return new SharedWorkBudget.Decision(false,false,"invalid-config",0L);
         return SHARED_BUDGET.request(System.nanoTime(),taskMode,settings);
@@ -218,6 +228,7 @@ public final class CpuGovernor {
             SHARED_BUDGET.noteCleanFollowSample();
         }
         lastBudgetTransition=budgetTransition;
+        if(previous!=cap)notifyGenerationCapChanged(cap);
 
         boolean experimentFinished=reportedExperiment!=POLICY.experimentNumber;
         if(experimentFinished){
