@@ -370,8 +370,16 @@ final class PregenFlowController {
     private static void prune() {
         for(Attempt attempt:new ArrayList<>(ACTIVE.values())) {
             if(FollowCaptureOwnership.active(attempt.key.level(),attempt.owner))continue;
-            releaseAllUnstarted(attempt);
-            finishIfDone(attempt);
+            // Before actual request admission, a detached candidate cannot start
+            // downstream work, so predictive credits are safe to return. After
+            // beginActual(), however, validation/FULL/LOD work may already be
+            // queued even when the worker-start callback has not fired yet.
+            // Keep those credits until an explicit request/logical failure or
+            // the exact physical terminal proves the work is gone.
+            if(!attempt.actualStarted) {
+                releaseAllUnstarted(attempt);
+                finishIfDone(attempt);
+            }
         }
     }
 
