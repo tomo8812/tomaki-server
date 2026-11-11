@@ -550,6 +550,13 @@ tasks.register('lodPhysicalTest', JavaExec) {
 }
 tasks.named('check') { dependsOn tasks.named('lodPhysicalTest') }
 
+tasks.register('pregenRetryLedgerTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcache.PregenRetryLedgerSelfTest'
+}
+tasks.named('check') { dependsOn tasks.named('pregenRetryLedgerTest') }
+
 def pregenV2Flow = file('src/main/java/maki/chunksmithcache/PregenFlowController.java')
 def pregenV2Receipt = file('src/main/java/maki/chunksmithcache/PairReceiptStore.java')
 def pregenV2LodTracker = file('src/main/java/maki/chunksmithcache/LodCommitTracker.java')
@@ -561,9 +568,10 @@ def pregenV2RegionCapacity = file('src/main/java/maki/chunksmithcache/LodRegionC
 def pregenV2Disk = file('src/main/java/maki/chunksmithcache/CacheDiskBudget.java')
 def pregenV2Cache = file('src/main/java/maki/chunksmithcache/CacheManager.java')
 def pregenV2Promotion = file('src/main/java/maki/chunksmithcache/PromotionClaim.java')
+def pregenV2RetryLedger = file('src/main/java/maki/chunksmithcache/PregenRetryLedger.java')
 
 tasks.register('verifyPregenControllerV2') {
-    inputs.files(pregenV2Flow,pregenV2Receipt,pregenV2LodTracker,pregenV2Request,pregenV2Pair,pregenV2World,pregenV2RegionGuard,pregenV2RegionCapacity,pregenV2Disk,pregenV2Cache,pregenV2Promotion)
+    inputs.files(pregenV2Flow,pregenV2Receipt,pregenV2LodTracker,pregenV2Request,pregenV2Pair,pregenV2World,pregenV2RegionGuard,pregenV2RegionCapacity,pregenV2Disk,pregenV2Cache,pregenV2Promotion,pregenV2RetryLedger)
     doLast {
         def flow=pregenV2Flow.getText('UTF-8')
         def receipt=pregenV2Receipt.getText('UTF-8')
@@ -576,6 +584,7 @@ tasks.register('verifyPregenControllerV2') {
         def disk=pregenV2Disk.getText('UTF-8')
         def cache=pregenV2Cache.getText('UTF-8')
         def promotion=pregenV2Promotion.getText('UTF-8')
+        def retryLedger=pregenV2RetryLedger.getText('UTF-8')
         ['enum Stage { LOD, VALIDATE, FULL }','reserveCandidate','beginActual','physicalStart','physicalTerminal',
          'pairConfirmedRuntime','effectiveWindow','admissionEpoch'].each { token ->
             if(!flow.contains(token))throw new GradleException('Pregen V2 regression: stage/WIP controller missing '+token)
@@ -617,6 +626,12 @@ tasks.register('verifyPregenControllerV2') {
                 || !cache.contains('LodRegionCapacity.written(currentServer,record,bytes)')
                 || !cache.contains('LodRegionCapacity.allowPregen(level,pos)')) {
             throw new GradleException('Pregen V2 regression: Follow-specific CSLOD headroom guard missing')
+        }
+        ['LIMIT=4096','retryAtNanos','ledgerComplete','overflowDirty','overflowRescanDue'].each { token ->
+            if(!retryLedger.contains(token))throw new GradleException('Pregen V2 regression: bounded retry ledger missing '+token)
+        }
+        ['retryLedgerComplete','retryOverflowDirty','nextRetryMillis','anyDueInRange','pregen-retry-overflow-rescan'].each { token ->
+            if(!cache.contains(token))throw new GradleException('Pregen V2 regression: retry debt scheduling/diagnostics missing '+token)
         }
     }
 }
