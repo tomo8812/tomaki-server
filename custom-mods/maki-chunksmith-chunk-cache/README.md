@@ -13,7 +13,7 @@ mod does not compare Chunksmith's LOD implementation to decide compatibility.
   level.dat worldgen settings, datapacks and declared/recognizable terrain
   generation MODs and their generation settings are compatibility inputs.
 - Currently tracked worldgen inputs are zfastnoise, epicterrain,
-  worldgenfeaturefix, terrain_slabs, disabler, architectury, and the deployed
+  worldgenfeaturefix, terrain_slabs, disabler, and the deployed
   LetsDo Bakery, Brewery, Candlelight, Farm & Charm and HerbalBrews JARs.
   The exact list is in FingerprintPolicy.java. Changes to this existing
   generation set require a fresh compatibility check.
