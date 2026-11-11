@@ -591,9 +591,11 @@ tasks.register('verifyPregenControllerV2') {
                 || !cache.contains('PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.FULL)')) {
             throw new GradleException('Pregen V2 regression: physical validation/FULL terminals or restart proof missing')
         }
-        if(!disk.contains('toRealPath()') || !disk.contains('Math.min(cacheStore.getUsableSpace(),lodStore.getUsableSpace())')
+        if(!disk.contains('toRealPath()') || !disk.contains('samePhysicalStore(')
+                || !disk.contains('sharedFileStore') || !disk.contains('cacheUsableBytes')
+                || !disk.contains('lodUsableBytes') || !disk.contains('"lod-disk-reserve"')
                 || !disk.contains('PregenFlowController.snapshot().lodOutstanding()')) {
-            throw new GradleException('Pregen V2 regression: physical FileStore/projected LOD disk guard missing')
+            throw new GradleException('Pregen V2 regression: independent physical FileStore/projected LOD disk guard missing')
         }
         if(!region.contains('Integer.MAX_VALUE-MAX_RECORD_BYTES') || !region.contains('RandomAccessFile;length()J')) {
             throw new GradleException('Pregen V2 regression: signed 32-bit CSLOD offset guard missing')
