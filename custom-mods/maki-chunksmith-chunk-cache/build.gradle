@@ -384,7 +384,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !request.contains('pos,sourceTask)')
                 || !request.contains('CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)')
                 || !request.contains('CacheManager.pregenRequestFinished(neoforge.getWorld(),new ChunkPos(x,z),sourceTask,error==null)')
-                || !request.contains('CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)')
+                || !request.contains('CacheManager.pregenRequestFailed(neoforge.getWorld(),pos,sourceTask)')
                 || world.contains('maki$rememberGeneratedDecision')) {
             throw new GradleException('Issue #83 regression: generated/request state must remain bound to the originating task')
         }
