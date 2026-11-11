@@ -39,6 +39,7 @@ public final class LodCommitTracker {
         final Coordinate coordinate;
         final String sourceToken;
         final long startedNanos;
+        long writeStartedNanos;
         boolean collided;
         Physical(CompletableFuture<Boolean> result,Coordinate coordinate,String sourceToken){
             this.result=result;this.coordinate=coordinate;this.sourceToken=sourceToken;this.startedNanos=System.nanoTime();
@@ -108,6 +109,21 @@ public final class LodCommitTracker {
         if(overflow)PipelineMetrics.count("lod-physical-handle-overflow");
     }
 
+    /** Marks the start of the actual CsLodRegionStore.write call, not queue admission. */
+    public static void writing(CsLodChunk record){
+        if(record==null)return;
+        long queuedAt=0L,started=0L;
+        synchronized(PHYSICAL){
+            Physical work=PHYSICAL.get(record);
+            if(work!=null&&work.writeStartedNanos==0L){
+                work.writeStartedNanos=System.nanoTime();
+                queuedAt=work.startedNanos;
+                started=work.writeStartedNanos;
+            }
+        }
+        if(started!=0L)PipelineMetrics.time("lod-physical-queue-wait",Math.max(0L,started-queuedAt));
+    }
+
     public static void written(CsLodChunk record,Throwable error){
         Physical work;
         synchronized(PHYSICAL){
@@ -131,9 +147,12 @@ public final class LodCommitTracker {
             if(!safe){if(error!=null)work.result.completeExceptionally(error);else work.result.complete(false);}
             else work.result.complete(true);
         }
-        if(work.sourceToken!=null)
+        if(work.sourceToken!=null) {
+            long serviceStarted=work.writeStartedNanos!=0L?work.writeStartedNanos:work.startedNanos;
+            if(work.writeStartedNanos==0L)PipelineMetrics.count("lod-physical-service-start-missing");
             PregenFlowController.physicalTerminal(work.sourceToken,PregenFlowController.Stage.LOD,
-                Math.max(0L,completed-work.startedNanos),safe);
+                Math.max(0L,completed-serviceStarted),safe);
+        }
         PipelineMetrics.count(error==null?"lod-physical-write-ack":"lod-physical-write-failed");
         if(late)PipelineMetrics.count("lod-physical-late-terminal");
     }
