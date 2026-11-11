@@ -610,6 +610,13 @@ tasks.register('verifyPregenControllerV2') {
          'currentLodMatches','CachePathLocks.lock(PromotionClaim.claimedPath(full))'].each { token ->
             if(!receipt.contains(token))throw new GradleException('Pregen V2 regression: durable PAIR receipt/revalidation missing '+token)
         }
+        def completionStart=receipt.indexOf('String completion=')
+        def completionEnd=receipt.indexOf('Path receipt=receipt(full)',completionStart)
+        def completionBody=receipt.substring(completionStart,completionEnd)
+        if(completionBody.contains('sourceToken') || completionBody.contains('fullMtime') || completionBody.contains('fileKey()'))
+            throw new GradleException('Pregen V2 regression: completion identity is coupled to an attempt or file instance')
+        if(!receipt.contains('receiptMetadataMatches(prior,properties)') || !receipt.contains('existing?PublishResult.EXISTING:PublishResult.NEW'))
+            throw new GradleException('Pregen V2 regression: canonical completion re-publication can be double-counted')
         if(!lod.contains('coordinateClear(LodReceipt receipt)')
                 || !promotion.contains('PairReceiptStore.invalidate(available)')) {
             throw new GradleException('Pregen V2 regression: LOD overtaking or promotion can leave a stale PAIR proof')
