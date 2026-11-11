@@ -74,7 +74,10 @@ final class PregenFlowController {
             if(serviceNanos>0) {
                 serviceEwmaNanos=serviceEwmaNanos==0?serviceNanos:serviceEwmaNanos*.8+serviceNanos*.2;
                 long proposed=Math.round(Math.ceil(targetWaitNanos/Math.max(1.0,serviceEwmaNanos)));
-                if(!tuningFrozen)window=(int)Math.max(safeMin,Math.min(hardMax,proposed));
+                // FAST remains adaptive during c-neighbourhood probes. The
+                // SLOW controller compares (c, the same FAST policy) as a closed
+                // loop rather than freezing one arm at a stale window.
+                window=(int)Math.max(safeMin,Math.min(hardMax,proposed));
             }
         }
     }
@@ -250,10 +253,18 @@ final class PregenFlowController {
     static synchronized void setTuningFrozen(boolean frozen){tuningFrozen=frozen;}
 
     private static long fastSignature(){
-        long lod=STAGES.get(Stage.LOD).window&0xffffL;
-        long validate=STAGES.get(Stage.VALIDATE).window&0xffffL;
-        long full=STAGES.get(Stage.FULL).window&0xffffL;
-        return (lod<<32)|(validate<<16)|full;
+        // Signature the control law/configuration, not its live window state.
+        // Live windows are expected to move as ACK service changes, including
+        // while SLOW probes a neighbouring generation cap.
+        long signature=0xcbf29ce484222325L;
+        for(Stage stage:Stage.values()){
+            StageState state=STAGES.get(stage);
+            signature=(signature^stage.ordinal())*0x100000001b3L;
+            signature=(signature^state.safeMin)*0x100000001b3L;
+            signature=(signature^state.hardMax)*0x100000001b3L;
+            signature=(signature^state.targetWaitNanos)*0x100000001b3L;
+        }
+        return signature;
     }
 
     static synchronized void clear(MinecraftServer server) {
