@@ -802,7 +802,8 @@ public final class CacheManager {
       PregenFlowController.Snapshot flow=PregenFlowController.snapshot();
       boolean diskUnknown="cache-disk-warming-up".equals(disk)||"cache-disk-unavailable".equals(disk)
          ||"cache-disk-measurement-stale".equals(disk);
-      boolean hard=!accepting||"pregen-combined-capacity".equals(disk)||"cache-disk-reserve".equals(disk);
+      boolean hard=!accepting||"pregen-combined-capacity".equals(disk)
+         ||"cache-disk-reserve".equals(disk)||"lod-disk-reserve".equals(disk);
       boolean unknown=diskUnknown||!lodPhysical.reliable()||flow.sensorUnknown();
       boolean soft=CAPTURE_BUDGET.full(SNAPSHOT_ESTIMATE)||INSPECTIONS.availablePermits()==0
          ||WRITE_IO.getQueue().size()>=96||flow.blocked();
