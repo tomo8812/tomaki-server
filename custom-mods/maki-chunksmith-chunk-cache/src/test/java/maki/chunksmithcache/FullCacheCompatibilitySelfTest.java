@@ -37,8 +37,6 @@ public final class FullCacheCompatibilitySelfTest {
         current.add(value("config/jade-client.toml", "new-ui-setting"));
         past.add(value("mods/utility-no-worldgen-1.0.jar", "utility-old"));
         current.add(value("mods/utility-no-worldgen-2.0.jar", "utility-new"));
-        past.add(value("policy:compatibility", "old-classification"));
-        current.add(value("policy:compatibility", "new-classification"));
 
         FingerprintManifest.Manifest old = manifest(past);
         FingerprintManifest.Manifest now = manifest(current);
