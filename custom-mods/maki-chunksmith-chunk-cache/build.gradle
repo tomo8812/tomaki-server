@@ -560,6 +560,7 @@ tasks.named('check') { dependsOn tasks.named('pregenRetryLedgerTest') }
 def pregenV2Flow = file('src/main/java/maki/chunksmithcache/PregenFlowController.java')
 def pregenV2Receipt = file('src/main/java/maki/chunksmithcache/PairReceiptStore.java')
 def pregenV2LodTracker = file('src/main/java/maki/chunksmithcache/LodCommitTracker.java')
+def pregenV2LodStore = file('src/main/java/maki/chunksmithcache/mixin/LodStoreCommitMixin.java')
 def pregenV2Request = file('src/main/java/maki/chunksmithcache/mixin/GenerationRequestMixin.java')
 def pregenV2Pair = file('src/main/java/maki/chunksmithcache/mixin/GenerationTaskPairMixin.java')
 def pregenV2World = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldMixin.java')
@@ -571,11 +572,12 @@ def pregenV2Promotion = file('src/main/java/maki/chunksmithcache/PromotionClaim.
 def pregenV2RetryLedger = file('src/main/java/maki/chunksmithcache/PregenRetryLedger.java')
 
 tasks.register('verifyPregenControllerV2') {
-    inputs.files(pregenV2Flow,pregenV2Receipt,pregenV2LodTracker,pregenV2Request,pregenV2Pair,pregenV2World,pregenV2RegionGuard,pregenV2RegionCapacity,pregenV2Disk,pregenV2Cache,pregenV2Promotion,pregenV2RetryLedger)
+    inputs.files(pregenV2Flow,pregenV2Receipt,pregenV2LodTracker,pregenV2LodStore,pregenV2Request,pregenV2Pair,pregenV2World,pregenV2RegionGuard,pregenV2RegionCapacity,pregenV2Disk,pregenV2Cache,pregenV2Promotion,pregenV2RetryLedger)
     doLast {
         def flow=pregenV2Flow.getText('UTF-8')
         def receipt=pregenV2Receipt.getText('UTF-8')
         def lod=pregenV2LodTracker.getText('UTF-8')
+        def lodStore=pregenV2LodStore.getText('UTF-8')
         def request=pregenV2Request.getText('UTF-8')
         def pair=pregenV2Pair.getText('UTF-8')
         def world=pregenV2World.getText('UTF-8')
@@ -597,6 +599,10 @@ tasks.register('verifyPregenControllerV2') {
         }
         ['LodReceipt','sourceToken','PHYSICAL','BY_COORDINATE','physicalTerminal'].each { token ->
             if(!lod.contains(token))throw new GradleException('Pregen V2 regression: exact LOD physical/source proof missing '+token)
+        }
+        if(!lod.contains('writeStartedNanos') || !lod.contains('lod-physical-queue-wait')
+                || !lodStore.contains('LodCommitTracker.writing(record)')) {
+            throw new GradleException('Pregen V2 regression: LOD service-rate learning includes queue wait or lacks actual writer start')
         }
         ['completion','fullSha256','lodSha256','ATOMIC_MOVE','channel.force(true)','store.read(pos.x,pos.z)','lodDigest(record)',
          'currentLodMatches','CachePathLocks.lock(PromotionClaim.claimedPath(full))'].each { token ->
