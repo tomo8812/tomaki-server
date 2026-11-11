@@ -55,6 +55,7 @@ final class PregenFlowController {
         WorkClass workClass=WorkClass.UNKNOWN;
         boolean actualStarted;
         boolean pairReported;
+        boolean pairResolved;
         Attempt(Key key,GenerationTask owner,long epoch,String token) {
             this.key=key;this.owner=owner;this.epoch=epoch;this.token=token;
         }
@@ -172,6 +173,7 @@ final class PregenFlowController {
     static synchronized void skipped(ServerLevel level,ChunkPos pos,GenerationTask owner) {
         Attempt attempt=attempt(level,pos,owner);
         if(attempt==null)return;
+        attempt.pairResolved=true;
         releaseAllUnstarted(attempt);
         finishIfDone(attempt);
         PipelineMetrics.count("pregen-candidate-skipped");
@@ -180,6 +182,7 @@ final class PregenFlowController {
     static synchronized void candidateFailed(ServerLevel level,ChunkPos pos,GenerationTask owner) {
         Attempt attempt=attempt(level,pos,owner);
         if(attempt==null)return;
+        attempt.pairResolved=true;
         releaseAllUnstarted(attempt);
         finishIfDone(attempt);
     }
@@ -187,6 +190,7 @@ final class PregenFlowController {
     static synchronized void requestFailed(ServerLevel level,ChunkPos pos,GenerationTask owner) {
         Attempt attempt=attempt(level,pos,owner);
         if(attempt==null)return;
+        attempt.pairResolved=true;
         releaseAllUnstarted(attempt);
         finishIfDone(attempt);
     }
@@ -194,7 +198,16 @@ final class PregenFlowController {
     static synchronized void logicalCaptureFailed(String token) {
         Attempt attempt=BY_TOKEN.get(token);
         if(attempt==null)return;
+        attempt.pairResolved=true;
         releaseAllUnstarted(attempt);
+        finishIfDone(attempt);
+    }
+
+    static synchronized void stageUnavailable(String token,Stage stage) {
+        Attempt attempt=BY_TOKEN.get(token);
+        if(attempt==null)return;
+        attempt.pairResolved=true;
+        releaseIfUnstarted(attempt,stage);
         finishIfDone(attempt);
     }
 
@@ -215,6 +228,7 @@ final class PregenFlowController {
             PipelineMetrics.count(stageMetric(stage,success?"success":"failure"));
         }
         attempt.started.remove(stage);
+        if(!success)attempt.pairResolved=true;
         finishIfDone(attempt);
     }
 
@@ -222,9 +236,11 @@ final class PregenFlowController {
         Attempt attempt=BY_TOKEN.get(token);
         if(attempt==null||attempt.pairReported)return;
         attempt.pairReported=true;
+        attempt.pairResolved=true;
         pairConfirmedRuntime++;
         if(generatedNew||attempt.workClass==WorkClass.NEW)pairNew++;else pairRepair++;
         PipelineMetrics.count(generatedNew||attempt.workClass==WorkClass.NEW?"pair-confirmed-new":"pair-confirmed-repair");
+        finishIfDone(attempt);
     }
 
     static synchronized void pairRevalidated() {
@@ -234,6 +250,11 @@ final class PregenFlowController {
 
     static synchronized void uncertain(String token,String reason) {
         uncertain++;
+        Attempt attempt=token==null?null:BY_TOKEN.get(token);
+        if(attempt!=null) {
+            attempt.pairResolved=true;
+            finishIfDone(attempt);
+        }
         PipelineMetrics.count("pair-uncertain-"+sanitize(reason));
     }
 
@@ -294,14 +315,17 @@ final class PregenFlowController {
     }
 
     static synchronized void clear(MinecraftServer server) {
+        ArrayList<GenerationTask> owners=new ArrayList<>();
         Iterator<Map.Entry<Key,Attempt>> iterator=ACTIVE.entrySet().iterator();
         while(iterator.hasNext()) {
             Attempt attempt=iterator.next().getValue();
             if(attempt.key.level().getServer()!=server)continue;
             for(Stage stage:attempt.held)STAGES.get(stage).outstanding=Math.max(0,STAGES.get(stage).outstanding-1);
             BY_TOKEN.remove(attempt.token);
+            owners.add(attempt.owner);
             iterator.remove();
         }
+        for(GenerationTask owner:owners)releaseTaskGenerationIfUnused(owner);
     }
 
     private static String attemptToken(GenerationTask owner,long epoch) {
@@ -362,9 +386,16 @@ final class PregenFlowController {
     }
 
     private static void finishIfDone(Attempt attempt) {
-        if(!attempt.held.isEmpty())return;
+        if(!attempt.held.isEmpty()||(attempt.actualStarted&&!attempt.pairResolved))return;
         ACTIVE.remove(attempt.key,attempt);
         BY_TOKEN.remove(attempt.token,attempt);
+        releaseTaskGenerationIfUnused(attempt.owner);
+    }
+
+    private static void releaseTaskGenerationIfUnused(GenerationTask owner) {
+        if(owner==null)return;
+        for(Attempt active:ACTIVE.values())if(active.owner==owner)return;
+        TASK_GENERATIONS.remove(owner);
     }
 
     private static void prune() {
