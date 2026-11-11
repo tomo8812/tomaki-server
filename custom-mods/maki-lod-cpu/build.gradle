@@ -171,8 +171,8 @@ tasks.register('verifyPregenControllerV2') {
          'fast-state-changed','trial-downstream-constrained'].each { token ->
             if(!policy.contains(token))throw new GradleException('Pregen V2 regression: c-neighbourhood policy missing '+token)
         }
-        if(!governor.contains('pairConfirmedRuntime')||!governor.contains('setFastTuningFrozen("probe".equals(POLICY.phase))'))
-            throw new GradleException('Pregen V2 regression: confirmed PAIR objective/FAST trial freeze missing')
+        if(!governor.contains('pairConfirmedRuntime')||governor.contains('setFastTuningFrozen("probe".equals(POLICY.phase))'))
+            throw new GradleException('Pregen V2 regression: confirmed PAIR objective or live FAST policy during c probes is missing')
     }
 }
 tasks.named('check') { dependsOn tasks.named('verifyPregenControllerV2') }
