@@ -47,6 +47,19 @@ public final class CpuGovernor {
         catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) { return true; }
     }
 
+    public static int pregenDeferredCoordinates(com.kishku7.chunksmith.GenerationTask task){
+        if(task==null)return 0;
+        try {
+            Object value=Class.forName("maki.chunksmithcache.CacheManager")
+                .getMethod("pregenDeferredCoordinates",com.kishku7.chunksmith.GenerationTask.class).invoke(null,task);
+            return value instanceof Number number?Math.max(0,number.intValue()):0;
+        } catch(ClassNotFoundException absent) {
+            return 0;
+        } catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable) {
+            return 0;
+        }
+    }
+
     public static boolean pregenReady(net.minecraft.server.MinecraftServer server){
         try { return Boolean.TRUE.equals(Class.forName("maki.chunksmithcache.CacheManager")
             .getMethod("pregenReady",net.minecraft.server.MinecraftServer.class).invoke(null,server)); }
