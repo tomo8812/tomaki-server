@@ -67,6 +67,11 @@ final class PregenBorrowLedger {
         return borrow==null?null:borrow.kind();
     }
 
+    static Path file(ServerLevel level,ChunkPos pos) {
+        Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
+        return borrow==null?null:borrow.file();
+    }
+
     /** Blocks a competing normal cache load only while the owned LOD write is unresolved. */
     static CompletableFuture<Boolean> pending(ServerLevel level, ChunkPos pos) {
         Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));

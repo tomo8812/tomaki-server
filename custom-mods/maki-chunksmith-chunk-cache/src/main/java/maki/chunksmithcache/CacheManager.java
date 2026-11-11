@@ -97,6 +97,42 @@ public final class CacheManager {
       return CHUNKSMITH_REQUEST_TASK.get();
    }
 
+   public static boolean reservePregenCandidate(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
+      if(level==null||pos==null||sourceTask==null||!FollowCaptureOwnership.owns(sourceTask))return true;
+      return PregenFlowController.reserveCandidate(level,pos,sourceTask);
+   }
+
+   public static void pregenCandidateSkipped(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
+      PregenFlowController.skipped(level,pos,sourceTask);
+   }
+
+   public static String pregenAttemptToken(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
+      return PregenFlowController.token(level,pos,sourceTask);
+   }
+
+   public record ControllerStatus(
+      long pairConfirmedRuntime,long pairNew,long pairRepair,long pairRevalidated,long uncertain,
+      int candidates,int actual,int lodOutstanding,int lodWindow,int validateOutstanding,int validateWindow,
+      int fullOutstanding,int fullWindow,long oldestMillis,boolean admissionBlocked,
+      boolean hardBlock,boolean softBackpressure,boolean sensorUnknown,String reason
+   ) {}
+
+   public static ControllerStatus controllerStatus() {
+      PregenFlowController.Snapshot flow=PregenFlowController.snapshot();
+      ResourceStatus resource=resourceStatus();
+      boolean unknown=resource.sensorUnknown()||flow.sensorUnknown();
+      boolean blocked=flow.blocked()||resource.hardBlock()||resource.softBackpressure()||unknown;
+      return new ControllerStatus(
+         flow.pairConfirmedRuntime(),flow.pairNew(),flow.pairRepair(),flow.pairRevalidated(),flow.uncertain(),
+         flow.candidates(),flow.actual(),flow.lodOutstanding(),flow.lodWindow(),flow.validateOutstanding(),flow.validateWindow(),
+         flow.fullOutstanding(),flow.fullWindow(),flow.oldestMillis(),blocked,
+         resource.hardBlock(),resource.softBackpressure(),unknown,resource.pressureReason());
+   }
+
+   public static boolean admissionBlocked() {
+      return controllerStatus().admissionBlocked();
+   }
+
    public static <T> T withChunksmithRequestTask(GenerationTask sourceTask, Supplier<T> action) {
       GenerationTask previous=CHUNKSMITH_REQUEST_TASK.get();
       if(sourceTask==null)CHUNKSMITH_REQUEST_TASK.remove();
@@ -121,6 +157,7 @@ public final class CacheManager {
       if (level == null || chunk == null) return;
       ChunkPos pos=chunk.getPos();
       CaptureKey key=captureKey(level,pos);
+      String attemptToken=PregenFlowController.token(level,pos,sourceTask);
       // The NeoForgeWorld hook also observes third-party Chunksmith tasks. Only
       // the exact GenerationTask admitted by preparePregenRequest belongs to this
       // unified flow; a delayed external/stale callback for the same coordinate
@@ -141,11 +178,14 @@ public final class CacheManager {
       // A confirmed cache FULL borrowed to repair LOD already owns its read-only
       // persistence guard. Attach the native writer ACK and keep the guard until unload.
       if (PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.BORROWED) {
+         Path borrowedFile=PregenBorrowLedger.file(level,pos);
          PregenBorrowLedger.attachLod(level,pos,lodCommitted);
          PREGEN_NEW_TARGETS.remove(key);
          lodCommitted.whenComplete((saved,error) -> {
             if(error==null && Boolean.TRUE.equals(saved)) {
                markLodCommitted(level,pos,key);
+               if(!confirmRuntimePair(level,pos,borrowedFile,attemptToken,lodCommitted,false))
+                  addRetry(PREGEN_LOD_RETRY,key);
                PipelineMetrics.count("pregen-lod-repair-complete");
             } else {
                addRetry(PREGEN_LOD_RETRY,key);
@@ -160,8 +200,11 @@ public final class CacheManager {
       boolean generatedTarget=PREGEN_NEW_TARGETS.remove(key)!=null;
       if(!generatedTarget) {
          lodCommitted.whenComplete((lodSaved,lodError) -> {
-            if(lodError==null && Boolean.TRUE.equals(lodSaved)) markLodCommitted(level,pos,key);
-            else addRetry(PREGEN_LOD_RETRY,key);
+            if(lodError==null && Boolean.TRUE.equals(lodSaved)) {
+               markLodCommitted(level,pos,key);
+               if(!confirmRuntimePair(level,pos,null,attemptToken,lodCommitted,false))
+                  addRetry(PREGEN_LOD_RETRY,key);
+            } else addRetry(PREGEN_LOD_RETRY,key);
          });
          return;
       }
@@ -194,7 +237,7 @@ public final class CacheManager {
          if(lodError==null && Boolean.TRUE.equals(lodSaved)) markLodCommitted(level,pos,key);
          else addRetry(PREGEN_LOD_RETRY,key);
       });
-      CompletableFuture<Boolean> saved=capture(level, chunk, false, lodCommitted);
+      CompletableFuture<Boolean> saved=capture(level,chunk,false,lodCommitted,attemptToken);
       saved.whenComplete((ok,error) -> {
          if(error==null && Boolean.TRUE.equals(ok)) {
             Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
@@ -222,6 +265,32 @@ public final class CacheManager {
       });
    }
 
+   private static boolean confirmRuntimePair(ServerLevel level,ChunkPos pos,Path full,String attemptToken,
+      CompletableFuture<Boolean> lodCommitted,boolean generatedNew) {
+      if(attemptToken==null) {
+         PregenFlowController.uncertain(null,"missing-attempt-token");
+         return false;
+      }
+      LodCommitTracker.LodReceipt receipt=LodCommitTracker.receiptOf(lodCommitted);
+      if(receipt==null||!attemptToken.equals(receipt.sourceToken())) {
+         PregenFlowController.uncertain(attemptToken,"lod-source-proof");
+         return false;
+      }
+      if(full!=null) {
+         Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+         if(snapshot==null)return false;
+         PairReceiptStore.PublishResult persisted=PairReceiptStore.publish(
+            level,pos,snapshot.fingerprint(),full,attemptToken,receipt);
+         if(persisted==PairReceiptStore.PublishResult.FAILED) {
+            PregenFlowController.uncertain(attemptToken,"receipt-persist");
+            return false;
+         }
+         if(persisted==PairReceiptStore.PublishResult.EXISTING)PregenFlowController.pairRevalidated();
+      }
+      PregenFlowController.pairConfirmed(attemptToken,generatedNew);
+      return true;
+   }
+
    public static boolean pregenRetryPending(MinecraftServer server, int centerX, int centerZ, int radiusBlocks) {
       if(server==null)return false;
       long radius=(long)Math.max(0,radiusBlocks)+16L;
@@ -239,6 +308,7 @@ public final class CacheManager {
       CaptureKey key=captureKey(level,pos);
       if(generated) PREGEN_NEW_TARGETS.remove(key);
       else PREGEN_NEW_TARGETS.put(key,System.currentTimeMillis());
+      PregenFlowController.classify(level,pos,sourceTask,generated);
    }
 
    public static void noteChunksmithGeneratedFailure(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
@@ -246,6 +316,7 @@ public final class CacheManager {
          || !FollowCaptureOwnership.active(level,sourceTask))return;
       CaptureKey key=captureKey(level,pos);
       PREGEN_NEW_TARGETS.remove(key);
+      PregenFlowController.candidateFailed(level,pos,sourceTask);
       addRetry(PREGEN_RETRY,key);
       PipelineMetrics.count("pregen-generated-state-failed");
    }
@@ -267,6 +338,7 @@ public final class CacheManager {
             ? sourceTask : existing);
       if(admitted!=sourceTask) {
          PipelineMetrics.count("pregen-request-owner-conflict");
+         PregenFlowController.candidateFailed(level,pos,sourceTask);
          return false;
       }
       // A retry debt without an admitted NEW target means ownership is still
@@ -278,7 +350,8 @@ public final class CacheManager {
          PipelineMetrics.count("pregen-unproven-full-request-blocked");
          return false;
       }
-      if(!PREGEN_NEW_TARGETS.containsKey(key))return true;
+      if(!PREGEN_NEW_TARGETS.containsKey(key))
+         return PregenFlowController.beginActual(level,pos,sourceTask,false);
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null) {
          addRetry(PREGEN_RETRY,key);
@@ -288,7 +361,8 @@ public final class CacheManager {
       PregenBorrowLedger.Kind kind=PregenBorrowLedger.kind(level,pos);
       if(kind!=null && kind!=PregenBorrowLedger.Kind.GENERATED)return false;
       // A guard from a stopped task cannot be reused by this request.
-      if(PregenBorrowLedger.beginGenerated(level,pos,file,sourceTask))return true;
+      if(PregenBorrowLedger.beginGenerated(level,pos,file,sourceTask))
+         return PregenFlowController.beginActual(level,pos,sourceTask,true);
       addRetry(PREGEN_RETRY,key);
       return false;
    }
@@ -323,6 +397,7 @@ public final class CacheManager {
    public static void pregenRequestFinished(ServerLevel level,ChunkPos pos,GenerationTask sourceTask,boolean success) {
       if(level==null||pos==null||sourceTask==null)return;
       CaptureKey key=captureKey(level,pos);
+      if(!success)PregenFlowController.requestFailed(level,pos,sourceTask);
       // Only the exact follow task admitted for this coordinate may mutate unified
       // request state. A detached task's late completion must not erase a newer
       // task's marker or persistence guard for the same coordinate.
@@ -658,7 +733,8 @@ public final class CacheManager {
       Path region=lodRegionPath(index,pos);
       FileStamp current=fileStamp(region);
       LodStamp confirmed=CONFIRMED_LOD.get(key);
-      if(confirmed!=null&&confirmed.region().equals(region)&&confirmed.stamp().equals(current))return true;
+      if(confirmed!=null&&confirmed.region().equals(region)&&confirmed.stamp().equals(current))
+         return pairReceiptValidIfRequired(level,pos,key);
       if(current==null)return invalidateLodRecord(key,index);
       CsLodRegionStore store=new CsLodRegionStore(index.getRoot());
       try {
@@ -670,12 +746,23 @@ public final class CacheManager {
          CONFIRMED_LOD.put(key,new LodStamp(region,validated));
          PREGEN_LOD_RETRY.remove(key);
          PipelineMetrics.count("pregen-lod-validated");
-         return true;
+         return pairReceiptValidIfRequired(level,pos,key);
       } catch(Throwable invalid) {
          return invalidateLodRecord(key,index);
       } finally {
          try { store.close(); } catch(IOException ignored) {}
       }
+   }
+
+   private static boolean pairReceiptValidIfRequired(ServerLevel level,ChunkPos pos,CaptureKey key) {
+      Path full=CONFIRMED_PREGEN.get(key);
+      if(full==null)return true;
+      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+      if(snapshot!=null&&PairReceiptStore.revalidate(level,pos,snapshot.fingerprint(),full))return true;
+      addRetry(PREGEN_RETRY,key);
+      addRetry(PREGEN_LOD_RETRY,key);
+      PipelineMetrics.count("pair-revalidation-failed");
+      return false;
    }
 
    private static boolean invalidateLodRecord(CaptureKey key,CsLodPresenceIndex index) {
@@ -692,26 +779,45 @@ public final class CacheManager {
       if(key!=null&&!STOPPING.contains(key.level().getServer())) retrySet.add(key);
    }
 
-   private record CaptureFlight(CompletableFuture<Boolean> result, long startedNanos) {}
+   private record CaptureFlight(CompletableFuture<Boolean> result,long startedNanos,String sourceToken) {}
 
-   public record ResourceStatus(int pendingCaptures, long pendingBytes, long oldestPendingMillis,
-                                int writerQueue, int validationInFlight, boolean accepting, String pressureReason,
-                                long activeCacheBytes, long usableDiskBytes) {}
+   public record ResourceStatus(int pendingCaptures,long pendingBytes,long oldestPendingMillis,
+                                int writerQueue,int validationInFlight,boolean accepting,String pressureReason,
+                                boolean hardBlock,boolean softBackpressure,boolean sensorUnknown,
+                                long activeCacheBytes,long usableDiskBytes) {}
 
    public static ResourceStatus resourceStatus() {
-      long now = System.nanoTime(), oldest = 0L;
+      long now=System.nanoTime(),oldest=0L;
       List<Path> roots=activeRoots;
-      for (CaptureFlight flight : CAPTURE_PENDING.values()) oldest = Math.max(oldest, Math.max(0L, now-flight.startedNanos()));
-      boolean accepting = currentServer != null && !STOPPING.contains(currentServer);
-      String pressure = !accepting ? "cache-not-accepting" : CAPTURE_BUDGET.full(SNAPSHOT_ESTIMATE) ? "cache-snapshot-capacity"
-         : INSPECTIONS.availablePermits() == 0 ? "cache-inspection-capacity" : CacheDiskBudget.pressure(roots);
-      return new ResourceStatus(CAPTURE_PENDING.size(), CAPTURE_BUDGET.bytes(), oldest/1_000_000L,
-         WRITE_IO.getQueue().size(), 32-INSPECTIONS.availablePermits(), accepting, pressure,
+      for(CaptureFlight flight:CAPTURE_PENDING.values())
+         oldest=Math.max(oldest,Math.max(0L,now-flight.startedNanos()));
+      boolean accepting=currentServer!=null&&!STOPPING.contains(currentServer);
+      String disk=CacheDiskBudget.pressure(roots);
+      LodCommitTracker.PhysicalStatus lodPhysical=LodCommitTracker.physicalStatus();
+      PregenFlowController.Snapshot flow=PregenFlowController.snapshot();
+      boolean diskUnknown="cache-disk-warming-up".equals(disk)||"cache-disk-unavailable".equals(disk)
+         ||"cache-disk-measurement-stale".equals(disk);
+      boolean hard=!accepting||"pregen-combined-capacity".equals(disk)||"cache-disk-reserve".equals(disk);
+      boolean unknown=diskUnknown||!lodPhysical.reliable()||flow.sensorUnknown();
+      boolean soft=CAPTURE_BUDGET.full(SNAPSHOT_ESTIMATE)||INSPECTIONS.availablePermits()==0
+         ||WRITE_IO.getQueue().size()>=96||flow.blocked();
+      String pressure=!accepting?"cache-not-accepting"
+         :hard?disk
+         :unknown?(diskUnknown?disk:"physical-stage-sensor-unknown")
+         :soft?(CAPTURE_BUDGET.full(SNAPSHOT_ESTIMATE)?"cache-snapshot-capacity"
+            :INSPECTIONS.availablePermits()==0?"cache-inspection-capacity"
+            :WRITE_IO.getQueue().size()>=96?"cache-writer-queue":"stage-wip-window")
+         :disk;
+      return new ResourceStatus(CAPTURE_PENDING.size(),CAPTURE_BUDGET.bytes(),oldest/1_000_000L,
+         WRITE_IO.getQueue().size(),32-INSPECTIONS.availablePermits(),accepting,pressure,hard,soft,unknown,
          roots.isEmpty()?0L:CacheDiskBudget.at(roots.getFirst()).activeBytes(),
          roots.isEmpty()?-1L:CacheDiskBudget.at(roots.getFirst()).usableBytes());
    }
 
-   public static String resourcePressure() { return resourceStatus().pressureReason(); }
+   public static String resourcePressure() {
+      ResourceStatus status=resourceStatus();
+      return status.hardBlock()||status.sensorUnknown()?status.pressureReason():null;
+   }
 
    static String ioSummary(long nowNanos) {
       ResourceStatus status = resourceStatus();
@@ -719,41 +825,52 @@ public final class CacheManager {
          + ",oldestPendingMs=" + status.oldestPendingMillis() + ",writerQueue=" + status.writerQueue()
          + ",writerActive=" + WRITE_IO.getActiveCount() + ",validating=" + status.validationInFlight()
          + ",activeCacheBytes=" + status.activeCacheBytes() + ",usableDiskBytes=" + status.usableDiskBytes()
-         + ",pressure=" + status.pressureReason() + ",lodPhysical=" + LodCommitTracker.physicalStatus();
+         + ",pressure=" + status.pressureReason() + ",hard=" + status.hardBlock()
+         + ",soft=" + status.softBackpressure() + ",unknown=" + status.sensorUnknown()
+         + ",lodPhysical=" + LodCommitTracker.physicalStatus() + ",flow=" + PregenFlowController.snapshot();
    }
 
    private static CaptureKey captureKey(ServerLevel level,ChunkPos pos) {
       return new CaptureKey(level, pos.toLong());
    }
 
-   static CompletableFuture<Boolean> capture(ServerLevel var0, LevelChunk var1, boolean var2, CompletableFuture<Boolean> lodCommitted) {
-      if (!var0.getServer().isSameThread()) throw new IllegalStateException("Chunk snapshot requires server thread");
-      String source = var2 ? "backfill" : "direct";
-      CaptureKey key = captureKey(var0, var1.getPos());
-      CompletableFuture<Boolean> result = new CompletableFuture<>();
-      CaptureFlight flight = new CaptureFlight(result, System.nanoTime());
-      CaptureFlight pending = CAPTURE_PENDING.putIfAbsent(key, flight);
-      if (pending != null) {
+   static CompletableFuture<Boolean> capture(ServerLevel level,LevelChunk chunk,boolean backfill,CompletableFuture<Boolean> lodCommitted) {
+      return capture(level,chunk,backfill,lodCommitted,null);
+   }
+
+   private static CompletableFuture<Boolean> capture(ServerLevel level,LevelChunk chunk,boolean backfill,
+      CompletableFuture<Boolean> lodCommitted,String sourceToken) {
+      if(!level.getServer().isSameThread())throw new IllegalStateException("Chunk snapshot requires server thread");
+      String source=backfill?"backfill":"direct";
+      CaptureKey key=captureKey(level,chunk.getPos());
+      CompletableFuture<Boolean> result=new CompletableFuture<>();
+      CaptureFlight flight=new CaptureFlight(result,System.nanoTime(),sourceToken);
+      CaptureFlight pending=CAPTURE_PENDING.putIfAbsent(key,flight);
+      if(pending!=null) {
          PipelineMetrics.count("capture-duplicate-avoided");
-         return pending.result();
+         if(java.util.Objects.equals(pending.sourceToken(),sourceToken))return pending.result();
+         if(sourceToken!=null)PregenFlowController.uncertain(sourceToken,"capture-joined-existing");
+         return pending.result().handle((ok,error)->false);
       }
-      result.whenComplete((ok, error) -> {
-         PipelineMetrics.count(source + (Boolean.TRUE.equals(ok) ? "-saved" : "-failed"));
-         PipelineMetrics.time("capture-total", System.nanoTime() - flight.startedNanos());
-         CAPTURE_PENDING.remove(key, flight);
+      result.whenComplete((ok,error)->{
+         PipelineMetrics.count(source+(Boolean.TRUE.equals(ok)?"-saved":"-failed"));
+         PipelineMetrics.time("capture-total",System.nanoTime()-flight.startedNanos());
+         CAPTURE_PENDING.remove(key,flight);
+         if(error!=null||!Boolean.TRUE.equals(ok))PregenFlowController.logicalCaptureFailed(sourceToken);
       });
-      PipelineMetrics.count(source + "-capture-started");
+      PipelineMetrics.count(source+"-capture-started");
       try {
-         captureSnapshot(var0, var1, result, lodCommitted);
-      } catch (Throwable error) {
-         LOG.warn("Could not capture chunk {}; regeneration remains available", var1.getPos(), error);
+         captureSnapshot(level,chunk,result,lodCommitted,sourceToken);
+      } catch(Throwable error) {
+         LOG.warn("Could not capture chunk {}; regeneration remains available",chunk.getPos(),error);
          result.complete(false);
       }
       return result;
    }
 
    /** Takes the complete snapshot synchronously, while the caller still owns its native ticket. */
-   private static void captureSnapshot(ServerLevel level, LevelChunk chunk, CompletableFuture<Boolean> result, CompletableFuture<Boolean> lodCommitted) {
+   private static void captureSnapshot(ServerLevel level,LevelChunk chunk,CompletableFuture<Boolean> result,
+      CompletableFuture<Boolean> lodCommitted,String sourceToken) {
       if (STOPPING.contains(level.getServer())) { result.complete(false); return; }
       CaptureBudget.Lease memory = CAPTURE_BUDGET.tryAcquire(SNAPSHOT_ESTIMATE);
       if (memory == null) { PipelineMetrics.count("capture-memory-rejected"); result.complete(false); return; }
@@ -767,8 +884,8 @@ public final class CacheManager {
       }
       InspectionPermit inspection=new InspectionPermit(level.getServer());
       LIVE_INSPECTIONS.add(inspection);
-      CaptureWork work = new CaptureWork(memory, storage, result, inspection, lodCommitted);
-      result.whenComplete((ok, error) -> work.terminal());
+      CaptureWork work=new CaptureWork(level,chunk.getPos(),memory,storage,result,inspection,lodCommitted,sourceToken);
+      result.whenComplete((ok,error)->work.terminal(Boolean.TRUE.equals(ok)));
       boolean submitted = false;
       try {
          Fingerprint.Snapshot fingerprint = Fingerprint.snapshotForLevel(level);
@@ -807,19 +924,21 @@ public final class CacheManager {
       }
    }
 
-   private static void validateCapture(ServerLevel level, ChunkPos pos, Path file, CaptureWork work, long queuedAt) {
+   private static void validateCapture(ServerLevel level,ChunkPos pos,Path file,CaptureWork work,long queuedAt) {
       PipelineMetrics.time("cache-validation-queue",System.nanoTime()-queuedAt);
-      if (work.result.isDone()) { work.inspection.close(); return; }
-      long started = System.nanoTime();
+      if(work.result.isDone()){work.inspection.close();return;}
+      work.validationStarted();
+      long started=System.nanoTime();
       CompletableFuture<NormalChunkStorage.State> inspected;
       try {
          RecoveryClaims.initialize(cacheRoot(level).resolve(dimensionKey(level)));
          inspected = NormalChunkStorage.inspectAsync(level, pos);
       }
-      catch (Throwable error) { work.inspection.close(); work.result.complete(false); return; }
-      inspected.whenComplete((normal, error) -> {
+      catch(Throwable error){work.inspection.close();work.validationFinished(false);work.result.complete(false);return;}
+      inspected.whenComplete((normal,error)->{
          work.inspection.close();
-         PipelineMetrics.time("cache-inspect", System.nanoTime()-started);
+         work.validationFinished(error==null);
+         PipelineMetrics.time("cache-inspect",System.nanoTime()-started);
          if (work.result.isDone()) return;
          boolean claimed;
          try { claimed=RecoveryClaims.claimExists(PromotionClaim.claimedPath(file)); }
@@ -850,10 +969,12 @@ public final class CacheManager {
       });
    }
 
-   private static void publishCapture(MinecraftServer server, Path file, CaptureWork work, long queuedAt) {
-      CompoundTag envelope = work.beginWrite();
-      if (envelope == null) return;
-      envelope.putBoolean("lodCommitted", true);
+   private static void publishCapture(MinecraftServer server,Path file,CaptureWork work,long queuedAt) {
+      CompoundTag envelope=work.beginWrite();
+      if(envelope==null)return;
+      work.fullStarted();
+      boolean physicalSuccess=false;
+      envelope.putBoolean("lodCommitted",true);
       PipelineMetrics.time("cache-queue", System.nanoTime()-queuedAt);
       Path temporary = file.resolveSibling(file.getFileName()+".tmp-"+Long.toUnsignedString(System.nanoTime()));
       try {
@@ -869,7 +990,20 @@ public final class CacheManager {
             if (work.result.isDone() || STOPPING.contains(server)) return;
             if (!PromotionClaim.publish(temporary,file)) { work.result.complete(false); return; }
             work.storage.published(newSize-previous);
-            PipelineMetrics.time("cache-write", System.nanoTime()-started);
+            physicalSuccess=true;
+            PipelineMetrics.time("cache-write",System.nanoTime()-started);
+            if(work.sourceToken!=null) {
+               LodCommitTracker.LodReceipt lod=LodCommitTracker.receiptOf(work.lodCommitted);
+               PairReceiptStore.PublishResult pair=PairReceiptStore.publish(
+                  work.level,work.pos,envelope.getString("fingerprint"),file,work.sourceToken,lod);
+               if(pair==PairReceiptStore.PublishResult.FAILED) {
+                  PregenFlowController.uncertain(work.sourceToken,"pair-receipt");
+                  work.result.complete(false);
+                  return;
+               }
+               if(pair==PairReceiptStore.PublishResult.EXISTING)PregenFlowController.pairRevalidated();
+               PregenFlowController.pairConfirmed(work.sourceToken,true);
+            }
             work.result.complete(true);
          }
       } catch (Throwable error) {
@@ -877,31 +1011,67 @@ public final class CacheManager {
          work.result.complete(false);
       } finally {
          try { Files.deleteIfExists(temporary); } catch (IOException ignored) {}
-         work.endWrite();
+         work.endWrite(physicalSuccess);
       }
    }
 
    private static final class CaptureWork {
-      final AtomicReference<CompoundTag> snapshot = new AtomicReference<>();
+      final AtomicReference<CompoundTag> snapshot=new AtomicReference<>();
+      final ServerLevel level;
+      final ChunkPos pos;
       final CaptureBudget.Lease memory;
       final CacheDiskBudget.Lease storage;
       final CompletableFuture<Boolean> result;
       final InspectionPermit inspection;
       final CompletableFuture<Boolean> lodCommitted;
+      final String sourceToken;
       private boolean writing;
-      CaptureWork(CaptureBudget.Lease memory, CacheDiskBudget.Lease storage, CompletableFuture<Boolean> result, InspectionPermit inspection, CompletableFuture<Boolean> lodCommitted) {
-         this.memory=memory; this.storage=storage; this.result=result; this.inspection=inspection;
-         this.lodCommitted=lodCommitted;
+      private long validationStartedNanos,fullStartedNanos;
+      private boolean validationEnded,fullEnded;
+      CaptureWork(ServerLevel level,ChunkPos pos,CaptureBudget.Lease memory,CacheDiskBudget.Lease storage,
+         CompletableFuture<Boolean> result,InspectionPermit inspection,CompletableFuture<Boolean> lodCommitted,String sourceToken) {
+         this.level=level;this.pos=pos;this.memory=memory;this.storage=storage;this.result=result;
+         this.inspection=inspection;this.lodCommitted=lodCommitted;this.sourceToken=sourceToken;
       }
-      synchronized void timeout() { if (!result.isDone()) result.complete(false); }
-      synchronized CompoundTag beginWrite() {
-         if (result.isDone()) return null;
+      synchronized void timeout(){if(!result.isDone())result.complete(false);}
+      synchronized CompoundTag beginWrite(){
+         if(result.isDone())return null;
          CompoundTag tag=snapshot.getAndSet(null);
          writing=tag!=null;
          return tag;
       }
-      synchronized void terminal() { snapshot.set(null); if (!writing) { memory.close(); storage.close(); } }
-      synchronized void endWrite() { writing=false; memory.close(); storage.close(); }
+      void validationStarted(){
+         synchronized(this){if(validationStartedNanos!=0)return;validationStartedNanos=System.nanoTime();}
+         PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.VALIDATE);
+      }
+      void validationFinished(boolean success){
+         long elapsed;
+         synchronized(this){
+            if(validationEnded)return;
+            validationEnded=true;
+            elapsed=validationStartedNanos==0?0:System.nanoTime()-validationStartedNanos;
+         }
+         PregenFlowController.physicalTerminal(sourceToken,PregenFlowController.Stage.VALIDATE,elapsed,success);
+      }
+      void fullStarted(){
+         synchronized(this){if(fullStartedNanos!=0)return;fullStartedNanos=System.nanoTime();}
+         PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.FULL);
+      }
+      synchronized void terminal(boolean success){
+         snapshot.set(null);
+         if(!success)PregenFlowController.logicalCaptureFailed(sourceToken);
+         if(!writing){memory.close();storage.close();}
+      }
+      void endWrite(boolean success){
+         long elapsed;
+         synchronized(this){
+            writing=false;memory.close();storage.close();
+            if(fullEnded)return;
+            fullEnded=true;
+            elapsed=fullStartedNanos==0?0:System.nanoTime()-fullStartedNanos;
+         }
+         PregenFlowController.physicalTerminal(sourceToken,PregenFlowController.Stage.FULL,elapsed,success);
+      }
    }
 
    private static final class InspectionPermit {
@@ -1415,6 +1585,7 @@ public final class CacheManager {
          && level.dimension().location().toString().equals(root.getString("dimension"))
          && root.getInt("x") == pos.x
          && root.getInt("z") == pos.z
+         && root.getBoolean("lodCommitted")
          && root.contains("chunk")
          && NormalChunkStorage.fromTag(root.getCompound("chunk")) == NormalChunkStorage.State.FULL;
    }
@@ -1424,6 +1595,7 @@ public final class CacheManager {
    }
 
    private static Path quarantineRejected(Path file) {
+      PairReceiptStore.invalidate(file);
       Path quarantined=GenerationStore.quarantineCorrupt(file);
       if(quarantined!=null) CacheDiskBudget.at(file.getParent().getParent().getParent().getParent()).invalidateInventory();
       return quarantined;
@@ -1557,6 +1729,8 @@ public final class CacheManager {
       LIVE_INSPECTIONS.forEach(permit -> { if(permit.server==server) permit.close(); });
       PromotionLedger.clear(server);
       PregenBorrowLedger.clear(server);
+      PregenFlowController.clear(server);
+      PairReceiptStore.clear();
       PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_LOD_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_NEW_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);

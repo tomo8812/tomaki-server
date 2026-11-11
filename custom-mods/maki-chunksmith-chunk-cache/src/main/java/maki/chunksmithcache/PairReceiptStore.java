@@ -115,7 +115,12 @@ final class PairReceiptStore {
         }
     }
 
-    static void invalidate(Path full){if(full!=null)VALIDATED.remove(receipt(full));}
+    static void invalidate(Path full){
+        if(full==null)return;
+        Path sidecar=receipt(full);
+        VALIDATED.remove(sidecar);
+        try{Files.deleteIfExists(sidecar);}catch(IOException ignored){}
+    }
     static void clear(){VALIDATED.clear();}
 
     static String lodDigest(CsLodChunk record) {
