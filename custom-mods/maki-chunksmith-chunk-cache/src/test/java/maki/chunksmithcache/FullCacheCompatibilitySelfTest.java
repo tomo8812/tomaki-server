@@ -183,7 +183,7 @@ public final class FullCacheCompatibilitySelfTest {
                 "data version mismatch must reject");
 
             checked = envelope(historical.fingerprint(), 382, -61);
-            checked,putInt("schema", CacheEnvelope.SCHEMA+1);
+            checked.putInt("schema", CacheEnvelope.SCHEMA+1);
             NbtIo.writeCompressed(checked, invalid);
             require("cache-schema".equals(CacheFormatValidator.rejectReason(
                 invalid, historical, "minecraft:overworld", DATA_VERSION)),
@@ -202,7 +202,7 @@ public final class FullCacheCompatibilitySelfTest {
                 "mismatched coordinates must reject");
 
             checked = envelope(historical.fingerprint(), 382, -61);
-            checked,putBoolean("lodCommitted", false);
+            checked.putBoolean("lodCommitted", false);
             NbtIo.writeCompressed(checked, invalid);
             require("entities-or-lod-incomplete".equals(CacheFormatValidator.rejectReason(
                 invalid, historical, "minecraft:overworld", DATA_VERSION)),
