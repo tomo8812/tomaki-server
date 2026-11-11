@@ -1,0 +1,63 @@
+name: One-time binary worldgen compatibility audit
+on:
+  push:
+    branches: [compat/chunksmith-4.8.1-millenaire-9.1.0]
+    paths: [.github/workflows/compat-binary-audit-once.yml]
+permissions:
+  contents: read
+jobs:
+  compare-distributed-binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Compare exact historical and updated JAR class/resource bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show origin/main:mods/chunksmith-4.6.0+1.21.1-neoforge.jar >/tmp/chunksmith-old.jar
+          git show origin/main:mods/millenaire-9.0.3.jar >/tmp/millenaire-old.jar
+          sha256sum /tmp/chunksmith-old.jar /tmp/millenaire-old.jar mods/chunksmith-4.8.1+1.21.1-neoforge.jar mods/millenaire-9.1.0.jar
+          python3 - <<'PY'
+          import zipfile,hashlib,collections,os,re,subprocess,difflib
+          pairs=[
+            ('CHUNKSMITH','/tmp/chunksmith-old.jar','mods/chunksmith-4.8.1+1.21.1-neoforge.jar',
+             ['com/kishku7/chunksmith/lod/CsLodCodec.class','com/kishku7/chunksmith/lod/CsLodRegionStore.class','com/kishku7/chunksmith/lod/CsLodPresenceIndex.class','com/kishku7/chunksmith/lod/CsLodWorldId.class','com/kishku7/chunksmith/lod/CsLodExtractor.class','com/kishku7/chunksmith/lod/ExploredLod.class','com/kishku7/chunksmith/lod/ExploredLodGuard.class','com/kishku7/chunksmith/lod/HorizonGuard.class','com/kishku7/chunksmith/lod/LodHorizon.class','com/kishku7/chunksmith/GenerationTask.class','com/kishku7/chunksmith/platform/NeoForgeWorld.class','com/kishku7/chunksmith/mixin/WorldGenRegionMixin.class','com/kishku7/chunksmith/mixin/StructureStartMixin.class','com/kishku7/chunksmith/mixin/ChunkMapHorizonSaveMixin.class']),
+            ('MILLENAIRE','/tmp/millenaire-old.jar','mods/millenaire-9.1.0.jar',
+             ['org/millenaire/Millenaire.class','org/millenaire/world/VillageSpawnQueue.class','org/millenaire/world/VillageSpawner.class','org/millenaire/world/PistachioTreeGenerator.class','org/millenaire/world/OliveTreeGenerator.class','org/millenaire/world/AppleTreeGenerator.class','org/millenaire/world/VillageTerrainMap.class','org/millenaire/world/StructureAvoidance.class','org/millenaire/world/SiteHunter.class','org/millenaire/world/ModAttachments.class'])
+          ]
+          for label,old,new,watch in pairs:
+            with zipfile.ZipFile(old) as a,zipfile.ZipFile(new) as b:
+              a1={i.filename:hashlib.sha256(a.read(i)).hexdigest() for i in a.infolist() if not i.is_dir()}
+              b1={i.filename:hashlib.sha256(b.read(i)).hexdigest() for i in b.infolist() if not i.is_dir()}
+            common=set(a1)&set(b1)
+            changed=sorted(x for x in common if a1[x]!=b1[x]); added=sorted(set(b1)-set(a1)); removed=sorted(set(a1)-set(b1))
+            print('\\n===== '+label+' AUDIT =====')
+            print('old entries',len(a1),'new entries',len(b1),'changed',len(changed),'added',len(added),'removed',len(removed))
+            for x in watch: print('WATCH',x,'OLD' if x in a1 else 'MISSING_OLD','NEW' if x in b1 else 'MISSING_NEW','IDENTICAL' if x in common and a1[x]==b1[x] else 'CHANGED_OR_ADDED')
+            print('CHANGED CLASS FILES:',[x for x in changed if x.endswith('.class')][:250])
+            print('ADDED CLASS FILES:',[x for x in added if x.endswith('.class')][:75])
+            print('REMOVED CLASS FILES:',[x for x in removed if x.endswith('.class')][:75])
+            modres=lambda x:x.startswith('data/') or x.startswith('assets/') or x.endswith('.mixins.json') or x.endswith('neoforge.mods.toml')
+            print('CHANGED RESOURCES:',[x for x in changed if modres(x)][:70])
+            print('ADDED RESOURCES:',[x for x in added if modres(x)][:70])
+            print('REMOVED RESOURCES:',[x for x in removed if modres(x)][:70])
+            print('WORLDGEN_RESOURCES_OLD:',[x for x in a1 if re.search(r'(worldgen|structure|feature|biome|dimension)',x,re.I) and not x.endswith('.class')][:70])
+            print('WORLDGEN_RESOURCES_NEW:',[x for x in b1 if re.search(r'(worldgen|structure|feature|biome|dimension)',x,re.I) and not x.endswith('.class')][:70])
+            for cls in watch:
+              if cls not in a1 or cls not in b1 or a1[cls]==b1[cls]: continue
+              if cls.endswith(('CsLodCodec.class','CsLodRegionStore.class','CsLodExtractor.class','GenerationTask.class','NeoForgeWorld.class','WorldGenRegionMixin.class','StructureStartMixin.class','VillageSpawner.class','PistachioTreeGenerator.class','OliveTreeGenerator.class','AppleTreeGenerator.class','Millenaire.class','VillageSpawnQueue.class')):
+                fqcn=cls[:-6].replace('/','.')
+                args=['javap','-p','-c','-classpath']
+                oa=subprocess.run(args+[old,fqcn],text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL).stdout.splitlines()
+                nb=subprocess.run(args+[new,fqcn],text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL).stdout.splitlines()
+                diff=list(difflib.unified_diff(oa,nb,n=2))
+                print('BYTECODE_DIFF',fqcn,'oldLines',len(oa),'newLines',len(nb),'diffLines',len(diff))
+                print('\\n'.join(diff[:110]))
+          PY
