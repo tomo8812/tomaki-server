@@ -2,7 +2,6 @@ package maki.chunksmithcache;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import net.minecraft.nbt.CompoundTag;
@@ -19,7 +18,7 @@ import net.minecraft.nbt.Tag;
  * No JAR SHA, generation ID or calendar-date allowlist is involved. The
  * manifest comparison has already proved the worldgen/seed/config inputs
  * unchanged; this verifies the individual serialized artifact's format,
- * state, ownership and absence of Millenaire village state.
+ * state and ownership of the FULL cache.
  */
 final class CacheFormatValidator {
     private static final Pattern FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
@@ -75,11 +74,6 @@ final class CacheFormatValidator {
             String terrain = terrainRejectReason(chunk);
             if (terrain != null) return terrain;
 
-            // Pre-generated FULL caches must contain terrain only; Millenaire's
-            // delayed village creation happens when a player later loads it.
-            // Reject any actual namespace/serialized Millenaire markers rather
-            // than assuming a cache from another time is village-free.
-            if (containsMillenaireData(chunk)) return "contains-millenaire-content";
             return null;
         } catch (Throwable invalid) {
             return "invalid-or-unreadable-nbt:" + invalid.getClass().getSimpleName();
@@ -116,21 +110,4 @@ final class CacheFormatValidator {
         return null;
     }
 
-    private static boolean containsMillenaireData(Tag tag) {
-        if (tag instanceof StringTag value) {
-            String string = value.getAsString().toLowerCase(Locale.ROOT);
-            return string.contains("millenaire:") || string.startsWith("org.millenaire.");
-        }
-        if (tag instanceof CompoundTag compound) {
-            for (String key : compound.getAllKeys()) {
-                String lowered = key.toLowerCase(Locale.ROOT);
-                if (lowered.startsWith("millenaire:")) return true;
-                Tag child = compound.get(key);
-                if (child != null && containsMillenaireData(child)) return true;
-            }
-        } else if (tag instanceof ListTag list) {
-            for (Tag child : list) if (containsMillenaireData(child)) return true;
-        }
-        return false;
-    }
 }
