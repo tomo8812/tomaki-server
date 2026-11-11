@@ -44,6 +44,10 @@ public final class AuditedGenerationUpgradeSelfTest {
         FingerprintManifest.Manifest current = manifest(newEntries);
         require(AuditedGenerationUpgrade.eligible(old, current),
             "role-based migration must not rely on JAR SHA allowlists");
+        FingerprintManifest.Manifest historicalWithoutCodeEvidence =
+            remove(old, GenerationRoleEvidence.CHUNKSMITH_KEY);
+        require(AuditedGenerationUpgrade.eligible(historicalWithoutCodeEvidence, current),
+            "historical caches without optional semantic code evidence still use per-file NBT validation");
         require(FingerprintManifest.sameCompatibilityInputsExcept(
             old, current, Set.of("policy:compatibility")),
             "same FULL schema and unchanged terrain inputs permit upgraded cache");
@@ -69,6 +73,8 @@ public final class AuditedGenerationUpgradeSelfTest {
             "future minor-role releases with unchanged worldgen inputs must not be rejected by release age");
 
         assertRejected(current, old, "downgrade");
+        assertRejected(old, replace(current, GenerationRoleEvidence.CHUNKSMITH_KEY,
+            "future-core-methods-changed"), "modified recorded Chunksmith generation code");
         assertRejected(old, replace(current, "mods/" + PAIRS.getFirst().newName(),
             "chunksmith-5.0.0+1.21.1-neoforge.jar", "major-new"), "unknown major upgrade");
         assertRejected(old, replace(current, "mods/" + PAIRS.getFirst().newName(),
@@ -221,6 +227,10 @@ public final class AuditedGenerationUpgradeSelfTest {
     private static List<FingerprintManifest.Entry> baseline() {
         return new ArrayList<>(List.of(
             value("policy:compatibility", "policy-v9"),
+            new FingerprintManifest.Entry(GenerationRoleEvidence.CHUNKSMITH_KEY, 200L,
+                CompatibilityFingerprint.sha256("same-generation-code"),
+                FingerprintManifest.Impact.IGNORED,
+                "observed Chunksmith generation/LOD code, format contract v1"),
             value("level:seed", "original-seed"),
             value("level:dimension", "minecraft:overworld"),
             value("level:generator-class", "NoiseBasedChunkGenerator"),
