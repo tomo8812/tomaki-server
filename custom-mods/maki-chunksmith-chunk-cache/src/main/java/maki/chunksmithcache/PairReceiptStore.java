@@ -41,6 +41,10 @@ final class PairReceiptStore {
         try {
             FullIdentity fullIdentity=fullIdentity(full);
             long fullSize=fullIdentity.size(),fullMtime=fullIdentity.mtime();
+            if(!currentLodMatches(level,pos,lod)) {
+                PipelineMetrics.count("pair-receipt-lod-raced");
+                return PublishResult.FAILED;
+            }
             Path region=lodRegion(level,pos);
             long lodSize=Files.size(region),lodMtime=Files.getLastModifiedTime(region).toMillis();
             String completion=hex(sha256((level.dimension().location()+"\n"+pos.x+"\n"+pos.z+"\n"+fingerprint+"\n"
@@ -80,7 +84,16 @@ final class PairReceiptStore {
             } finally {
                 Files.deleteIfExists(temporary);
             }
-            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),lodSize,lodMtime));
+            // The sidecar is the PAIR commit point. Re-check after its atomic
+            // publication so a same-coordinate LOD offer/write racing the receipt
+            // cannot make an older source look current.
+            if(!currentLodMatches(level,pos,lod)) {
+                invalidate(full);
+                PipelineMetrics.count("pair-receipt-lod-raced");
+                return PublishResult.FAILED;
+            }
+            long finalLodSize=Files.size(region),finalLodMtime=Files.getLastModifiedTime(region).toMillis();
+            VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),finalLodSize,finalLodMtime));
             return PublishResult.NEW;
         } catch(Throwable error) {
             PipelineMetrics.count("pair-receipt-publish-failed");
@@ -149,6 +162,22 @@ final class PairReceiptStore {
             return hex(digest.digest());
         } catch(Exception error) {
             throw new IllegalStateException("Could not hash CsLodChunk",error);
+        }
+    }
+
+    private static boolean currentLodMatches(ServerLevel level,ChunkPos pos,LodCommitTracker.LodReceipt receipt) {
+        if(!LodCommitTracker.coordinateClear(receipt))return false;
+        CsLodRegionStore store=new CsLodRegionStore(CacheManager.lodRoot(level));
+        try {
+            CsLodChunk record=store.read(pos.x,pos.z);
+            return record!=null
+                &&record.getChunkX()==pos.x&&record.getChunkZ()==pos.z
+                &&level.dimension().location().toString().equals(record.getDimension())
+                &&receipt.contentSha256().equals(lodDigest(record));
+        } catch(Throwable invalid) {
+            return false;
+        } finally {
+            try{store.close();}catch(IOException ignored){}
         }
     }
 
