@@ -74,7 +74,8 @@ final class AuditedGenerationUpgrade {
                             FingerprintManifest.Manifest current) {
         FingerprintManifest.Entry oldPolicy = unique(historical, "policy:compatibility");
         FingerprintManifest.Entry newPolicy = unique(current, "policy:compatibility");
-        if (!same(oldPolicy, newPolicy)) return false;
+        if (!same(oldPolicy, newPolicy)
+            || !GenerationRoleEvidence.compatible(historical, current)) return false;
 
         boolean changed = false;
         for (Role role : ROLES) {
