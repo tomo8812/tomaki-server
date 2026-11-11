@@ -31,6 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ThreadPoolExecutor.AbortPolicy;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import net.minecraft.nbt.CompoundTag;
@@ -67,6 +68,9 @@ public final class CacheManager {
    // must never erase a failed/missing LOD obligation.
    private static final PregenRetryLedger<CaptureKey> PREGEN_RETRY = new PregenRetryLedger<>("full");
    private static final PregenRetryLedger<CaptureKey> PREGEN_LOD_RETRY = new PregenRetryLedger<>("lod");
+   private static final LongAdder PREGEN_SCANNED_COORDINATES = new LongAdder();
+   private static final LongAdder PREGEN_EFFECTIVE_RETRY_FULL = new LongAdder();
+   private static final LongAdder PREGEN_EFFECTIVE_RETRY_LOD = new LongAdder();
    private static final ConcurrentHashMap<CaptureKey,Long> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_REQUEST_TARGETS = new ConcurrentHashMap<>();
    private static final Map<GenerationTask,Set<Long>> PREGEN_PROGRESS_REJECTED =
@@ -606,9 +610,9 @@ public final class CacheManager {
       if(level==null||pos==null||!FollowCaptureOwnership.owns(level))return nativeGenerated;
       CaptureKey key=captureKey(level,pos);
       long retryNow=System.nanoTime();
-      PipelineMetrics.count("pregen-scanned-coordinate");
+      PREGEN_SCANNED_COORDINATES.increment();
       boolean fullRetryDue=PREGEN_RETRY.due(key,retryNow);
-      if(fullRetryDue)PipelineMetrics.count("pregen-effective-retry-full");
+      if(fullRetryDue)PREGEN_EFFECTIVE_RETRY_FULL.increment();
       if(!nativeGenerated)return false;
       if(fullRetryDue || PREGEN_NEW_TARGETS.containsKey(key)
          || CAPTURE_PENDING.containsKey(key) || PregenBorrowLedger.kind(level,pos)!=null
@@ -805,7 +809,7 @@ public final class CacheManager {
       if(level==null||pos==null||index==null||!FollowCaptureOwnership.owns(level))return false;
       CaptureKey key=captureKey(level,pos);
       if(PREGEN_LOD_RETRY.due(key,System.nanoTime())) {
-         PipelineMetrics.count("pregen-effective-retry-lod");
+         PREGEN_EFFECTIVE_RETRY_LOD.increment();
          return false;
       }
       Path region=lodRegionPath(index,pos);
@@ -925,6 +929,9 @@ public final class CacheManager {
          + ",pressure=" + status.pressureReason() + ",hard=" + status.hardBlock()
          + ",soft=" + status.softBackpressure() + ",unknown=" + status.sensorUnknown()
          + ",retryFull=" + PREGEN_RETRY.status(nowNanos) + ",retryLod=" + PREGEN_LOD_RETRY.status(nowNanos)
+         + ",scannedCoordinates=" + PREGEN_SCANNED_COORDINATES.sumThenReset()
+         + ",effectiveRetryFull=" + PREGEN_EFFECTIVE_RETRY_FULL.sumThenReset()
+         + ",effectiveRetryLod=" + PREGEN_EFFECTIVE_RETRY_LOD.sumThenReset()
          + ",scanner=" + NormalChunkStorage.scannerStatus()
          + ",lodPhysical=" + LodCommitTracker.physicalStatus() + ",flow=" + PregenFlowController.snapshot();
    }
