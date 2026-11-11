@@ -51,16 +51,16 @@ final class PairReceiptStore {
             }
             Path region=lodRegion(level,pos);
             long lodSize=Files.size(region),lodMtime=Files.getLastModifiedTime(region).toMillis();
+            // completionIdentity is canonical content/state, not an attempt or
+            // filesystem-instance identity. mtime/fileKey remain revalidation metadata.
             String completion=hex(sha256((level.dimension().location()+"\n"+pos.x+"\n"+pos.z+"\n"+fingerprint+"\n"
-                +fullSize+"\n"+fullMtime+"\n"+fullIdentity.fileKey()+"\n"+fullIdentity.contentSha256()+"\n"+lod.contentSha256())
+                +fullIdentity.contentSha256()+"\n"+lod.contentSha256())
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
             Path receipt=receipt(full);
             Properties prior=load(receipt);
-            if(prior!=null&&completion.equals(prior.getProperty("completion"))) {
-                VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),fullIdentity.contentSha256(),lodSize,lodMtime));
-                REVALIDATED.add(receipt);
-                return PublishResult.EXISTING;
-            }
+            boolean existing=prior!=null
+                &&Integer.toString(VERSION).equals(prior.getProperty("version"))
+                &&completion.equals(prior.getProperty("completion"));
             Properties properties=new Properties();
             properties.setProperty("version",Integer.toString(VERSION));
             properties.setProperty("dimension",level.dimension().location().toString());
@@ -75,21 +75,7 @@ final class PairReceiptStore {
             properties.setProperty("lodSha256",lod.contentSha256());
             properties.setProperty("completion",completion);
             properties.setProperty("confirmedAt",Long.toString(System.currentTimeMillis()));
-            ByteArrayOutputStream bytes=new ByteArrayOutputStream();
-            properties.store(bytes,"maki pregen PAIR receipt");
-            Files.createDirectories(receipt.getParent());
-            Path temporary=receipt.resolveSibling(receipt.getFileName()+".tmp-"+Long.toUnsignedString(System.nanoTime()));
-            try {
-                try(FileChannel channel=FileChannel.open(temporary,StandardOpenOption.CREATE_NEW,StandardOpenOption.WRITE)) {
-                    ByteBuffer buffer=ByteBuffer.wrap(bytes.toByteArray());
-                    while(buffer.hasRemaining())channel.write(buffer);
-                    channel.force(true);
-                }
-                Files.move(temporary,receipt,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
-                syncDirectory(receipt.getParent());
-            } finally {
-                Files.deleteIfExists(temporary);
-            }
+            if(!existing || !receiptMetadataMatches(prior,properties))writeReceipt(receipt,properties);
             // The sidecar is the PAIR commit point. Re-check after its atomic
             // publication so a same-coordinate LOD offer/write racing the receipt
             // cannot make an older source look current.
@@ -101,7 +87,7 @@ final class PairReceiptStore {
             long finalLodSize=Files.size(region),finalLodMtime=Files.getLastModifiedTime(region).toMillis();
             VALIDATED.put(receipt,new ValidationStamp(fullSize,fullMtime,fullIdentity.fileKey(),fullIdentity.contentSha256(),finalLodSize,finalLodMtime));
             REVALIDATED.add(receipt);
-            return PublishResult.NEW;
+            return existing?PublishResult.EXISTING:PublishResult.NEW;
         } catch(Throwable error) {
             PipelineMetrics.count("pair-receipt-publish-failed");
             return PublishResult.FAILED;
@@ -188,6 +174,33 @@ final class PairReceiptStore {
             return false;
         } finally {
             try{store.close();}catch(IOException ignored){}
+        }
+    }
+
+    private static boolean receiptMetadataMatches(Properties prior,Properties current) {
+        if(prior==null||current==null)return false;
+        for(String key:new String[]{"version","dimension","x","z","fingerprint","source","fullSize","fullMtime",
+            "fullFileKey","fullSha256","lodSha256","completion"}) {
+            if(!java.util.Objects.equals(prior.getProperty(key),current.getProperty(key)))return false;
+        }
+        return true;
+    }
+
+    private static void writeReceipt(Path receipt,Properties properties)throws IOException {
+        ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+        properties.store(bytes,"maki pregen PAIR receipt");
+        Files.createDirectories(receipt.getParent());
+        Path temporary=receipt.resolveSibling(receipt.getFileName()+".tmp-"+Long.toUnsignedString(System.nanoTime()));
+        try {
+            try(FileChannel channel=FileChannel.open(temporary,StandardOpenOption.CREATE_NEW,StandardOpenOption.WRITE)) {
+                ByteBuffer buffer=ByteBuffer.wrap(bytes.toByteArray());
+                while(buffer.hasRemaining())channel.write(buffer);
+                channel.force(true);
+            }
+            Files.move(temporary,receipt,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
+            syncDirectory(receipt.getParent());
+        } finally {
+            Files.deleteIfExists(temporary);
         }
     }
 
