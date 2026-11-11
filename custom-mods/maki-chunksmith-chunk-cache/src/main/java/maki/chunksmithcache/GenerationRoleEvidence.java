@@ -61,9 +61,11 @@ final class GenerationRoleEvidence {
                               FingerprintManifest.Manifest newManifest) {
         FingerprintManifest.Entry old = find(oldManifest);
         FingerprintManifest.Entry current = find(newManifest);
-        if (old == null) return true; // Historical v2 manifests lack this extra audit.
-        return current != null
-            && VERIFIED.equals(old.reason()) && VERIFIED.equals(current.reason())
+        // A current server must provide a verifiable generation code digest.
+        // Older manifests may lack it; their FULL data is still field-validated.
+        if (current == null || !VERIFIED.equals(current.reason())) return false;
+        if (old == null) return true;
+        return VERIFIED.equals(old.reason())
             && old.size() == current.size()
             && old.sha256().equals(current.sha256());
     }
