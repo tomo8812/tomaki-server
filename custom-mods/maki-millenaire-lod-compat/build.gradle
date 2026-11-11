@@ -20,7 +20,7 @@ neoForge {
 dependencies {
     compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
     compileOnly files('../../mods/millenaire-9.1.0.jar')
-    compileOnly files('../../mods/maki-chunksmith-chunk-cache-1.4.5.jar')
+    compileOnly files('../../mods/maki-chunksmith-chunk-cache-1.4.6.jar')
 }
 
 tasks.withType(JavaCompile).configureEach {
