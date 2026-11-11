@@ -16,7 +16,7 @@ final class FingerprintPolicy {
     // installing another generation MOD, update this code as part of that change.
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_JAR_PREFIXES = List.of(
         "zfastnoise-", "epicterrain-", "worldgenfeaturefix-", "terrain_slabs-", "disabler-",
-        "architectury-", "letsdo-bakery-", "letsdo-brewery-", "letsdo-candlelight-",
+        "letsdo-bakery-", "letsdo-brewery-", "letsdo-candlelight-",
         "letsdo-farm_and_charm-", "letsdo-herbalbrews-"
     );
     private static final List<String> BUILTIN_GENERATION_SENSITIVE_PATHS = List.of(
