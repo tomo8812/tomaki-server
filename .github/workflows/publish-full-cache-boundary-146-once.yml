@@ -35,3 +35,5 @@ jobs:
           git add -A mods
           git commit -m "build(cache): publish FULL-only cache compatibility 1.4.6"
           git push origin HEAD:compat/chunksmith-4.8.1-millenaire-9.1.0
+
+# Recheck after fixing sensitivity matching for historical MOD paths.
