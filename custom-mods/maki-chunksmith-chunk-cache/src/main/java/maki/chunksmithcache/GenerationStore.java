@@ -42,8 +42,8 @@ final class GenerationStore {
             }
 
             migrateExactLegacy(root, snapshot, trigger);
-            migratePolicyEquivalent(root, snapshot, trigger);
-            migrateEquivalentQuarantines(root, snapshot, trigger);
+            migratePolicyEquivalent(level, root, snapshot, trigger);
+            migrateEquivalentQuarantines(level, root, snapshot, trigger);
             quarantineIncompatible(root, snapshot, trigger);
             Path active = root.resolve(snapshot.fingerprint());
             Files.createDirectories(active);
@@ -149,7 +149,8 @@ final class GenerationStore {
             List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
                 manifest, current, Set.of("policy:compatibility"), 12, source
             );
-            CacheDirectoryMerge.MergeStats merge = mergeDirectory(source, active);
+            CacheDirectoryMerge.MergeStats merge = mergeForCompatibility(
+                level, manifest, current, source, active, false);
             Set<String> accepted = new LinkedHashSet<>(manifest.storedFingerprints());
             accepted.add(manifest.fingerprint());
             accepted.add(snapshot.fingerprint());
@@ -189,7 +190,7 @@ final class GenerationStore {
             snapshot.legacyFingerprint(), snapshot.fingerprint(), root.getFileName(), before.entries(), before.bytes(), trigger);
     }
 
-    private static void migratePolicyEquivalent(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+    private static void migratePolicyEquivalent(ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
         FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
         List<Path> candidates;
         try (Stream<Path> stream = Files.list(root)) {
@@ -211,7 +212,8 @@ final class GenerationStore {
             List<String> proofDetails = FingerprintManifest.compatibilityProofs(
                 old, current, Set.of("policy:compatibility"), 12, candidate
             );
-            CacheDirectoryMerge.MergeStats merge = mergeDirectory(candidate, active);
+            CacheDirectoryMerge.MergeStats merge = mergeForCompatibility(
+                level, old, current, candidate, active, false);
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
@@ -228,7 +230,7 @@ final class GenerationStore {
         }
     }
 
-    private static void migrateEquivalentQuarantines(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+    private static void migrateEquivalentQuarantines(ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
         Path quarantineRoot = root.resolve(QUARANTINE_DIR);
         if (!Files.isDirectory(quarantineRoot)) return;
 
@@ -271,7 +273,8 @@ final class GenerationStore {
             List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
                 old, current, Set.of("policy:compatibility"), 12, candidate
             );
-            CacheDirectoryMerge.MergeStats merge = CacheDirectoryMerge.copyCacheEntriesPreservingSource(candidate, active);
+            CacheDirectoryMerge.MergeStats merge = mergeForCompatibility(
+                level, old, current, candidate, active, true);
 
             Set<String> accepted = new LinkedHashSet<>();
             accepted.add(snapshot.fingerprint());
@@ -423,6 +426,39 @@ final class GenerationStore {
             }
         }
         return new Stats(entries, bytes);
+    }
+
+    /**
+     * A version-independent role transition must pass the persisted schema
+     * and chunk fields for every file. A rejected file stays at its previous
+     * path for quarantine and is never silently promoted to the new namespace.
+     * Same-fingerprint/reasoned legacy migrations keep their existing rules.
+     */
+    private static CacheDirectoryMerge.MergeStats mergeForCompatibility(
+        ServerLevel level,
+        FingerprintManifest.Manifest historical,
+        FingerprintManifest.Manifest current,
+        Path source, Path active,
+        boolean preserveSource
+    ) throws IOException {
+        if (!AuditedGenerationUpgrade.eligible(historical, current)) {
+            return preserveSource
+                ? CacheDirectoryMerge.copyCacheEntriesPreservingSource(source, active)
+                : mergeDirectory(source, active);
+        }
+        int dataVersion = WorldVersionBridge.getDataVersion(
+            net.minecraft.SharedConstants.getCurrentVersion()).getVersion();
+        String dimension = level.dimension().location().toString();
+        java.util.function.Predicate<Path> verified = file -> {
+            String rejected = CacheFormatValidator.rejectReason(
+                file, historical, dimension, dataVersion);
+            if (rejected != null) LOG.warn(
+                "Retaining incompatible historical FULL cache {}: {}", file, rejected);
+            return rejected == null;
+        };
+        return preserveSource
+            ? CacheDirectoryMerge.copyValidatedPreservingSource(source, active, verified)
+            : CacheDirectoryMerge.mergeValidated(source, active, verified);
     }
 
     private static CacheDirectoryMerge.MergeStats mergeDirectory(Path source, Path target) throws IOException {
