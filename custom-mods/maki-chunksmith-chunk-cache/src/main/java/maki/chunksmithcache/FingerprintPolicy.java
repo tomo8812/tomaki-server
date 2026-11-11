@@ -74,7 +74,7 @@ final class FingerprintPolicy {
         if (isGenerationSensitivePath(normalized)) return FingerprintManifest.Impact.RELEVANT;
 
         if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
-            if (isGenerationSensitiveJarName(physicalPath.getFileName().toString())) {
+            if (isGenerationSensitiveJarName(normalized.substring(normalized.lastIndexOf('/') + 1))) {
                 return FingerprintManifest.Impact.RELEVANT;
             }
             // All other installed MODs are currently outside FULL generation
