@@ -58,7 +58,11 @@ public final class LodCommitTracker {
         try{LodSupport.offer(level,chunk);}
         catch(Throwable error){result.completeExceptionally(error);}
         finally{if(previous==null)CURRENT.remove();else CURRENT.set(previous);}
-        if(request.registrations!=1&&!result.isDone())result.complete(false);
+        if(request.registrations!=1&&!result.isDone()) {
+            if(request.registrations==0&&sourceToken!=null)
+                PregenFlowController.stageUnavailable(sourceToken,PregenFlowController.Stage.LOD);
+            result.complete(false);
+        }
         result.orTimeout(30,TimeUnit.SECONDS).whenComplete((ok,error)->{
             if(error!=null||!Boolean.TRUE.equals(ok)){
                 try{
