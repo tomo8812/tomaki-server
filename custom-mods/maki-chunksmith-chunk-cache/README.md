@@ -1,166 +1,45 @@
 # maki-chunksmith-chunk-cache
 
-## Current compatibility boundary (1.4.6)
+Server-side cold FULL chunk cache and protected Backfill integration for Minecraft 1.21.1 / NeoForge and Chunksmith.
 
-The FULL cold-cache mod owns reuse of its **FULL** chunk NBT only.
-Chunksmith owns reuse and regeneration of native CSLOD files; the cache
-mod does not compare Chunksmith's LOD implementation to decide compatibility.
+## Current behavior (1.4.7)
 
-- Ordinary upgrades of Chunksmith, Millenaire's deferred village logic,
-  maki-millenaire-lod-compat, idle pregen, cache/scheduling/diagnostics
-  and non-worldgen MODs/configs do not change FULL cache compatibility.
-- Only Minecraft's chunk DataVersion, world seed/dimension/generator,
-  level.dat worldgen settings, datapacks and declared/recognizable terrain
-  generation MODs and their generation settings are compatibility inputs.
-- Currently tracked worldgen inputs are zfastnoise, epicterrain,
-  worldgenfeaturefix, terrain_slabs, disabler, and the deployed
-  LetsDo Bakery, Brewery, Candlelight, Farm & Charm and HerbalBrews JARs.
-  The exact list is in FingerprintPolicy.java. Changes to this existing
-  generation set require a fresh compatibility check.
-- No discovery or policy knobs are provided for hypothetical future MODs.
-  When the server's generation MOD set changes, edit that list and review
-  compatibility as part of the same MOD installation or upgrade.
-- Historical manifests can contain entries that older code classified as
-  relevant. The new comparison checks their **actual FULL generation role**
-  rather than accepting that broad historical classification.
-- A compatible old generation uses the existing copy/validated-NBT/commit
-  migration. The original FULL files remain available until the accepted
-  fingerprint is durably recorded. Invalid individual caches are retained
-  for quarantine, without rejecting valid siblings.
-- The cache configuration contains only storage and quarantine
-  controls. No future-MOD SHA allowlist, worldgen resource scanner, or dynamic
-  generation-sensitive MOD/config extension points are present.
-- Per-FULL validation checks schema 3, completed entity/LOD-write metadata,
-  coordinate and region ownership, dimension, FULL status, chunk DataVersion
-  and serialized terrain sections. The `lodCommitted` flag is a FULL-cache
-  publication prerequisite, **not** a decision about LOD file reuse.
+- Save completed pregenerated FULL chunks in compressed NBT, including their entity snapshots.
+- Restore saved FULL chunks for normal play and as source data for Chunksmith LOD repair.
+- Keep chunk, entity and POI persistence protected while pregeneration owns temporary FULL chunks.
+- Hand ownership to normal vanilla storage once a player needs the chunk.
+- Verify saved FULL schema, completed entities, coordinates, dimension, stored identity and terrain sections before using a cache file.
+- Keep incomplete or damaged cache data in quarantine without discarding other valid chunks.
+- Migrate previously saved FULL files from historical generation-named directories into one stable schema-3 storage namespace.
+- Copy and verify old files before committing saved ownership identities; retain unreadable files and preservation claims for recovery.
+- Coordinate guarded Backfill and shared resource budgets without taking ownership of Chunksmith's native LOD reuse decisions.
+- Apply disk-capacity protections to cache writes and quarantine retention.
 
-There are no future-release version tables, special JAR hash pairs or
-Chunksmith LOD bytecode attestations in the FULL cache compatibility
-decision. Test with `./gradlew fullCacheCompatibilityTest`.
+### Ownership and reuse
 
-Version 1.2.1 combines semantic compatibility-generation auditing, ticket-safe asynchronous acquisition, bounded retired dependency scopes, and pressure-aware shared-resource scheduling. See [integration validation](../../docs/pr-integration-2026-11-06.md).
+**Chunksmith decides whether existing `.cslod` LOD data can be reused.**
+This MOD makes that decision only for its own saved FULL chunk NBT.
 
+FULL cache storage uses a stable 24-character directory identity tied to the cache envelope format. It does not read or hash Minecraft's running DataVersion, the world seed, `level.dat`, generation settings, MOD JARs, ordinary server configuration, or datapacks to decide whether a FULL cache file can be reused.
 
-Maintained source for the server-only Chunksmith cold-cache/backfill compatibility mod.
+Saved chunk NBT must still contain a correctly typed `DataVersion` field so the stored chunk has valid metadata. That field is **not compared** with the running Minecraft version.
 
-Issue #30 found that version 1.0.0 had all seven registered Mixin classes compiled with class-level `@Mixin` in `RuntimeVisibleAnnotations`. Injector annotations were already runtime-visible and the cache/backfill implementation itself was not implicated.
+`lodCommitted` is the completion receipt for publishing a FULL cache entry together with its corresponding LOD write. It does **not** authorize or reject reuse of the separate Chunksmith LOD cache.
 
-Version 1.0.1 rebuilds the decompiled 1.0.0 sources against NeoForge ModDev 21.1.262 and the real Sponge Mixin API supplied by ModDev. No hand-written Mixin annotation stubs are used. `check` runs `verifyMixinAnnotationRetention` for all seven registered Mixin classes.
+Changing the game's content or generator deliberately is handled alongside that particular server change; there is no automatic prediction, exclusion or version-compatibility policy for future changes.
 
-The cache, promotion, fingerprint, Millenaire bridge and backfill logic are intentionally unchanged.
+### Existing-world migration
 
+Earlier releases used 24-hex generation directories and `manifest-v2.txt` files containing hashes of settings, MODs and versions. They remain readable as **historical cache owner metadata only**. The saved configuration entries are ignored. The MOD checks the actual NBT of each candidate FULL file and moves validated copies to the stable storage namespace.
 
-## Issue #35 observability and idle coordination
+The old FULL files are retained until the destination manifest records their original envelope identities. Corrupt or conflicting copies stay isolated for inspection. The `.promotions` recovery ledger continues protecting ownership of normally saved chunk/entity/POI data.
 
-Version 1.0.2 keeps backfill ownership in this MOD and adds explicit runtime state instead of inferring progress from the shared Chunksmith LOD writer:
+### Configuration
 
-- writes `logs/maki-chunk-cache-backfill-status.json` with scan/busy phase, active chunk, counters, LOD submissions and durable LOD refresh completions;
-- claims `maki-idle-pregen` external idle work only while a guarded backfill chunk is active, and releases that claim when ownership ends;
-- does not start, stop, resume, replace, recenter or adopt any Chunksmith generation task;
-- remains blocked while a Chunksmith generation task is active, preserving the existing separation between follow generation and cache backfill.
-- releases the backfill guard and idle-work claim immediately when loading fails before a FULL chunk exists; loaded-chunk failures retain the guarded-unload lifecycle.
+`config/maki-chunksmith-chunk-cache.properties` contains cache capacity and quarantine-retention controls only. No world-generation compatibility settings or monitoring extensions are supported.
 
-This makes non-zero global CSLOD writes explainable even when the follow-owned GenerationTask completion rate is zero.
+### Testing
 
+Run `./gradlew check` from this custom MOD's project. Tests cover persisted FULL NBT validation, legacy manifest parsing, durable migration copies, interrupted persistence, quarantine retention, backfill ownership and cross-MOD Mixin hooks.
 
-## Issue #40 compatibility manifests and quarantine
-
-Version 1.1.0 replaces the old "hash every file, then recursively delete every other generation" policy with an auditable compatibility boundary:
-
-- unknown MODs, configs, serverconfigs, datapacks, level.dat worldgen state, seed, dimension, generator class and Minecraft DataVersion remain fail-closed compatibility inputs;
-- maki_chunksmith_chunk_cache itself is keyed by the explicit compatibility schema instead of its JAR bytes, so maintenance-only releases do not invalidate chunk data accidentally;
-- maki_lag_observer is classified as observation-only from its MOD id, and its hot-reload config is ignored by default because it only controls diagnostics;
-- additional observation-only MOD ids or non-worldgen paths require an explicit administrator policy in config/maki-chunksmith-chunk-cache.properties;
-- config/chunksmith/tasks/** remains excluded exactly as before; mutable Chunksmith task progress is not a compatibility input;
-- every v2 generation gets manifest-v2.txt containing per-input digest, size, compatibility classification and reason;
-- a previous v2 manifest is compared with the current one so logs identify old/new fingerprints, changed inputs, trigger (capture, load, or scan), entry count and bytes;
-- incompatible generations are moved atomically to .quarantine rather than immediately deleted and are never used for promotion while incompatible;
-- quarantines have retention/count/byte limits, but automatic capacity pruning protects freshly quarantined data for the configured minimum age;
-- /makichunkcache quarantine list, discard <id>, and restore <id> run maintenance on the cache I/O executor. Restore is refused unless the quarantined manifest exactly matches the current compatibility fingerprint;
-- a 1.0.x generation can be adopted without regeneration only when its exact legacy fingerprint still matches the current full input set. Otherwise it is quarantined because compatibility cannot be proven.
-
-The compatibility classification is intentionally conservative. A diagnostic MOD should be added to the observation-only list only when its code is known not to alter generated/serialized chunk contents. If a future cache release changes serialization or promotion semantics, CompatibilityFingerprint.SCHEMA must be bumped.
-
-check also runs FingerprintPolicySelfTest, covering observation-only JAR changes, explicitly ignored non-worldgen config, real worldgen MOD changes, datapack changes, seed changes, the existing Chunksmith task exclusion, and corrupt manifest fail-closed behavior.
-## Issue #41 backfill ticket lifecycle
-
-Version 1.0.3 removes the circular dependency between the backfill idle-work claim and vanilla's expiring `UNKNOWN` chunk ticket.
-
-- the existing `BACKFILL_TICKET` is the sole ticket owned by backfill;
-- FULL acquisition uses the Chunksmith ticket-safe-point private invoker with `createMissingChunk=false`, so the lookup does not create an auxiliary vanilla `UNKNOWN` ticket;
-- the custom ticket and idle-work claim are released as soon as durable LOD/cache work is finished, while `BackfillGuard` remains active until the chunk actually unloads or a player takes ownership;
-- a successful completed guard is detached from the single active backfill pipeline, so a delayed unload does not block the next candidate; guards support multiple coordinates per dimension and are bounded to 8 detached entries;
-- detached guards are released on the real unload callback or player handoff, warn after 30 seconds, and never force-unload or delete another owner's ticket;
-- pre-FULL loading warns after 30 seconds; after five minutes an in-flight FULL future keeps its ticket and persistence guard until it settles while only the idle-work claim is released, and a timeout with no in-flight generation aborts safely;
-- status schema 2 records phase/progress/ticket timestamps, active and detached guard state, server freeze state, unload wait time, and typed wait reasons.
-
-The integrated release also preserves #40, #44, #45 and #47; Chunksmith 4.6.0 itself is unchanged.
-## Issue #44 non-blocking backfill chunk acquisition
-
-Version 1.0.3 removes the public `ServerChunkCache.getChunkFuture(...)` call from the server-thread backfill start path.
-
-- Backfill requests are queued onto Chunksmith 4.6.0's existing ticket safe point.
-- The request uses Chunksmith's `ServerChunkCacheMixin.invokeGetChunkFutureMainThread` path, matching Chunksmith's own `NeoForgeWorld.getChunkAtAsync` lifecycle instead of entering vanilla `managedBlock`.
-- `BACKFILL_TICKET`, `BackfillGuard`, Millenaire spawn suppression, player handoff and cold-cache persistence remain owned by this MOD.
-- Ticket installation is tracked explicitly so a player handoff that happens before the queued safe-point request runs cannot leave or later create an orphan backfill ticket.
-- Backfill status records safe-point delay, distance-manager update wall time, private future-call wall time, setup CPU/wall time, future wait time, pending chunk tasks and pending chunk writes.
-- The integrated release combines this acquisition path with #41 lifecycle, #45 diagnostic I/O and #47 dependency scopes.
-## Issue #47 dependency-safe legacy backfill
-
-Version 1.0.4 makes legacy CSLOD backfill distinguish the state of normal chunk storage instead of treating every non-zero region header entry as explored/full.
-
-- candidate scans classify normal storage as absent, incomplete ProtoChunk, FULL, or unknown by reading only the saved `Status` through the vanilla chunk scanner;
-- incomplete ProtoChunks remain eligible for backfill, while existing FULL chunks remain authoritative and unknown/corrupt storage fails closed;
-- a cache file counts as complete only when its envelope is valid for the current fingerprint and its serialized chunk is FULL;
-- before FULL generation starts, the vanilla generation pyramid supplies the exact dependency radius; the guard snapshots only absent/incomplete positions and starts only when that owned scope has no existing updating/visible/pending-unload holders;
-- chunk, entity, and POI persistence is vetoed for that owned dependency scope, while existing FULL positions are never owned by backfill;
-- the own loading ticket and idle-pregen claim are released before waiting for dependency holders to drain, while the save guard remains until updating, visible, and pending-unload holders in the owned scope disappear; this avoids turning the broader #47 guard into the freeze/unload cycle handled by #41;
-- when a real player acquires a dependency chunk, that coordinate is permanently removed from the backfill-owned save scope before player changes can later unload; for incomplete normal storage a valid FULL cold-cache entry is preferred, otherwise the saved ProtoChunk continues through vanilla generation;
-- `waiting-no-candidate` is not reported when an LOD entry remains unresolved because normal storage could not be classified.
-
-This change does not patch Chunksmith itself. It keeps ownership in the existing cache/backfill compatibility MOD and uses Vanilla/NeoForge chunk lifecycle boundaries plus the installed Chunksmith 4.6.0 API.
-
-## Issue #66 shared follow/backfill resource scheduling
-
-Version 1.2.0 no longer treats every active Chunksmith task as an unconditional backfill blocker.
-
-- candidate discovery runs while follow continues, so an empty Backfill queue never disturbs LOD generation;
-- once a safe real-chunk candidate exists, maki-lod-cpu 1.4.0 reserves a short shared-budget slice and holds only **new dispatch** from a follow-owned Chunksmith task; it never calls stop/resume/recenter or replaces the task;
-- the already-dispatched follow requests drain to zero before Backfill starts, closing the race where follow and Backfill could generate the same target/dependency scope concurrently;
-- external/unowned Chunksmith tasks are never stopped, adopted, recentered, capped, or dispatch-blocked by this path;
-- CPU, actual MSPT, heap/GC, system-memory headroom, I/O PSI, LOD/write queues and native backpressure control admission. High CPU by itself is intentionally not a blocker;
-- one guarded Backfill runs per slice. Its measured duration plus durable LOD/storage progress determines the next dynamic spacing, bounded so follow keeps priority while continuously safe Backfill cannot starve indefinitely;
-- cache writes that are already in flight are tracked, and cache-backed FULL chunks are reported as generated to Chunksmith so follow does not immediately regenerate and rewrite the same cached chunk;
-- the existing BACKFILL_TICKET, dependency-scope persistence guards, Millénaire suppression, player handoff, durable LOD refresh, cache capture, quarantine generations and unload handling remain authoritative.
-
-This design deliberately uses a brief dispatch barrier instead of lifecycle pause/resume. Chunksmith 4.6.0 has no public per-coordinate reservation API, so fully concurrent follow/Backfill would leave dependency-overlap races unless the distributed MOD were patched. Keeping that exclusion in the custom compatibility MOD preserves upstream upgradeability.
-
-
-## Issue #68 semantic compatibility inputs
-
-Version 1.2.1 keeps the #40 manifest/quarantine mechanism but fingerprints effective semantics where equivalence can be proven without weakening the default fail-closed policy.
-
-- `config/zfastnoise.mixin.properties` is parsed with the same `java.util.Properties.load(InputStream)` and `Boolean.parseBoolean` behavior used by zfastnoise 1.0.13. Only `mixin.perf.biome` and `mixin.perf.noise` affect compatibility; generated timestamp comments, key order, equivalent whitespace and unknown preserved keys stay audit-only raw differences. Missing keys use zfastnoise's real `true` defaults. Parse failures remain raw and compatibility-relevant.
-- MOD JARs are **not** exempted by filename or MOD ID. `AuditedModCompatibility` contains exact artifact/content attestations for installed components whose decompiled/current code was audited as generation-neutral: `maki_lod_cpu`, `maki_lod_cpu_online_fix`, `maki_diorama_share`, `maki_mods_observer`, Jade, EMI, ClientSort and Sound Physics Remastered. The stable compatibility input is the audited behavior contract, while the raw JAR is retained as an ignored audit entry.
-- Attestations accept either the exact audited raw SHA-256 or the exact canonical JAR-content SHA-256. The canonical digest sorts entry names and hashes entry payloads while excluding archive/signature packaging metadata, so a byte-for-byte rebuild/repack of the same audited code/resources does not invalidate cache compatibility. Any changed code/resource payload, unknown version/artifact, ambiguous multi-MOD JAR, malformed metadata, or declared indirect zfastnoise override remains fail-closed relevant.
-- Generation-affecting MODs/configs/datapacks, world seed/dimension/generator state and unknown inputs remain compatibility-relevant. The change intentionally removes the previous MOD-ID-only observation exemption.
-- Compatibility schema v3 can adopt a v2 generation only when every relevant input can be normalized to the same proven semantics. Historical zfastnoise recovery is limited to the two known Issue #68 raw signatures or an old raw entry that exactly matches the currently parsed source. Historical audited MOD entries normalize only from exact attested raw digests.
-- Proven-equivalent quarantined generations are re-adopted automatically during reconcile. Existing active cache entries win path conflicts; only non-conflicting quarantined entries are recovered. `/makichunkcache quarantine restore <id>` uses the same proof and refuses unknown/unproven differences.
-- Logs distinguish zfastnoise source-format/comment-only differences, effective setting changes, audited generation-neutral JAR changes and generic fail-closed changes. No additional unbounded diagnostic file is introduced.
-
-The production quarantine manifest is not stored in this repository, so the specific 5,688-entry quarantine reported in Issue #68 cannot be declared reusable from repository evidence alone. It is preserved and is reused only if its stored manifest passes the proof above.
-
-This implementation changes only the source-owned `maki-chunksmith-chunk-cache` MOD and its deployment JAR; it does not patch zfastnoise, Chunksmith, Jade, EMI, ClientSort, Sound Physics Remastered, or any other distributed MOD.
-
-## Issue #74 pipeline admission and direct capture
-
-Version 1.3.0 checks live candidate/dependency eligibility before reserving Follow's dispatch budget and repeats the check after drain. Direct capture moves from generic LOD refreshes to the owned FULL-request offer boundary, with shared pending-write futures, early queue admission and minute-level pipeline diagnostics. Distributed MODs and concurrency settings are unchanged. See [investigation, metrics and remaining runtime acceptance](../../docs/issue-74-generation-pipeline.md).
-
-## Generation/storage stages (1.4.0)
-
-Schema 2 includes generated entity roots/passengers and uses native chunk/entity write receipts for promotion retirement. Backfill releases generation exclusion after its safe snapshot, then awaits record-correlated LOD/cache publication separately. Snapshot memory, disk admission, resumable scans and per-coordinate retry debt are bounded. Interrupted `.in-use` entries are recovery artifacts, never automatic rollback candidates. See the [pipeline protocol and validation boundary](../../docs/issue-74-generation-pipeline.md).
-
-## Maintenance release (1.4.1)
-
-Updates the released version after PR #86 removed three unused BackfillController methods, one unused CacheManager field and an unused atomic-move helper, and retired the separate online-fix MOD. No new cache schema or generation behavior was introduced.
+Source: `custom-mods/maki-chunksmith-chunk-cache`.
