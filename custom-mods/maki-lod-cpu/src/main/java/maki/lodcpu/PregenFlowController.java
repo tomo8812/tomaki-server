@@ -38,6 +38,7 @@ final class PregenFlowController {
     private static final IdentityHashMap<GenerationTask,java.util.Set<Key>> REJECTED_UPDATES=new IdentityHashMap<>();
     private static final Map<Key,Deferred> DEFERRED=new HashMap<>();
     private static boolean deferredOverflow;
+    private static long nextOverflowRetryNanos;
     private record Deferred(GenerationTask owner,int failures,long readyNanos){}
 
     static synchronized void defer(String dimension,int x,int z,GenerationTask owner){
@@ -49,7 +50,10 @@ final class PregenFlowController {
         if(old!=null||DEFERRED.size()<MAX_DEFERRED){
             long delay=java.util.concurrent.TimeUnit.SECONDS.toNanos(Math.min(300,5L<<(Math.min(6,failures-1))));
             DEFERRED.put(key,new Deferred(owner,failures,System.nanoTime()+delay));
-        }else deferredOverflow=true;
+        }else {
+            deferredOverflow=true;
+            if(nextOverflowRetryNanos==0L)nextOverflowRetryNanos=System.nanoTime();
+        }
         candidateFailed(dimension,x,z,owner);
         metric("pregen-admission-deferred");
     }
@@ -66,8 +70,11 @@ final class PregenFlowController {
         return count+(deferredOverflow?1:0);
     }
     static synchronized boolean retryDue(){
-        if(deferredOverflow)return true;
         long now=System.nanoTime();
+        if(deferredOverflow&&now>=nextOverflowRetryNanos){
+            nextOverflowRetryNanos=now+java.util.concurrent.TimeUnit.MINUTES.toNanos(1);
+            return true;
+        }
         for(Deferred item:DEFERRED.values())if(now>=item.readyNanos())return true;
         return false;
     }
@@ -420,7 +427,7 @@ final class PregenFlowController {
             state.lastServiceSampleNanos=0;
         }
         proofFeedConnected=false;
-        DEFERRED.clear();REJECTED_UPDATES.clear();deferredOverflow=false;
+        DEFERRED.clear();REJECTED_UPDATES.clear();deferredOverflow=false;nextOverflowRetryNanos=0L;
     }
 
     private static String attemptToken(GenerationTask owner,long epoch) {
