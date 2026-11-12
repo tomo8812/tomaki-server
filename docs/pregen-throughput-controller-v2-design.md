@@ -95,7 +95,7 @@ E-liteの対象はFollow-owned Chunksmithタスクである。手動・外部タ
 | `ChunkIterator.next()`の前 | Follow owner・stop epoch・共有Backfill予算・WIP窓を確認して待機する |
 | 次座標を選んだ直後 | 選択座標を保持したまま、候補WIP枠を取得するまで待機する |
 | `World.isChunkGenerated`呼出時 | Chunksmithの非同期判定結果を観測し、NEW／既存チャンクを分類する |
-| LOD補完・force load時 | `isChunkGenerated`の呼出しが無くても、先に取得したWIP枠でnative処理を通す。仕事の種類が証明できない場合はUNKNOWNのままにする |
+| LOD補完・force load時 | `isChunkGenerated`の呼出しが無くてもnative処理を通す。LOD補完ならREPAIRとしてFULL予測枠を返し、force loadならUNKNOWNとして全予測枠を維持する |
 | `World.getChunkAtAsync`直前 | nativeの実要求を記録する。Chunksmithは直前にLOD存在インデックスを更新するため、E-liteは失敗Futureを偽造しない |
 | Chunksmithのskip・shape対象外 | nativeの`update`から未開始stageの予測creditを返す |
 | 物理stage終了 | 対応する物理terminalまたは確実な不要確定でcreditを一度だけ返す |
