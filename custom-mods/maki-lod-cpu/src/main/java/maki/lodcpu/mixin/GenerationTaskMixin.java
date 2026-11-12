@@ -1,6 +1,9 @@
 package maki.lodcpu.mixin;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.CompletableFuture;
+import com.kishku7.chunksmith.platform.World;
+import maki.lodcpu.PregenControlHooks;
 import java.util.concurrent.locks.LockSupport;
 import maki.lodcpu.CpuGovernor;
 import maki.lodcpu.ResourceBudgetApi;
@@ -63,6 +66,64 @@ public abstract class GenerationTaskMixin {
             LockSupport.parkNanos(1_000_000L);
         }
         return next;
+    }
+
+    /**
+     * Observe Chunksmith's own generated-state result. The native generated/LOD
+     * reuse decision remains authoritative: E-lite only reserves scheduling WIP.
+     */
+    @Redirect(method="run()V",at=@At(value="INVOKE",
+        target="Lcom/kishku7/chunksmith/platform/World;isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;"),require=1)
+    private CompletableFuture<Boolean> maki$admitNativeCandidate(World world,int x,int z){
+        GenerationTask owner=(GenerationTask)(Object)this;
+        if(!maki$owned())return world.isChunkGenerated(x,z);
+        String dim=selection.world().getName();
+        if(!PregenControlHooks.reserveCandidate(dim,x,z,owner)){
+            PregenControlHooks.defer(dim,x,z,owner);
+            return CompletableFuture.failedFuture(new IllegalStateException("E-lite candidate WIP full"));
+        }
+        try{
+            return world.isChunkGenerated(x,z).whenComplete((generated,error)->{
+                if(error!=null)PregenControlHooks.candidateFailed(dim,x,z,owner);
+                else PregenControlHooks.classify(dim,x,z,owner,Boolean.TRUE.equals(generated));
+            });
+        }catch(Throwable error){
+            PregenControlHooks.candidateFailed(dim,x,z,owner);
+            throw error;
+        }
+    }
+
+    /**
+     * Exactly one admission at the actual Chunksmith getChunkAtAsync call.
+     * FULL persistence ownership and validity remain with chunk-cache.
+     */
+    @Redirect(method="lambda$run$1",at=@At(value="INVOKE",
+        target="Lcom/kishku7/chunksmith/platform/World;getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;"),require=2)
+    private CompletableFuture<Void> maki$admitNativeRequest(World world,int x,int z){
+        GenerationTask owner=(GenerationTask)(Object)this;
+        if(!maki$owned())return world.getChunkAtAsync(x,z);
+        String dim=selection.world().getName();
+        if(!PregenControlHooks.beginActual(dim,x,z,owner)){
+            PregenControlHooks.defer(dim,x,z,owner);
+            return CompletableFuture.failedFuture(new IllegalStateException("E-lite actual WIP admission rejected"));
+        }
+        try{
+            return world.getChunkAtAsync(x,z).whenComplete((value,error)->{
+                if(error!=null)PregenControlHooks.requestFailed(dim,x,z,owner);
+            });
+        }catch(Throwable error){
+            PregenControlHooks.requestFailed(dim,x,z,owner);
+            throw error;
+        }
+    }
+
+    @Inject(method="update(IIZZ)V",at=@At("HEAD"),cancellable=true,require=1)
+    private void maki$preserveDeferred(int x,int z,boolean loaded,boolean persisted,CallbackInfo ci){
+        GenerationTask owner=(GenerationTask)(Object)this;
+        if(!maki$owned())return;
+        String dim=selection.world().getName();
+        if(PregenControlHooks.consumeRejected(dim,x,z,owner)){ci.cancel();return;}
+        PregenControlHooks.nativeCoordinateFinished(dim,x,z,owner);
     }
 
     @Unique
