@@ -67,10 +67,10 @@ public final class ResourceBudgetApi {
     public static void stageFinished(String token,String stage,long serviceNanos,boolean success) {
         PregenFlowController.physicalTerminal(token,PregenFlowController.Stage.valueOf(stage),serviceNanos,success);
     }
-    /** A newly confirmed FULL+LOD pair. Never call for preexisting valid cache/LOD alone. */
-    public static void pairConfirmed(String token,boolean generatedNew) {
-        PregenFlowController.pairConfirmed(token,generatedNew);
-    }
+    /** Cache-owned FULL successfully published or validated; no LOD decision here. */
+    public static void fullReady(String token){PregenFlowController.fullReady(token);}
+    /** Chunksmith physical LOD commit notification; no FULL reuse decision here. */
+    public static void lodCommitted(String token){PregenFlowController.lodCommitted(token);}
     public static void pairExisting(String token){PregenFlowController.pairExisting(token);}
     public static void pairUncertain(String token,String reason){PregenFlowController.uncertain(token,reason);}
     public static void pairRevalidated(){PregenFlowController.pairRevalidated();}
