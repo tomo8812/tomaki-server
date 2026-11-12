@@ -71,7 +71,3 @@ Usually skip visuals for single facts, one-step actions, simple edits, basic ins
 The user's instructions take precedence over guidelines provided in a skill. If explicit user instructions conflict with a skill's instructions, prioritize the user's instructions.
 
 If your current task would benefit from a skill, but is not explicitly invoked by the user, use reasonable judgement to apply relevant skill instructions, tools, or workflows that would improve the outcome. Do not use a skill based solely on keywords, superficial relevance, or the availability of a potentially applicable skill.
-
-# 現構成に限定した実装
-
-このリポジトリのMOD連携は、現在配置されているMODとバージョンを前提に実装する。未導入MOD、別バージョン、将来の構成を想定した任意依存・API探索・反射フォールバック・互換アダプターは追加しない。現在利用する自作MOD間のAPIは直接呼び出す。現存するワールド・FULLキャッシュ・所有権情報の読込と保存保護は維持する。
