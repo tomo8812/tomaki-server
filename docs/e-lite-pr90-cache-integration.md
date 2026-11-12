@@ -20,17 +20,17 @@ PR #90の確認時点のHEAD：`4b7d69209415d0509abab25bcc71a8e27181996f`。
 | --- | --- |
 | Chunksmith | チャンク要求、LOD生成・保存・既存LODの再利用判断、ネイティブ安全制御 |
 | maki-chunksmith-chunk-cache | FULLキャッシュの生成・保存・読込・完全性・再利用・復元・通常ワールドへの引渡し・自己保護 |
-| maki-chunksmith-controller / E-lite | 生成タスクの投入許可、`c`の自律探索、LOD/VALIDATE/FULL処理量のWIP窓、完成ペア数の性能計測、投入保留の再試行 |
+| maki-chunksmith-controller / E-lite | 生成タスクの投入待機、`c`の自律探索、LOD/VALIDATE/FULL処理量のWIP窓、完成ペア数の性能計測 |
 
 E-liteはFULLやLODの**既存データの使用可否を決めない**。不足している計測証明を理由に、正常な旧FULLや旧LODを検疫・無効化・再生成しない。
 
 ## 2. PR #89でlod-cpu側に移したもの
 
-- Chunksmithの`isChunkGenerated`呼出し前の候補投入、および`getChunkAtAsync`直前の実要求投入
+- Chunksmithの`ChunkIterator.next()`直後の候補WIP予約、`isChunkGenerated`結果の観測、および`getChunkAtAsync`での実要求記録
 - Chunksmithの判定結果に基づくNEW/REPAIR分類（*性能比較時の仕事量補正のみ*）
 - LOD、FULL検証、FULL書込それぞれのWIP枠、物理terminalによるcredit返却、滞留時の枠縮小
 - タスクと世代にひもづく試行token、期限切れ・停止後の競合排除
-- 一時拒否座標の進捗確定抑制・再走査負債
+- 投入待機中の座標保持（native失敗Future・独自再試行負債は撤去）
 - LOD／FULL独立通知の照合と、同一試行の`PAIR/s`計測
 - FAST窓とSLOWの`c±1`探索、ハード・ソフト圧力制御、比較不能判定、warm-startプロファイル
 
@@ -89,7 +89,7 @@ PR #90への統合で必要な通知経路がそろった時に限り、`Resourc
 
 PR #90のchunk-cacheには既存の`GenerationRequestMixin`（`GenerationTask.run/isChunkGenerated`、`lambda$run$1/getChunkAtAsync`）、`GenerationTaskPairMixin`、`NeoForgeWorldMixin`等が存在する。PR #89のlod-cpuにも同じ呼出しへの生成制御フックを置いている。
 
-- Chunksmithの生成投入をフックする`@Redirect`は**lod-cpuの1か所**に統一する。同じcallsiteをcache側でもRedirectしてMixin衝突を起こさない。
+- Chunksmithの生成投入フックは**Controllerの1か所**に統一する。同じcallsiteをcache側でもRedirectしてMixin衝突を起こさない。4.8.1の`isChunkGenerated`を省略するLOD補完は`ChunkIterator.next()`でWIP予約し、`getChunkAtAsync`後の入場拒否は行わない。
 - cache側が従来守っていた通常FULLの保存抑制・所有者保護・プレイヤー引渡しは、**FULL処理内部の安全ガードとして維持**する。生成制御と分離して組み込む。
 - ChunksmithのLOD存在判定をcache証明で上書きする処理は追加しない。
 - 4.8.1の実物bytecodeで`run`、`lambda$run$1`、LOD write、NeoForgeWorld callbackの注入先を再検証する。
