@@ -40,6 +40,8 @@ cache側は**自分が所有しているFULL処理についてのみ**報告す�
 
 `token`は、E-liteが`ResourceBudgetApi.attemptToken(dimension,x,z,owner)`で発行した**その試行に限る識別子**。異なる試行の成功を転用しない。cacheが独自の生成投入や全体WIP窓、cの探索を持たない。
 
+**cacheは`ResourceBudgetApi.reserveCandidate`/`beginActual`/`classifyCandidate`を呼び出さない。これらの生成制御APIは公開せず、`PregenControlHooks`とlod-cpu自身のMixinからのみ使用する。**
+
 **新設のFULL証明書を使う場合はcacheが所有する**。証明書はFULLの正常性・保存完了に関する情報とし、LOD利用可否の証明を前提にしない。旧`schema 3`のFULLを新証明書の欠如だけで無効化しない。PR #90で確定した固定24文字世代ID、旧世代からの移行、環境監視撤廃の方針を保持する。
 
 ## 4. Chunksmithから取得する通知
@@ -47,7 +49,7 @@ cache側は**自分が所有しているFULL処理についてのみ**報告す�
 この部分は**lod-cpuのChunksmith観測経路**が担当し、chunk-cacheへLODの判断権限を移さない。
 
 - 同一試行のLOD physical write start／terminal（成功・失敗、所要時間）
-- 成功して現在の試行との対応が確認できた時の`ResourceBudgetApi.lodCommitted(token)`
+- 成功して現在の試行との対応が確認できた時の`PregenControlHooks.lodCommitted(token)`
 - LOD sinkのキュー、進行中件数、同期書込、既存のネイティブ停止理由
 - 元の`hasLod`／`isChunkGenerated`の結果。生成制御は判定を上書きしない
 
