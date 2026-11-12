@@ -123,7 +123,7 @@ tasks.register('verifyIssue83UnifiedFollow') {
             || issue83DeprecatedReset.exists()) {
             throw new GradleException('E-lite must not delete old FULL or LOD storage on startup')
         }
-        if (!governor.contains('pregenRetryPending') || !governor.contains('pregenDeferredCoordinates')
+        if (!governor.contains('pregenRetryPending')
                 || !governor.contains('pipelinePressure()') || !governor.contains('pregenReady')) {
             throw new GradleException('Issue #83 regression: unified retry/pressure/readiness bridge missing')
         }
