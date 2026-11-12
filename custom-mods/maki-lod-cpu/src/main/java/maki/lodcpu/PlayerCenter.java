@@ -27,10 +27,10 @@ public final class PlayerCenter {
     private static volatile MinecraftServer owner;
     private static volatile Saved saved;
     private static Path stateFile;
-    private static long boot,emptySince,lastCheck,lastSave,lastReport,lastCenterChange,healthySince,lastStateSummary;
+    private static long boot,emptySince,lastCheck,lastSave,lastReport,lastCenterChange,lastStateSummary;
     private static String lastLoggedState;
     private static boolean hadPlayers;
-    private static volatile boolean manualPause,loadPause,requested,wasEnabled;
+    private static volatile boolean manualPause,requested,wasEnabled;
     private static final AtomicLong ADMISSION_EPOCH=new AtomicLong();
     private static volatile boolean admissionClosed=true;
     private static String reason="starting";
@@ -56,7 +56,7 @@ public final class PlayerCenter {
     private static boolean admissionPolicyAllows(GenerationTask task){
         MinecraftServer server=owner;
         Saved state=saved;
-        if(server==null||state==null||task==null||admissionClosed||!enabled()||manualPause||loadPause
+        if(server==null||state==null||task==null||admissionClosed||!enabled()||manualPause
             ||server.getPlayerCount()>0||task.isStopping()||!TaskOwnership.isOwned(task))return false;
         try{
             if(!ChunksmithProvider.isLoaded()||ChunksmithProvider.get()==null
@@ -79,9 +79,9 @@ public final class PlayerCenter {
     }
     public static boolean admissionOpen(GenerationTask task){return admissionPolicyAllows(task);}
     private static void initialize(MinecraftServer server,long now){
-        owner=server;resetAdmission();boot=now;lastCheck=lastSave=lastReport=lastCenterChange=healthySince=lastStateSummary=0;lastLoggedState=null;
+        owner=server;resetAdmission();boot=now;lastCheck=lastSave=lastReport=lastCenterChange=lastStateSummary=0;lastLoggedState=null;
         emptySince=server.getPlayerCount()==0?now:0;hadPlayers=server.getPlayerCount()>0;
-        manualPause=loadPause=false;requested=true;positionError=false;reason="startup-wait";
+        manualPause=false;requested=true;positionError=false;reason="startup-wait";
         appliedX=appliedZ=null;lastTask=null;nativeTaskLifecycle.clear();controllerStopTask=null;
         stateFile=server.getWorldPath(LevelResource.ROOT).resolve("data/maki_lod_follow.json");
         saved=new Saved();saved.player=settings().followPlayer;saved.uuid=settings().followUuid;
@@ -236,23 +236,16 @@ public final class PlayerCenter {
         if(!wasEnabled){requested=true;wasEnabled=true;}
         if(manualPause){reason="manual-pause";report(server,chunky,now);return;}
         if(online){
-            pause(chunky);requested=true;loadPause=false;healthySince=0;
+            pause(chunky);requested=true;
             reason="players-online-paused";report(server,chunky,now);return;
         }
-        if(!UnifiedPregenReset.ensure(server)){reason="waiting-unified-pregen-reset";report(server,chunky,now);return;}
-        if(!CpuGovernor.pregenReady(server)){reason="waiting-pregen-fingerprint";report(server,chunky,now);return;}
+        if(!CpuGovernor.pregenReady(server)){reason="waiting-cache-ready";report(server,chunky,now);return;}
         String pipelinePressure=CpuGovernor.pipelinePressure();
         if(pipelinePressure!=null){
-            pause(chunky);requested=true;loadPause=false;healthySince=0;
+            pause(chunky);requested=true;
             reason="pipeline-pressure:"+pipelinePressure;report(server,chunky,now);return;
         }
         if(now-boot<10_000||!online&&now-emptySince<settings().emptyGraceSeconds*1000L){pause(chunky);reason="grace-period";report(server,chunky,now);return;}
-        if(online&&CpuGovernor.onlineOverload()){loadPause=true;healthySince=0;pause(chunky);reason="online-overload";report(server,chunky,now);return;}
-        if(loadPause){
-            if(!CpuGovernor.recovered())healthySince=0;else if(healthySince==0)healthySince=now;
-            if(healthySince==0||now-healthySince<30_000){reason="load-recovery-wait";report(server,chunky,now);return;}
-            loadPause=false;requested=true;
-        }
         var current=chunky.getGenerationTasks().get(WORLD);
         TaskOwnership.PersistedOwner persistedOwner=current==null?TaskOwnership.persistedOwner(chunky,WORLD):TaskOwnership.PersistedOwner.NONE;
         if(current==null&&persistedOwner==TaskOwnership.PersistedOwner.EXTERNAL){
@@ -338,15 +331,15 @@ public final class PlayerCenter {
             int players=server.getPlayerCount();
             boolean onlineBlocked=players>0;
             boolean graceBlocked=now-boot<10_000L||players==0&&now-emptySince<settings().emptyGraceSeconds*1000L;
-            boolean policyReady=enabled()&&!manualPause&&!loadPause&&!onlineBlocked&&!graceBlocked&&saved.x!=null&&saved.z!=null;
+            boolean policyReady=enabled()&&!manualPause&&!onlineBlocked&&!graceBlocked&&saved.x!=null&&saved.z!=null;
             boolean canRun=policyReady&&(
                 current!=null&&TaskOwnership.isOwned(current)&&!current.isStopping()
                 ||current==null&&requested&&persistedOwner!=TaskOwnership.PersistedOwner.EXTERNAL&&!LodHorizon.isArmed(WORLD));
             String activeOwner=current==null?"none":TaskOwnership.isOwned(current)?"follow":"external";
-            String state=reason+"|"+activeOwner+"|"+TaskOwnership.status(persistedOwner)+"|"+requested+"|"+manualPause+"|"+loadPause+"|"+canRun+"|"+players+"|"+saved.x+"|"+saved.z;
+            String state=reason+"|"+activeOwner+"|"+TaskOwnership.status(persistedOwner)+"|"+requested+"|"+manualPause+"|"+canRun+"|"+players+"|"+saved.x+"|"+saved.z;
             if(!state.equals(lastLoggedState)){
-                LOG.info("LOD follow state changed: reason={}, activeOwner={}, persistedOwner={}, requested={}, manualPause={}, loadPause={}, canRun={}, players={}, center={},{}",
-                    reason,activeOwner,TaskOwnership.status(persistedOwner),requested,manualPause,loadPause,canRun,players,saved.x,saved.z);
+                LOG.info("LOD follow state changed: reason={}, activeOwner={}, persistedOwner={}, requested={}, manualPause={}, canRun={}, players={}, center={},{}",
+                    reason,activeOwner,TaskOwnership.status(persistedOwner),requested,manualPause,canRun,players,saved.x,saved.z);
                 lastLoggedState=state;
                 lastStateSummary=now;
             }else if(now-lastStateSummary>=60_000L){
@@ -373,7 +366,7 @@ public final class PlayerCenter {
             source.sendFailure(Component.literal("LOD follow controller is not initialized yet."));
             return 0;
         }
-        source.sendSuccess(()->Component.literal("LOD follows "+settings().followPlayer+"; center "+(saved.x==null?"pending":saved.x+","+saved.z)+"; reason="+reason+"; requested="+requested+"; manualPause="+manualPause+"; loadPause="+loadPause),false);
+        source.sendSuccess(()->Component.literal("LOD follows "+settings().followPlayer+"; center "+(saved.x==null?"pending":saved.x+","+saved.z)+"; reason="+reason+"; requested="+requested+"; manualPause="+manualPause),false);
         return commandTaskStatus(source);
     }
     private static int commandTaskStatus(net.minecraft.commands.CommandSourceStack source){
