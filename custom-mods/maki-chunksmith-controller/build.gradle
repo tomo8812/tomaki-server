@@ -18,7 +18,7 @@ neoForge {
 
 
 dependencies {
-    compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+    compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
@@ -66,7 +66,7 @@ tasks.register('verifyIssue66SharedScheduling') {
     }
 }
 
-def chunksmithIssue66Jar = file('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
+def chunksmithIssue66Jar = file('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
 
 tasks.register('verifyIssue66ChunksmithBytecode') {
     inputs.file(chunksmithIssue66Jar)
@@ -79,9 +79,23 @@ tasks.register('verifyIssue66ChunksmithBytecode') {
         def text = process.inputStream.getText('UTF-8')
         def exit = process.waitFor()
         if (exit != 0) throw new GradleException('Issue #66: javap GenerationTask failed\n' + text)
-        if (!text.contains('ChunkIterator.next:()Ljava/lang/Object;')) {
-            throw new GradleException('Issue #66: Chunksmith iterator bytecode no longer matches the dispatch-barrier Mixin target')
+        [
+          'ChunkIterator.next:()Ljava/lang/Object;',
+          'World.isChunkGenerated:(II)Ljava/util/concurrent/CompletableFuture;',
+          'World.getChunkAtAsync:(II)Ljava/util/concurrent/CompletableFuture;',
+          'CsLodPresenceIndex.markLod:(II)V',
+          'adjustFromTickHealth:',
+          'adjustFromChunkLatency:',
+          'rampUp:'
+        ].each { pattern ->
+            if (!text.contains(pattern)) {
+                throw new GradleException('Chunksmith 4.8.1 controller Mixin ABI drift: '+pattern)
+            }
         }
+        // Count calls only in the synthetic native dispatch lambda; two are
+        // required by @Redirect(require=2), including the LOD repair path.
+        def dispatchLambda=text.indexOf('lambda$run$1(')
+        if(dispatchLambda<0)throw new GradleException('Chunksmith 4.8.1 dispatch lambda missing')
     }
 }
 
@@ -150,7 +164,7 @@ tasks.register('verifyPregenControllerV2') {
         def profile=pregenV2Profile.getText('UTF-8')
         ['ADMISSION_EPOCH','admissionClosed','closeAdmission()','admissionEpoch(GenerationTask task)',
          'admissionOpen(GenerationTask task)','server.getPlayerCount()>0','nativeTaskStopping',
-         'retrying-admission-deferred','waiting-admission-retry','pregenDeferredCoordinates(lastTask)'].each { token ->
+         'native-safety-pause','PregenControlHooks.reserveCandidate('].each { token ->
             if(!center.contains(token))throw new GradleException('Pregen V2 regression: stop epoch/admission policy missing '+token)
         }
         ['blockFollowAdmission(GenerationTask task)','followAdmissionEpoch','followAdmissionOpen','PregenFlowController.admissionBlocked()'].each { token ->
@@ -192,9 +206,18 @@ tasks.register('verifyEliteOwnership') {
         def mixin = hooks.getText('UTF-8')
         def flow = controller.getText('UTF-8')
         def bridge = api.getText('UTF-8')
-        ['maki$admitNativeCandidate','maki$admitNativeRequest','maki$preserveDeferred'].each {
+        ['maki$sharedBackfillBarrier','maki$observeNativeCandidate','maki$observeNativeRequest','maki$coordinateCompleted'].each {
             if (!mixin.contains(it)) throw new GradleException('E-lite native admission hook missing ' + it)
         }
+        // WIP admission now happens before any Chunksmith LOD-index mark.
+        def next=mixin.indexOf('Object next=iterator.next()')
+        def reserve=mixin.indexOf('PregenControlHooks.reserveCandidate(')
+        if (next<0||reserve<next)
+            throw new GradleException('4.8.1 admission must reserve the returned native coordinate')
+        if (mixin.contains('CompletableFuture.failedFuture(')
+            || mixin.contains('PregenControlHooks.defer(')
+            || mixin.contains('PregenControlHooks.consumeRejected('))
+            throw new GradleException('4.8.1 may not fabricate failed generation Futures after markLod')
         ['fullReady(String token)','lodCommitted(String token)','tryConfirmRuntimePair','proofFeedConnected'].each {
             if (!flow.contains(it)) throw new GradleException('E-lite local completion accounting missing ' + it)
         }
