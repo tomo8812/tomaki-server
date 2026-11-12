@@ -33,20 +33,9 @@ final class GenerationStore {
             RecoveryClaims.initialize(root);
             Files.createDirectories(root);
             CacheDiskBudget migrationBudget = refreshMigrationBudget(level);
-            FingerprintManifest.Manifest currentState = snapshot.manifest(Set.of(snapshot.fingerprint()));
-            FingerprintManifest.Manifest previousState = FingerprintManifest.readIfValid(root.resolve(FingerprintManifest.CURRENT_FILE_NAME));
-            if (previousState != null && previousState.fingerprint().equals(snapshot.fingerprint())) {
-                List<String> ignoredChanges = FingerprintManifest.changedInputs(previousState, currentState, FingerprintManifest.Impact.IGNORED, 12);
-                if (!ignoredChanges.isEmpty()) {
-                    LOG.info("Keeping chunk-cache generation {} for {}; compatibility fingerprint unchanged; ignored changes={} trigger={}",
-                        snapshot.fingerprint(), CacheManager.dimensionKey(level), ignoredChanges, trigger);
-                }
-            }
-
-            migrateExactLegacy(root, snapshot, trigger);
-            migratePolicyEquivalent(level, root, snapshot, trigger, migrationBudget);
-            migrateEquivalentQuarantines(level, root, snapshot, trigger, migrationBudget);
-            quarantineIncompatible(root, snapshot, trigger);
+            adoptPriorCacheDirectories(level, root, snapshot, trigger, migrationBudget);
+            recoverPreviousQuarantines(level, root, snapshot, trigger, migrationBudget);
+            quarantineRejectedRemainders(root, snapshot, trigger);
             Path active = root.resolve(snapshot.fingerprint());
             Files.createDirectories(active);
             FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
@@ -54,12 +43,9 @@ final class GenerationStore {
             accepted.add(snapshot.fingerprint());
             if (existing != null && existing.fingerprint().equals(snapshot.fingerprint())) accepted.addAll(existing.storedFingerprints());
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
-            CompatibilityInput.persistHistoricalEvidence(
-                active,
-                level.getServer().getServerDirectory(),
-                snapshot.entries()
-            );
-            FingerprintManifest.writeAtomic(root.resolve(FingerprintManifest.CURRENT_FILE_NAME), currentState);
+            // The old current-manifest snapshot described mod/seed/config
+            // changes. No such monitoring data is needed after adoption.
+            Files.deleteIfExists(root.resolve(FingerprintManifest.CURRENT_FILE_NAME));
             pruneQuarantine(root, snapshot.policy());
             return true;
         } catch (Throwable error) {
@@ -68,7 +54,7 @@ final class GenerationStore {
         }
     }
 
-    static void prune(ServerLevel level, FingerprintPolicy policy) {
+    static void prune(ServerLevel level, CacheRetentionPolicy policy) {
         try {
             pruneQuarantine(dimensionRoot(level), policy);
         } catch (Throwable error) {
@@ -207,25 +193,7 @@ final class GenerationStore {
         }
     }
 
-    private static void migrateExactLegacy(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
-        if (snapshot.legacyFingerprint().equals(snapshot.fingerprint())) return;
-        Path legacy = root.resolve(snapshot.legacyFingerprint());
-        if (!Files.isDirectory(legacy)) return;
-        if (FingerprintManifest.readIfValid(legacy.resolve(FingerprintManifest.FILE_NAME)) != null) return;
-        Stats before = stats(legacy);
-        Path active = root.resolve(snapshot.fingerprint());
-        mergeDirectory(legacy, active);
-        FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
-        Set<String> accepted = new LinkedHashSet<>();
-        accepted.add(snapshot.fingerprint());
-        accepted.add(snapshot.legacyFingerprint());
-        if (existing != null) accepted.addAll(existing.storedFingerprints());
-        FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
-        LOG.info("Adopted legacy chunk-cache generation {} as {} for {}; exact legacy fingerprint matches current inputs; entries={} bytes={} trigger={}",
-            snapshot.legacyFingerprint(), snapshot.fingerprint(), root.getFileName(), before.entries(), before.bytes(), trigger);
-    }
-
-    private static void migratePolicyEquivalent(
+    private static void adoptPriorCacheDirectories(
         ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger,
         CacheDiskBudget migrationBudget
     ) throws IOException {
@@ -277,7 +245,7 @@ final class GenerationStore {
         }
     }
 
-    private static void migrateEquivalentQuarantines(
+    private static void recoverPreviousQuarantines(
         ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger,
         CacheDiskBudget migrationBudget
     ) throws IOException {
@@ -357,7 +325,7 @@ final class GenerationStore {
         }
     }
 
-    private static void quarantineIncompatible(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
+    private static void quarantineRejectedRemainders(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
         List<Path> generations;
         try (Stream<Path> stream = Files.list(root)) {
             generations = stream.filter(Files::isDirectory)
@@ -395,7 +363,7 @@ final class GenerationStore {
         }
     }
 
-    private static void pruneQuarantine(Path root, FingerprintPolicy policy) throws IOException {
+    private static void pruneQuarantine(Path root, CacheRetentionPolicy policy) throws IOException {
         RecoveryClaims.initialize(root);
         Path quarantine = root.resolve(QUARANTINE_DIR);
         if (!Files.isDirectory(quarantine)) return;
