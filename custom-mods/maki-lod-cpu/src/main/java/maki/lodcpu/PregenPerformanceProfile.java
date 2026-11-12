@@ -12,12 +12,12 @@ import java.util.Properties;
 
 /** Environment-scoped warm-start hint. It never affects cache/fingerprint validity. */
 final class PregenPerformanceProfile {
-    static final String CONTROLLER_VERSION="e-lite-v6";
+    static final String CONTROLLER_VERSION="e-lite-v7";
     static final long MAX_AGE_MILLIS=24L*60L*60L*1000L;
 
     record Environment(
         String controllerVersion,String cpuAffinity,String cpuQuota,double cpuCapacity,long heapMaxBytes,
-        String chunksmithConfig,String cacheControllerVersion,long fastSignature,String workClassBand
+        String chunksmithConfig,String pairFeedVersion,long fastSignature,String workClassBand
     ) {}
 
     private PregenPerformanceProfile(){}
@@ -57,7 +57,7 @@ final class PregenPerformanceProfile {
         p.setProperty("cpuCapacity",Double.toString(environment.cpuCapacity()));
         p.setProperty("heapMaxBytes",Long.toString(environment.heapMaxBytes()));
         p.setProperty("chunksmithConfig",environment.chunksmithConfig());
-        p.setProperty("cacheControllerVersion",environment.cacheControllerVersion());
+        p.setProperty("pairFeedVersion",environment.pairFeedVersion());
         p.setProperty("fastSignature",Long.toString(environment.fastSignature()));
         p.setProperty("workClassBand",environment.workClassBand());
         Path tmp=file.resolveSibling(file.getFileName()+".tmp");
@@ -85,7 +85,7 @@ final class PregenPerformanceProfile {
         if(!Double.isFinite(capacity)||Math.abs(capacity-e.cpuCapacity())>.05)return false;
         if(e.heapMaxBytes()!=Long.parseLong(p.getProperty("heapMaxBytes","-1")))return false;
         if(!e.chunksmithConfig().equals(p.getProperty("chunksmithConfig","")))return false;
-        if(!e.cacheControllerVersion().equals(p.getProperty("cacheControllerVersion","")))return false;
+        if(!e.pairFeedVersion().equals(p.getProperty("pairFeedVersion","")))return false;
         if(e.fastSignature()!=Long.parseLong(p.getProperty("fastSignature","0")))return false;
         return e.workClassBand().equals(p.getProperty("workClassBand",""));
     }
