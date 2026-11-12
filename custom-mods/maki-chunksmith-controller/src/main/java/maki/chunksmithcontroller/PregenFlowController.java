@@ -41,8 +41,15 @@ final class PregenFlowController {
         Attempt attempt=attempt(dimension,x,z,owner);
         if(attempt==null)return false;
         if(attempt.workClass==WorkClass.UNKNOWN) {
-            // No generated-state evidence: keep stage credits and avoid
-            // inventing NEW/REPAIR evidence for performance comparisons.
+            // Without force-load, 4.8.1 bypasses isChunkGenerated ONLY for an
+            // existing FULL chunk missing its LOD: it needs LOD credit, not
+            // speculative FULL validation/write credit.
+            boolean forced=true;
+            try { forced=owner.getChunky().getConfig().isForceLoadExistingChunks(); }
+            catch(RuntimeException|LinkageError unavailable) { /* keep UNKNOWN */ }
+            if(!forced)return beginActual(dimension,x,z,owner,false);
+            // Force-load bypasses the same query for arbitrary coordinates.
+            // Retain all stages and avoid inventing NEW/REPAIR evidence.
             if(!active(owner)||!PlayerCenter.admissionOpen(owner)
                 ||attempt.epoch!=PlayerCenter.admissionEpoch(owner))return false;
             attempt.actualStarted=true;
