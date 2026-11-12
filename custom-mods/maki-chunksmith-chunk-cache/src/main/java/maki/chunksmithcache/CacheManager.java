@@ -1537,7 +1537,7 @@ public final class CacheManager {
       ArrayList<ServerLevel> levels = new ArrayList<>();
       server.getAllLevels().forEach(levels::add);
       boolean queued = submitMaintenance(() -> {
-         FingerprintPolicy policy = FingerprintPolicy.load(server.getServerDirectory());
+         CacheRetentionPolicy policy = CacheRetentionPolicy.load(server.getServerDirectory());
          for (ServerLevel level : levels) {
             GenerationStore.prune(level, policy);
          }
