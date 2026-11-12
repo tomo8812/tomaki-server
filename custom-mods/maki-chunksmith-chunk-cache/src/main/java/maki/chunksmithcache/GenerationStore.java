@@ -349,17 +349,45 @@ final class GenerationStore {
         return budget;
     }
 
+    /** Parse historical cache ownership only; ignore old mod/seed/config entries. */
+    private static FingerprintManifest.Manifest historicalIdentity(Path directory) {
+        String name = directory.getFileName().toString();
+        if (name.length() < 24) return null;
+        String id = name.substring(0, 24);
+        if (!id.matches("[0-9a-f]{24}")) return null;
+        Path metadata = directory.resolve(FingerprintManifest.FILE_NAME);
+        if (Files.exists(metadata)) {
+            FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(metadata);
+            return existing != null && id.equals(existing.fingerprint()) ? existing : null;
+        }
+        // Version-1 cache directories did not have a manifest. Their FULL
+        // envelopes still carry the matching 24-hex owning identity.
+        return new FingerprintManifest.Manifest(id, System.currentTimeMillis(), Set.of(id));
+    }
+
+    private static Set<String> acceptedIdentities(
+        Fingerprint.Snapshot snapshot,
+        FingerprintManifest.Manifest old,
+        FingerprintManifest.Manifest existing
+    ) {
+        Set<String> accepted = new LinkedHashSet<>();
+        accepted.add(snapshot.fingerprint());
+        accepted.add(old.fingerprint());
+        accepted.addAll(old.storedFingerprints());
+        if (existing != null && existing.fingerprint().equals(snapshot.fingerprint())) {
+            accepted.addAll(existing.storedFingerprints());
+        }
+        return accepted;
+    }
+
     private static Predicate<Path> cacheValidator(
         ServerLevel level, FingerprintManifest.Manifest acceptedManifest
     ) {
-        int dataVersion = WorldVersionBridge.getDataVersion(
-            net.minecraft.SharedConstants.getCurrentVersion()).getVersion();
         String dimension = level.dimension().location().toString();
         return file -> {
-            String rejected = CacheFormatValidator.rejectReason(
-                file, acceptedManifest, dimension, dataVersion);
+            String rejected = CacheFormatValidator.rejectReason(file, acceptedManifest, dimension);
             if (rejected != null) {
-                LOG.warn("Historical FULL cache failed migration validation {}: {}", file, rejected);
+                LOG.warn("Historical FULL cache failed integrity validation {}: {}", file, rejected);
             }
             return rejected == null;
         };
@@ -379,31 +407,36 @@ final class GenerationStore {
             accepted.addAll(existing.storedFingerprints());
         }
         return new FingerprintManifest.Manifest(
-            current.fingerprint(), current.createdAtMillis(), Set.copyOf(accepted), current.entries());
+            current.fingerprint(), current.createdAtMillis(), Set.copyOf(accepted));
     }
 
-    /**
-     * A different FULL generation is adopted only after semantic environment
-     * equivalence and per-file envelope validation. Old files stay until the
-     * accepted-fingerprint manifest is committed.
-     */
-    private static CacheDirectoryMerge.MergeStats mergeForCompatibility(
+    private static CacheDirectoryMerge.MergeStats copyValidFulls(
         ServerLevel level,
         FingerprintManifest.Manifest historical,
         FingerprintManifest.Manifest current,
         Path source, Path active,
-        boolean preserveSource,
-        CacheDiskBudget migrationBudget
+        CacheDiskBudget budget
     ) throws IOException {
-        Predicate<Path> sourceVerified = cacheValidator(level, historical);
-        Predicate<Path> targetVerified = cacheValidator(
-            level, validationManifest(current, active, historical));
         return CacheDirectoryMerge.copyValidatedPreservingSource(
-            source, active, sourceVerified, targetVerified, migrationBudget);
+            source, active, cacheValidator(level, historical),
+            cacheValidator(level, validationManifest(current, active, historical)), budget);
     }
 
-    private static CacheDirectoryMerge.MergeStats mergeDirectory(Path source, Path target) throws IOException {
-        return CacheDirectoryMerge.merge(source, target);
+    private static void writeRecoveryReceipt(
+        Path source, String oldId, String activeId,
+        CacheDirectoryMerge.MergeStats stats, String trigger
+    ) throws IOException {
+        Files.writeString(source.resolve(RECOVERY_INFO),
+            "sourceFingerprint=" + oldId + "\n"
+            + "targetFingerprint=" + activeId + "\n"
+            + "proof=FULL envelope and ownership validated\n"
+            + "sourceEntries=" + stats.sourceEntries() + "\n"
+            + "adoptedEntries=" + stats.adoptedEntries() + "\n"
+            + "duplicateEntries=" + stats.duplicateEntries() + "\n"
+            + "rejectedEntries=" + stats.rejectedEntries() + "\n"
+            + "sourcePreserved=true\n"
+            + "trigger=" + trigger + "\n");
+        Files.setLastModifiedTime(source, FileTime.fromMillis(System.currentTimeMillis()));
     }
 
     private static boolean alreadyRecovered(
@@ -457,6 +490,5 @@ final class GenerationStore {
     record QuarantineInfo(String id, long entries, long bytes, long modifiedAtMillis) {}
     private record Stats(long entries, long bytes) {}
     private record QuarantineEntry(Path path, Stats stats, long modifiedAtMillis) {}
-    private record QuarantineCandidate(Path path, FingerprintManifest.Manifest manifest) {}
 }
 
