@@ -172,7 +172,7 @@ tasks.register('verifyPregenControllerV2') {
         }
         if(!mixin.contains('PregenControlHooks.reserveCandidate('))
             throw new GradleException('4.8.1 regression: native candidate WIP reserve missing')
-        def gate=mixin.indexOf('ResourceBudgetApi.blockFollowAdmission((GenerationTask)(Object)this)')
+        def gate=mixin.indexOf('ResourceBudgetApi.blockFollowAdmission(task)')
         def next=mixin.indexOf('Object next=iterator.next()')
         if(gate<0||next<0||gate>next)throw new GradleException('Pregen V2 regression: WIP gate must run before iterator consumption')
         ['candidateCap=cap-1','candidateCap=cap+1','pairCompletions','fastSignature',
