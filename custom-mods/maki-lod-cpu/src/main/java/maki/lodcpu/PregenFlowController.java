@@ -120,6 +120,8 @@ final class PregenFlowController {
         final EnumSet<Stage> started=EnumSet.noneOf(Stage.class);
         WorkClass workClass=WorkClass.UNKNOWN;
         boolean actualStarted;
+        boolean lodReady;
+        boolean fullReady;
         boolean pairReported;
         boolean pairResolved;
         Attempt(Key key,GenerationTask owner,long epoch,String token) {
@@ -296,18 +298,37 @@ final class PregenFlowController {
         }
         attempt.started.remove(stage);
         if(!success)attempt.pairResolved=true;
+        else if(stage==Stage.LOD)attempt.lodReady=true;
+        else if(stage==Stage.FULL)attempt.fullReady=true;
+        tryConfirmRuntimePair(attempt);
         finishIfDone(attempt);
     }
 
-    static synchronized void pairConfirmed(String token,boolean generatedNew) {
+    /** LOD proof comes from Chunksmith's physical writer; no reuse decision is made here. */
+    static synchronized void lodCommitted(String token){
         Attempt attempt=BY_TOKEN.get(token);
-        if(attempt==null||attempt.pairReported)return;
+        if(attempt==null||!attempt.actualStarted)return;
+        attempt.lodReady=true;
+        tryConfirmRuntimePair(attempt);
+    }
+
+    /** FULL validity and publication come from the FULL owner (cache or normal world). */
+    static synchronized void fullReady(String token){
+        Attempt attempt=BY_TOKEN.get(token);
+        if(attempt==null||!attempt.actualStarted)return;
+        attempt.fullReady=true;
+        tryConfirmRuntimePair(attempt);
+    }
+
+    private static void tryConfirmRuntimePair(Attempt attempt){
+        if(!proofFeedConnected||attempt.pairReported||attempt.pairResolved
+            ||!attempt.actualStarted||!attempt.lodReady||!attempt.fullReady)return;
         attempt.pairReported=true;
         attempt.pairResolved=true;
-        pairConfirmedRuntime++;
         fulfilled(attempt);
-        if(generatedNew||attempt.workClass==WorkClass.NEW)pairNew++;else pairRepair++;
-        metric(generatedNew||attempt.workClass==WorkClass.NEW?"pair-confirmed-new":"pair-confirmed-repair");
+        pairConfirmedRuntime++;
+        if(attempt.workClass==WorkClass.NEW)pairNew++;else pairRepair++;
+        metric(attempt.workClass==WorkClass.NEW?"pair-confirmed-new":"pair-confirmed-repair");
         finishIfDone(attempt);
     }
 
