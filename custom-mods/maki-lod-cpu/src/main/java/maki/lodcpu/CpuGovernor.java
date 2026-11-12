@@ -40,6 +40,8 @@ public final class CpuGovernor {
     public static int cap(){return cap;}
     public static String pipelinePressure(){refreshPipelinePressure();return pipelinePressure;}
     public static boolean pregenRetryPending(MinecraftServer server,int centerX,int centerZ,int radiusBlocks){
+        if(PregenFlowController.retryDue())return true;
+        // FULL's own retry and storage decisions continue to belong to chunk-cache.
         try { return Boolean.TRUE.equals(Class.forName("maki.chunksmithcache.CacheManager")
             .getMethod("pregenRetryPending",MinecraftServer.class,int.class,int.class,int.class)
             .invoke(null,server,centerX,centerZ,radiusBlocks)); }
@@ -48,16 +50,7 @@ public final class CpuGovernor {
     }
 
     public static int pregenDeferredCoordinates(com.kishku7.chunksmith.GenerationTask task){
-        if(task==null)return 0;
-        try {
-            Object value=Class.forName("maki.chunksmithcache.CacheManager")
-                .getMethod("pregenDeferredCoordinates",com.kishku7.chunksmith.GenerationTask.class).invoke(null,task);
-            return value instanceof Number number?Math.max(0,number.intValue()):0;
-        } catch(ClassNotFoundException absent) {
-            return 0;
-        } catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable) {
-            return 0;
-        }
+        return task==null?0:PregenFlowController.deferredFor(task);
     }
 
     public static boolean pregenReady(net.minecraft.server.MinecraftServer server){
