@@ -297,8 +297,17 @@ final class PregenFlowController {
         attempt.pairReported=true;
         attempt.pairResolved=true;
         pairConfirmedRuntime++;
-        if(attempt.workClass==WorkClass.NEW)pairNew++;else pairRepair++;
-        metric(attempt.workClass==WorkClass.NEW?"pair-confirmed-new":"pair-confirmed-repair");
+        if(attempt.workClass==WorkClass.NEW) {
+            pairNew++;
+            metric("pair-confirmed-new");
+        }else if(attempt.workClass==WorkClass.REPAIR) {
+            pairRepair++;
+            metric("pair-confirmed-repair");
+        }else {
+            // Forced existing-chunk loads bypass the native generated check.
+            // Completion is still real goodput, but its class is unproven.
+            metric("pair-confirmed-unclassified");
+        }
         finishIfDone(attempt);
     }
 
