@@ -90,46 +90,21 @@ public final class CpuGovernor {
     private record ControllerObservation(boolean available,long pairConfirmed,long pairNew,long pairRepair,long uncertain,
                                          long oldestMillis,boolean admissionBlocked,boolean sensorUnknown,
                                          long fastSignature,String reason){}
-    private static ControllerObservation controllerObservation(){
-        try{
-            Object status=Class.forName("maki.chunksmithcache.CacheManager").getMethod("controllerStatus").invoke(null);
-            Class<?> type=status.getClass();
-            long pairs=((Number)type.getMethod("pairConfirmedRuntime").invoke(status)).longValue();
-            long pairNew=((Number)type.getMethod("pairNew").invoke(status)).longValue();
-            long pairRepair=((Number)type.getMethod("pairRepair").invoke(status)).longValue();
-            long uncertain=((Number)type.getMethod("uncertain").invoke(status)).longValue();
-            long oldest=((Number)type.getMethod("oldestMillis").invoke(status)).longValue();
-            boolean blocked=Boolean.TRUE.equals(type.getMethod("admissionBlocked").invoke(status));
-            boolean unknown=Boolean.TRUE.equals(type.getMethod("sensorUnknown").invoke(status));
-            long fastSignature=((Number)type.getMethod("fastSignature").invoke(status)).longValue();
-            Object rawReason=type.getMethod("reason").invoke(status);
-            return new ControllerObservation(true,pairs,pairNew,pairRepair,uncertain,oldest,blocked,unknown,fastSignature,
-                rawReason==null?null:rawReason.toString());
-        }catch(ClassNotFoundException absent){
-            return new ControllerObservation(false,0,0,0,0,0,false,false,0L,"cache-controller-absent");
-        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable){
-            return new ControllerObservation(false,0,0,0,0,0,true,true,0L,"cache-controller-unavailable");
-        }
+
+    private static ControllerObservation controllerObservation() {
+        // Stage windows and PAIR goodput now belong exclusively to lod-cpu.
+        // PR #90's cache/Chunksmith integrations will report physical outcomes
+        // through ResourceBudgetApi. Missing proof feed disables SLOW learning.
+        PregenFlowController.Snapshot state=PregenFlowController.snapshot();
+        boolean ready=PregenFlowController.proofFeedConnected();
+        return new ControllerObservation(ready,state.pairConfirmedRuntime(),state.pairNew(),
+            state.pairRepair(),state.uncertain(),state.oldestMillis(),state.blocked(),
+            state.sensorUnknown()||!ready,state.fastSignature(),
+            ready?"elite-local-control":"waiting-pair-telemetry");
     }
 
-    private static void setFastTuningFrozen(boolean frozen){
-        try{
-            Class.forName("maki.chunksmithcache.CacheManager").getMethod("setFastTuningFrozen",boolean.class).invoke(null,frozen);
-        }catch(ClassNotFoundException absent){
-            // Cache controller is optional.
-        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable){
-            LOG.debug("Could not change FAST tuning freeze",unavailable);
-        }
-    }
-
-    private static void notifyGenerationCapChanged(int nextCap){
-        try{
-            Class.forName("maki.chunksmithcache.CacheManager").getMethod("generationCapChanged",int.class).invoke(null,nextCap);
-        }catch(ClassNotFoundException absent){
-            // Cache controller is optional.
-        }catch(ReflectiveOperationException|LinkageError|RuntimeException unavailable){
-            LOG.debug("Could not reset pregen stage service model after c change",unavailable);
-        }
+    private static void notifyGenerationCapChanged(int nextCap) {
+        PregenFlowController.generationCapChanged(nextCap);
     }
 
     static SharedWorkBudget.Decision reserveBackfill(String taskMode){
@@ -269,7 +244,7 @@ public final class CpuGovernor {
         long heapMax=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage().getMax();
         return new PregenPerformanceProfile.Environment(
             PregenPerformanceProfile.CONTROLLER_VERSION,cpuAffinity(),cpuQuota(),capacity,heapMax,
-            chunksmithConfigSignature(),cacheControllerVersion(),fastSignature,workClassBand);
+            chunksmithConfigSignature(),pairFeedVersion(),fastSignature,workClassBand);
     }
 
     private static String cpuAffinity(){
@@ -297,12 +272,8 @@ public final class CpuGovernor {
         }catch(Throwable unavailable){return "unknown";}
     }
 
-    private static String cacheControllerVersion(){
-        try{
-            Package pkg=Class.forName("maki.chunksmithcache.CacheManager").getPackage();
-            String version=pkg==null?null:pkg.getImplementationVersion();
-            return version==null?"unknown":version;
-        }catch(Throwable unavailable){return "absent";}
+    private static String pairFeedVersion(){
+        return PregenFlowController.proofFeedConnected()?"E_LITE_PAIR_V1":"absent";
     }
 
     private static String fmt(double n){return String.format(Locale.ROOT,"%.1f",n);}
