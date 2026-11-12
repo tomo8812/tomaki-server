@@ -37,17 +37,12 @@ public final class CpuGovernor {
     public static int cap(){return cap;}
     public static String pipelinePressure(){refreshPipelinePressure();return pipelinePressure;}
     public static boolean pregenRetryPending(MinecraftServer server,int centerX,int centerZ,int radiusBlocks){
-        if(PregenFlowController.retryDue())return true;
-        // FULL's own retry and storage decisions continue to belong to chunk-cache.
+        // Cache-owned FULL retry debt, kept separate from native dispatch.
         try { return Boolean.TRUE.equals(Class.forName("maki.chunksmithcache.CacheManager")
             .getMethod("pregenRetryPending",MinecraftServer.class,int.class,int.class,int.class)
             .invoke(null,server,centerX,centerZ,radiusBlocks)); }
         catch (ClassNotFoundException absent) { return false; }
         catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) { return true; }
-    }
-
-    public static int pregenDeferredCoordinates(com.kishku7.chunksmith.GenerationTask task){
-        return task==null?0:PregenFlowController.deferredFor(task);
     }
 
     public static boolean pregenReady(net.minecraft.server.MinecraftServer server){
