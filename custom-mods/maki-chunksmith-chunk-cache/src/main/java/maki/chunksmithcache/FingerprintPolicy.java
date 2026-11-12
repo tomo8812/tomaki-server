@@ -18,8 +18,6 @@ final class FingerprintPolicy {
     static final String CONFIG_RELATIVE = "config/maki-chunksmith-chunk-cache.properties";
     static final String UNKNOWN_MOD_REASON = "unknown code-driven generation impact; fail-closed until audited";
     private static final String OWN_MOD_ID = "maki_chunksmith_chunk_cache";
-    // Keep the historical signature constants stable when the controller is renamed.
-    // The new runtime ID is recognized separately in classify()/reason().
     private static final Set<String> BUILTIN_GENERATION_NEUTRAL_MOD_IDS = Set.of(
         OWN_MOD_ID, "maki_lod_cpu", "maki_mods_observer", "maki_diorama_share"
     );
@@ -133,8 +131,7 @@ final class FingerprintPolicy {
                 || containsWorldgenResources(physicalPath)) {
                 return FingerprintManifest.Impact.RELEVANT;
             }
-            if (ids.size() == 1 && (BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())
-                || "maki_chunksmith_controller".equals(ids.iterator().next()))) {
+            if (ids.size() == 1 && BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())) {
                 return FingerprintManifest.Impact.IGNORED;
             }
             // Absence of recognizable worldgen resources is not proof that code cannot
@@ -168,7 +165,6 @@ final class FingerprintPolicy {
         String normalized = normalize(logicalPath);
         if (normalized.startsWith("config/chunksmith/tasks/")) return "chunksmith mutable task progress";
         if (normalized.equals(CONFIG_RELATIVE)) return "cache management policy; generated-result inputs are hashed separately";
-        if (normalized.equals("config/maki-chunksmith-controller.properties")) return "generation-neutral Chunksmith scheduling settings";
         if (isGenerationSensitivePath(normalized)) return "declared/effective world-generation configuration input";
         if (matchesIgnoredPath(normalized)) return "explicit generation-neutral path policy";
         if (normalized.startsWith("mods/") && normalized.endsWith(".jar")) {
@@ -185,8 +181,7 @@ final class FingerprintPolicy {
                 }
                 return UNKNOWN_MOD_REASON;
             }
-            if (ids.size() == 1 && (BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())
-                || "maki_chunksmith_controller".equals(ids.iterator().next()))) {
+            if (ids.size() == 1 && BUILTIN_GENERATION_NEUTRAL_MOD_IDS.contains(ids.iterator().next())) {
                 return "owned scheduling/UI/diagnostic MOD role is generation-neutral";
             }
             return "explicit generation-neutral MOD input";
@@ -217,8 +212,7 @@ final class FingerprintPolicy {
 
     static boolean isAlwaysExcluded(String logicalPath) {
         String normalized = normalize(logicalPath);
-        return normalized.startsWith("config/chunksmith/tasks/") || normalized.equals(CONFIG_RELATIVE)
-            || normalized.equals("config/maki-chunksmith-controller.properties");
+        return normalized.startsWith("config/chunksmith/tasks/") || normalized.equals(CONFIG_RELATIVE);
     }
 
     private boolean isGenerationSensitiveModId(String id) {

@@ -120,34 +120,12 @@ final class AuditedModCompatibility {
     }
 
     static FingerprintManifest.Entry normalizeHistoricalEntry(FingerprintManifest.Entry entry) {
-        // The old controller's audited "load-control-only-v1" contract was
-        // proven generation-neutral. Dropping only this exact historical
-        // attestation lets the renamed controller reuse the same FULL terrain.
-        if ("compat:mod:maki_lod_cpu".equals(entry.key())) {
-            FingerprintManifest.Entry known = contractEntry(
-                "maki_lod_cpu", "load-control-only-v1", "legacy audited scheduling-only controller"
-            );
-            if (entry.size() == known.size() && entry.sha256().equals(known.sha256())
-                && entry.impact() == FingerprintManifest.Impact.RELEVANT) {
-                return neutralizedHistoricalController(known);
-            }
-        }
         if (!entry.key().startsWith("mods/")) return entry;
         Attestation match = ATTESTATIONS.stream()
             .filter(value -> value.rawSha256().equals(entry.sha256()))
             .findFirst()
             .orElse(null);
-        if (match == null) return entry;
-        FingerprintManifest.Entry contract=contractEntry(match.modId(), match.contract(),
-            "historical audited artifact; " + match.reason());
-        return "maki_lod_cpu".equals(match.modId()) && "load-control-only-v1".equals(match.contract())
-            ? neutralizedHistoricalController(contract) : contract;
-    }
-
-    private static FingerprintManifest.Entry neutralizedHistoricalController(FingerprintManifest.Entry contract) {
-        return new FingerprintManifest.Entry(contract.key(),contract.size(),contract.sha256(),
-            FingerprintManifest.Impact.IGNORED,
-            "exactly audited historical scheduling-only controller; rename does not change terrain");
+        return match == null ? entry : contractEntry(match.modId(), match.contract(), "historical audited artifact; " + match.reason());
     }
 
     static String trustedRawSha(String modId, String contract, int occurrence) {

@@ -17,15 +17,13 @@ public final class FingerprintPolicySelfTest {
         Path temp = Files.createTempDirectory("maki-cache-issue40-test");
         try {
             Path observerJar = temp.resolve("diagnostic-probe.jar");
-            writeModJar(observerJar, "maki_chunksmith_controller", "payload-a");
+            writeModJar(observerJar, "maki_lod_cpu", "payload-a");
             Path unknownJar = temp.resolve("unknown.jar");
             writeModJar(unknownJar, "diagnostic_probe", "payload-a");
             Path worldgenJar = temp.resolve("worldgen.jar");
             writeModJar(worldgenJar, "epicterrain", "payload-a");
 
             FingerprintPolicy policy = FingerprintPolicy.forTesting(List.of("config/diagnostic-probe.properties"));
-            require(FingerprintPolicy.isAlwaysExcluded("config/maki-chunksmith-controller.properties"),
-                "renamed scheduling config must not invalidate existing FULL cache");
             require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.IGNORED,
                 "owned scheduling-only MOD role must remain neutral across updates");
             require(policy.classify("mods/unknown.jar", unknownJar) == FingerprintManifest.Impact.RELEVANT,
@@ -170,7 +168,7 @@ public final class FingerprintPolicySelfTest {
             }
             require(corruptRejected, "corrupt manifest must fail closed");
 
-            writeModJar(observerJar, "maki_chunksmith_controller", "payload-b");
+            writeModJar(observerJar, "maki_lod_cpu", "payload-b");
             require(policy.classify("mods/diagnostic-probe.jar", observerJar) == FingerprintManifest.Impact.IGNORED,
                 "owned neutral MOD byte updates must not invalidate generated-result compatibility");
             System.out.println("Issue #40 fingerprint/quarantine regression checks: PASS");

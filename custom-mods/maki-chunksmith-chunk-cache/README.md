@@ -87,7 +87,7 @@ This change does not patch Chunksmith itself. It keeps ownership in the existing
 Version 1.2.0 no longer treats every active Chunksmith task as an unconditional backfill blocker.
 
 - candidate discovery runs while follow continues, so an empty Backfill queue never disturbs LOD generation;
-- once a safe real-chunk candidate exists, maki-chunksmith-controller（旧maki-lod-cpu 1.4.0） reserves a short shared-budget slice and holds only **new dispatch** from a follow-owned Chunksmith task; it never calls stop/resume/recenter or replaces the task;
+- once a safe real-chunk candidate exists, maki-lod-cpu 1.4.0 reserves a short shared-budget slice and holds only **new dispatch** from a follow-owned Chunksmith task; it never calls stop/resume/recenter or replaces the task;
 - the already-dispatched follow requests drain to zero before Backfill starts, closing the race where follow and Backfill could generate the same target/dependency scope concurrently;
 - external/unowned Chunksmith tasks are never stopped, adopted, recentered, capped, or dispatch-blocked by this path;
 - CPU, actual MSPT, heap/GC, system-memory headroom, I/O PSI, LOD/write queues and native backpressure control admission. High CPU by itself is intentionally not a blocker;
@@ -103,7 +103,7 @@ This design deliberately uses a brief dispatch barrier instead of lifecycle paus
 Version 1.2.1 keeps the #40 manifest/quarantine mechanism but fingerprints effective semantics where equivalence can be proven without weakening the default fail-closed policy.
 
 - `config/zfastnoise.mixin.properties` is parsed with the same `java.util.Properties.load(InputStream)` and `Boolean.parseBoolean` behavior used by zfastnoise 1.0.13. Only `mixin.perf.biome` and `mixin.perf.noise` affect compatibility; generated timestamp comments, key order, equivalent whitespace and unknown preserved keys stay audit-only raw differences. Missing keys use zfastnoise's real `true` defaults. Parse failures remain raw and compatibility-relevant.
-- MOD JARs are **not** exempted by filename or MOD ID. `AuditedModCompatibility` contains exact artifact/content attestations for installed components whose decompiled/current code was audited as generation-neutral: `maki_lod_cpu`（旧バージョンの監査記録）, `maki_lod_cpu_online_fix`, `maki_diorama_share`, `maki_mods_observer`, Jade, EMI, ClientSort and Sound Physics Remastered. The stable compatibility input is the audited behavior contract, while the raw JAR is retained as an ignored audit entry.
+- MOD JARs are **not** exempted by filename or MOD ID. `AuditedModCompatibility` contains exact artifact/content attestations for installed components whose decompiled/current code was audited as generation-neutral: `maki_lod_cpu`, `maki_lod_cpu_online_fix`, `maki_diorama_share`, `maki_mods_observer`, Jade, EMI, ClientSort and Sound Physics Remastered. The stable compatibility input is the audited behavior contract, while the raw JAR is retained as an ignored audit entry.
 - Attestations accept either the exact audited raw SHA-256 or the exact canonical JAR-content SHA-256. The canonical digest sorts entry names and hashes entry payloads while excluding archive/signature packaging metadata, so a byte-for-byte rebuild/repack of the same audited code/resources does not invalidate cache compatibility. Any changed code/resource payload, unknown version/artifact, ambiguous multi-MOD JAR, malformed metadata, or declared indirect zfastnoise override remains fail-closed relevant.
 - Generation-affecting MODs/configs/datapacks, world seed/dimension/generator state and unknown inputs remain compatibility-relevant. The change intentionally removes the previous MOD-ID-only observation exemption.
 - Compatibility schema v3 can adopt a v2 generation only when every relevant input can be normalized to the same proven semantics. Historical zfastnoise recovery is limited to the two known Issue #68 raw signatures or an old raw entry that exactly matches the currently parsed source. Historical audited MOD entries normalize only from exact attested raw digests.
@@ -125,5 +125,3 @@ Schema 2 includes generated entity roots/passengers and uses native chunk/entity
 ## Maintenance release (1.4.1)
 
 Updates the released version after PR #86 removed three unused BackfillController methods, one unused CacheManager field and an unused atomic-move helper, and retired the separate online-fix MOD. No new cache schema or generation behavior was introduced.
-
-Controller integration (PR #89): active MOD ID `maki_chunksmith_controller`, source package `maki.chunksmithcontroller`, and resource budget bridge `maki.chunksmithcontroller.ResourceBudgetApi`. Historical `maki_lod_cpu` attestations remain unchanged to preserve older FULL cache compatibility.

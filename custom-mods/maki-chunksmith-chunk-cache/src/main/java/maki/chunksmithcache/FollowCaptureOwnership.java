@@ -20,7 +20,7 @@ final class FollowCaptureOwnership {
     static boolean owns(GenerationTask task) {
         if(task==null)return false;
         try {
-            return Boolean.TRUE.equals(Class.forName("maki.chunksmithcontroller.TaskOwnership")
+            return Boolean.TRUE.equals(Class.forName("maki.lodcpu.TaskOwnership")
                 .getMethod("isOwned", GenerationTask.class).invoke(null, task));
         } catch (ReflectiveOperationException | LinkageError | RuntimeException error) {
             return false;
