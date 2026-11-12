@@ -2,70 +2,49 @@ package maki.chunksmithcache;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Base64;
 import java.util.Set;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.nbt.StringTag;
 
-/**
- * FULL cache generation-boundary and per-entry integrity regressions.
- * No forward-version or JAR-pair compatibility mechanism is required.
- */
+/** Saved FULL integrity, stable namespace, and legacy-cache adoption tests. */
 public final class FullCacheCompatibilitySelfTest {
     private static final int DATA_VERSION = 3955;
+    private static final String OLD_ID = "c11f310d76e16d27d6bc06e9";
 
     private FullCacheCompatibilitySelfTest() {}
 
     public static void main(String[] args) throws Exception {
-        List<FingerprintManifest.Entry> past = baseline();
-        List<FingerprintManifest.Entry> current = baseline();
+        require(Fingerprint.CACHE_ID.matches("[0-9a-f]{24}"),
+            "FULL storage id must remain a stable cache-format namespace");
+        require(!Fingerprint.CACHE_ID.equals(OLD_ID),
+            "the stable namespace must differ from historical version-dependent names");
+        testLegacyManifestRead();
+        testPerFileFormatAndSelectiveMigration(
+            new FingerprintManifest.Manifest(OLD_ID, 1L, Set.of(OLD_ID)));
+        System.out.println("FULL cache: stable identity, legacy manifest parsing, NBT validation and selective migration PASS");
+    }
 
-        past.add(value("mods/chunksmith-4.6.0+1.21.1-neoforge.jar", "scheduler-old"));
-        current.add(value("mods/chunksmith-4.8.1+1.21.1-neoforge.jar", "scheduler-new"));
-        past.add(value("mods/millenaire-9.0.3.jar", "deferred-village-old"));
-        current.add(value("mods/millenaire-9.1.0.jar", "deferred-village-new"));
-        past.add(value("mods/maki-millenaire-lod-compat-1.0.6.jar", "bridge-old"));
-        current.add(value("mods/maki-millenaire-lod-compat-1.0.8.jar", "bridge-new"));
-        past.add(value("mods/maki-idle-pregen-1.1.1.jar", "idle-old"));
-        current.add(value("mods/maki-idle-pregen-1.1.2.jar", "idle-new"));
-        past.add(value("mods/maki-ship-save-1.0.2.jar", "saving-old"));
-        current.add(value("mods/maki-ship-save-1.0.3.jar", "saving-new"));
-        past.add(value("config/jade-client.toml", "old-ui-setting"));
-        current.add(value("config/jade-client.toml", "new-ui-setting"));
-        past.add(value("mods/utility-no-worldgen-1.0.jar", "utility-old"));
-        current.add(value("mods/utility-no-worldgen-2.0.jar", "utility-new"));
-
-        FingerprintManifest.Manifest old = manifest(past);
-        FingerprintManifest.Manifest now = manifest(current);
-        require(FingerprintManifest.sameCompatibilityInputsExcept(
-            old, now, Set.of("policy:compatibility")),
-            "FULL terrain must survive LOD/scheduling/village and UI updates");
-        require(FingerprintManifest.changedCompatibilityInputs(
-            old, now, Set.of("policy:compatibility"), 30, null).isEmpty(),
-            "non-generation changes must not show as incompatibility");
-
-        assertRejected(old, replace(now, "level:seed", "another-seed"), "seed");
-        assertRejected(old, replace(now, "level:generator-class", "another-generator"), "generator");
-        assertRejected(old, replace(now, "minecraft:data-version", "4080"), "Minecraft DataVersion");
-        assertRejected(old, replace(now, "world/datapacks/test/pack.mcmeta", "new-worldgen-datapack"), "datapack");
-        assertRejected(old, replace(now, "config/epicterrain.properties", "new-terrain-settings"), "terrain settings");
-        assertRejected(old, replace(now, "mods/epicterrain-0.3.0-1.21.1.jar", "new-terrain-jar"), "terrain MOD");
-        List<FingerprintManifest.Entry> unknown = new ArrayList<>(current);
-        unknown.add(value("mods/unlisted-mod-1.0.jar", "not-in-current-config"));
-        require(FingerprintManifest.sameCompatibilityInputsExcept(
-            old, manifest(unknown), Set.of("policy:compatibility")),
-            "future unlisted MOD must not trigger speculative cache invalidation");
-        List<FingerprintManifest.Entry> addedCurrentGenerator = new ArrayList<>(current);
-        addedCurrentGenerator.add(value(
-            "mods/letsdo-brewery-neoforge-2.1.13.jar", "known-terrain-input"));
-        assertRejected(old, manifest(addedCurrentGenerator),
-            "addition of explicitly tracked installed worldgen MOD");
-
-        testPerFileFormatAndSelectiveMigration(old);
-        System.out.println("FULL cache boundary: terrain changes rejected, LOD/utility changes reused, NBT validated PASS");
+    private static void testLegacyManifestRead() throws Exception {
+        String key = Base64.getUrlEncoder().withoutPadding().encodeToString(
+            "level:seed".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String reason = Base64.getUrlEncoder().withoutPadding().encodeToString(
+            "historical monitored environment".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        String entry = "entry\t" + key + "\t3\t" + "a".repeat(64)
+            + "\tRELEVANT\t" + reason + "\n";
+        String old = "format\t2\nfingerprint\t" + OLD_ID + "\n"
+            + "created\t1\nstored\t" + OLD_ID + "\n" + entry;
+        FingerprintManifest.Manifest decoded = FingerprintManifest.decode(old);
+        require(decoded.fingerprint().equals(OLD_ID), "historical owner id is preserved");
+        require(decoded.storedFingerprints().contains(OLD_ID), "historical envelope identity is accepted");
+        require(!FingerprintManifest.encode(decoded).contains("entry\t"),
+            "old environment monitoring entries must not be written to new manifests");
+        boolean bad = false;
+        try { FingerprintManifest.decode(old.replace("a".repeat(64), "bad-digest")); }
+        catch (java.io.IOException expected) { bad = true; }
+        require(bad, "corrupt old owner manifest must fail closed");
     }
 
     private static void testPerFileFormatAndSelectiveMigration(
@@ -82,7 +61,7 @@ public final class FullCacheCompatibilitySelfTest {
             CompoundTag good = envelope(historical.fingerprint(), 383, -61);
             NbtIo.writeCompressed(good, valid);
             require(CacheFormatValidator.rejectReason(
-                valid, historical, "minecraft:overworld", DATA_VERSION) == null,
+                valid, historical, "minecraft:overworld") == null,
                 "a complete v3 FULL with identical DataVersion must pass");
 
             Path noTerrain = old.resolve("r.11.-2/c.381.-61.nbt.gz");
@@ -90,7 +69,7 @@ public final class FullCacheCompatibilitySelfTest {
             missingSections.getCompound("chunk").remove("sections");
             NbtIo.writeCompressed(missingSections, noTerrain);
             require("missing-terrain-sections".equals(CacheFormatValidator.rejectReason(
-                noTerrain, historical, "minecraft:overworld", DATA_VERSION)),
+                noTerrain, historical, "minecraft:overworld")),
                 "FULL metadata without serialized terrain sections must remain old/quarantined");
             Files.delete(noTerrain);
 
@@ -98,13 +77,13 @@ public final class FullCacheCompatibilitySelfTest {
             bad.putBoolean("entitiesComplete", false);
             NbtIo.writeCompressed(bad, invalid);
             require("entities-or-lod-incomplete".equals(CacheFormatValidator.rejectReason(
-                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                invalid, historical, "minecraft:overworld")),
                 "incomplete entities must remain old/quarantined");
 
             CacheDirectoryMerge.MergeStats stats = CacheDirectoryMerge.mergeValidated(
                 old, current,
                 p -> CacheFormatValidator.rejectReason(
-                    p, historical, "minecraft:overworld", DATA_VERSION) == null);
+                    p, historical, "minecraft:overworld") == null);
             require(stats.sourceEntries() == 2 && stats.adoptedEntries() == 1
                 && stats.rejectedEntries() == 1,
                 "only the format-valid FULL should migrate");
@@ -113,7 +92,7 @@ public final class FullCacheCompatibilitySelfTest {
             require(Files.isRegularFile(invalid), "invalid FULL must survive for quarantine");
             require(!Files.exists(valid), "validated original was moved");
 
-            // Production semantic migrations copy before committing the stored-
+            // Production historical-cache migrations copy before committing the stored-
             // fingerprint acceptance. The historical source must survive a
             // crash or missing manifest until reconciliation succeeds.
             NbtIo.writeCompressed(good, valid);
@@ -121,7 +100,7 @@ public final class FullCacheCompatibilitySelfTest {
             CacheDirectoryMerge.MergeStats copy = CacheDirectoryMerge.copyValidatedPreservingSource(
                 old, afterCopy,
                 p -> CacheFormatValidator.rejectReason(
-                    p, historical, "minecraft:overworld", DATA_VERSION) == null);
+                    p, historical, "minecraft:overworld") == null);
             require(copy.adoptedEntries() == 1 && copy.rejectedEntries() == 1,
                 "copy must adopt only the format-compatible entry");
             require(Files.isRegularFile(valid) && Files.isRegularFile(invalid)
@@ -135,19 +114,19 @@ public final class FullCacheCompatibilitySelfTest {
             CacheDirectoryMerge.MergeStats retried = CacheDirectoryMerge.copyValidatedPreservingSource(
                 old, retryTarget,
                 p -> CacheFormatValidator.rejectReason(
-                    p, historical, "minecraft:overworld", DATA_VERSION) == null);
+                    p, historical, "minecraft:overworld") == null);
             require(retried.adoptedEntries() == 1 && retried.rejectedEntries() == 1,
                 "an invalid existing destination must be replaced from the validated source");
             require(CacheFormatValidator.rejectReason(
-                retryValid, historical, "minecraft:overworld", DATA_VERSION) == null,
+                retryValid, historical, "minecraft:overworld") == null,
                 "retry must leave a complete validated destination, not a partial duplicate");
 
             long cleaned = CacheDirectoryMerge.cleanupCopiedSources(
                 old, afterCopy,
                 p -> CacheFormatValidator.rejectReason(
-                    p, historical, "minecraft:overworld", DATA_VERSION) == null,
+                    p, historical, "minecraft:overworld") == null,
                 p -> CacheFormatValidator.rejectReason(
-                    p, historical, "minecraft:overworld", DATA_VERSION) == null);
+                    p, historical, "minecraft:overworld") == null);
             require(cleaned == 1 && !Files.exists(valid) && Files.isRegularFile(invalid),
                 "post-commit cleanup removes only byte-identical validated sources");
 
@@ -167,9 +146,9 @@ public final class FullCacheCompatibilitySelfTest {
                     budgetSource,
                     budgetRoot.resolve("minecraft_overworld/current"),
                     p -> CacheFormatValidator.rejectReason(
-                        p, historical, "minecraft:overworld", DATA_VERSION) == null,
+                        p, historical, "minecraft:overworld") == null,
                     p -> CacheFormatValidator.rejectReason(
-                        p, historical, "minecraft:overworld", DATA_VERSION) == null,
+                        p, historical, "minecraft:overworld") == null,
                     budget);
             } catch (java.io.IOException expected) {
                 budgetBlocked = true;
@@ -178,41 +157,47 @@ public final class FullCacheCompatibilitySelfTest {
                 "migration must defer without consuming the source when disk reserve/capacity is unavailable");
 
             CompoundTag checked = envelope(historical.fingerprint(), 382, -61);
-            checked.getCompound("chunk").putInt("DataVersion", DATA_VERSION+1);
+            checked.getCompound("chunk").putInt("DataVersion", DATA_VERSION + 1);
             NbtIo.writeCompressed(checked, invalid);
-            require("data-version-mismatch".equals(CacheFormatValidator.rejectReason(
-                invalid, historical, "minecraft:overworld", DATA_VERSION)),
-                "data version mismatch must reject");
+            require(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld") == null,
+                "server DataVersion changes must not quarantine readable FULLs");
+
+            checked.getCompound("chunk").remove("DataVersion");
+            NbtIo.writeCompressed(checked, invalid);
+            require("missing-chunk-data-version".equals(CacheFormatValidator.rejectReason(
+                invalid, historical, "minecraft:overworld")),
+                "malformed chunk metadata must still be rejected");
 
             checked = envelope(historical.fingerprint(), 382, -61);
             checked.putInt("schema", CacheEnvelope.SCHEMA+1);
             NbtIo.writeCompressed(checked, invalid);
             require("cache-schema".equals(CacheFormatValidator.rejectReason(
-                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                invalid, historical, "minecraft:overworld")),
                 "new/unsupported serialization must reject");
 
             checked = envelope("aaaaaaaaaaaaaaaaaaaaaaaa", 382, -61);
             NbtIo.writeCompressed(checked, invalid);
             require("unaccepted-stored-fingerprint".equals(CacheFormatValidator.rejectReason(
-                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                invalid, historical, "minecraft:overworld")),
                 "untrusted stored generation marker must reject");
 
             checked = envelope(historical.fingerprint(), 381, -61);
             NbtIo.writeCompressed(checked, invalid);
             require("coordinates-mismatch".equals(CacheFormatValidator.rejectReason(
-                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                invalid, historical, "minecraft:overworld")),
                 "mismatched coordinates must reject");
 
             checked = envelope(historical.fingerprint(), 382, -61);
             checked.putBoolean("lodCommitted", false);
             NbtIo.writeCompressed(checked, invalid);
             require("entities-or-lod-incomplete".equals(CacheFormatValidator.rejectReason(
-                invalid, historical, "minecraft:overworld", DATA_VERSION)),
+                invalid, historical, "minecraft:overworld")),
                 "incomplete LOD must reject");
 
             Files.writeString(invalid, "not-gzip");
             require(CacheFormatValidator.rejectReason(
-                invalid, historical, "minecraft:overworld", DATA_VERSION) != null,
+                invalid, historical, "minecraft:overworld") != null,
                 "corrupt GZIP/NBT must reject");
         } finally {
             try (var files = Files.walk(directory)) {
@@ -260,68 +245,6 @@ public final class FullCacheCompatibilitySelfTest {
         chunk.put("sections", sections);
         e.put("chunk", chunk);
         return e;
-    }
-
-    private static void assertRejected(FingerprintManifest.Manifest old,
-                                       FingerprintManifest.Manifest current, String message) {
-        require(!FingerprintManifest.sameCompatibilityInputsExcept(
-            old, current, Set.of("policy:compatibility")),
-            message + " must reject migration");
-    }
-
-    private static List<FingerprintManifest.Entry> baseline() {
-        return new ArrayList<>(List.of(
-            value("policy:compatibility", "policy-v9"),
-            value("level:seed", "original-seed"),
-            value("level:dimension", "minecraft:overworld"),
-            value("level:generator-class", "NoiseBasedChunkGenerator"),
-            value("minecraft:data-version", Integer.toString(DATA_VERSION)),
-            value("level.dat:WorldGenSettings", "worldgen-still-same"),
-            value("world/datapacks/test/pack.mcmeta", "datapack-still-same"),
-            value("config/epicterrain.properties", "terrain-options"),
-            value("mods/epicterrain-0.3.0-1.21.1.jar", "terrain-binary")
-        ));
-    }
-
-    private static FingerprintManifest.Manifest replace(
-        FingerprintManifest.Manifest original, String from, String newKey, String text
-    ) {
-        List<FingerprintManifest.Entry> entries = new ArrayList<>();
-        boolean changed = false;
-        for (FingerprintManifest.Entry entry : original.entries()) {
-            if (entry.key().equals(from)) {
-                entries.add(value(newKey, text));
-                changed = true;
-            } else entries.add(entry);
-        }
-        require(changed, "test setup missing " + from);
-        return manifest(entries);
-    }
-
-    private static FingerprintManifest.Manifest replace(
-        FingerprintManifest.Manifest original, String key, String text
-    ) { return replace(original, key, key, text); }
-
-    private static FingerprintManifest.Manifest remove(FingerprintManifest.Manifest original, String key) {
-        List<FingerprintManifest.Entry> entries = new ArrayList<>(original.entries());
-        require(entries.removeIf(e -> e.key().equals(key)), "test setup missing " + key);
-        return manifest(entries);
-    }
-
-    private static FingerprintManifest.Entry jar(String name) {
-        return value("mods/" + name, "SHA-example-" + name);
-    }
-
-    private static FingerprintManifest.Entry value(String key, String value) {
-        return new FingerprintManifest.Entry(key, value.length(),
-            CompatibilityFingerprint.sha256(value),
-            FingerprintManifest.Impact.RELEVANT, "test semantic input");
-    }
-
-    private static FingerprintManifest.Manifest manifest(List<FingerprintManifest.Entry> entries) {
-        return new FingerprintManifest.Manifest(
-            CompatibilityFingerprint.compute(entries), 1L, Set.of(
-                CompatibilityFingerprint.compute(entries)), entries);
     }
 
     private static void require(boolean condition, String message) {
