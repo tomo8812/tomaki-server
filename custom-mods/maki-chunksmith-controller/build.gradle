@@ -92,6 +92,7 @@ tasks.named('check') {
 
 
 def issue83PlayerCenter = file('src/main/java/maki/chunksmithcontroller/PlayerCenter.java')
+def issue83DeprecatedReset = file('src/main/java/maki/chunksmithcontroller/UnifiedPregenReset.java')
 def issue83Governor = file('src/main/java/maki/chunksmithcontroller/CpuGovernor.java')
 def issue83Mod = file('src/main/java/maki/chunksmithcontroller/MakiChunksmithController.java')
 
@@ -105,7 +106,7 @@ tasks.register('verifyIssue83UnifiedFollow') {
             if (!center.contains(token)) throw new GradleException('Issue #83 regression: empty-server unified follow policy missing ' + token)
         }
         if (center.contains('UnifiedPregenReset') || mod.contains('UnifiedPregenReset')
-            || file('src/main/java/maki/chunksmithcontroller/UnifiedPregenReset.java').exists()) {
+            || issue83DeprecatedReset.exists()) {
             throw new GradleException('E-lite must not delete old FULL or LOD storage on startup')
         }
         if (!governor.contains('pregenRetryPending') || !governor.contains('pregenDeferredCoordinates')
