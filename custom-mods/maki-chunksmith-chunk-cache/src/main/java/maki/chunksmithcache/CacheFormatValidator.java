@@ -12,13 +12,10 @@ import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 
 /**
- * The payload gate for adopting a FULL from a different compatibility
- * generation. Run on the cache I/O executor, never on the server tick.
- *
- * No JAR SHA, generation ID or calendar-date allowlist is involved. The
- * manifest comparison has already proved the worldgen/seed/config inputs
- * unchanged; this verifies the individual serialized artifact's format,
- * state and ownership of the FULL cache.
+ * Verify an individual saved FULL cache's own integrity and ownership.
+ * This validator runs on the cache I/O executor, never on the server tick.
+ * It does not examine Minecraft runtime versions, generator settings, MODs
+ * or datapacks.
  */
 final class CacheFormatValidator {
     private static final Pattern FILE = Pattern.compile("c\\.(-?\\d+)\\.(-?\\d+)\\.nbt\\.gz");
@@ -30,7 +27,7 @@ final class CacheFormatValidator {
 
     /** Returns null on success, otherwise an audit reason to keep the old file. */
     static String rejectReason(Path file, FingerprintManifest.Manifest generation,
-                               String dimension, int dataVersion) {
+                               String dimension) {
         try {
             if (!Files.isRegularFile(file) || Files.size(file) < 1
                 || Files.size(file) > MAX_COMPRESSED_BYTES) return "compressed-file-size";
@@ -67,8 +64,9 @@ final class CacheFormatValidator {
             if (NormalChunkStorage.fromTag(chunk) != NormalChunkStorage.State.FULL) {
                 return "chunk-not-full";
             }
-            if (!chunk.contains("DataVersion", Tag.TAG_INT)
-                || chunk.getInt("DataVersion") != dataVersion) return "data-version-mismatch";
+            // Preserve the stored value for Minecraft's own NBT handling,
+            // without comparing it with the server's current DataVersion.
+            if (!chunk.contains("DataVersion", Tag.TAG_INT)) return "missing-chunk-data-version";
             if (chunk.contains("xPos", Tag.TAG_INT) && chunk.getInt("xPos") != x) return "chunk-xPos";
             if (chunk.contains("zPos", Tag.TAG_INT) && chunk.getInt("zPos") != z) return "chunk-zPos";
             String terrain = terrainRejectReason(chunk);
