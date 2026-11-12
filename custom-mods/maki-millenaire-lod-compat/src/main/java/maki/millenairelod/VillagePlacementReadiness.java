@@ -1,7 +1,6 @@
 package maki.millenairelod;
 
 import com.kishku7.chunksmith.lod.HorizonGuard;
-import maki.chunksmithcache.BackfillGuard;
 import maki.chunksmithcache.CacheManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -75,10 +74,8 @@ public final class VillagePlacementReadiness {
         ChunkPos pos = new ChunkPos(x, z);
         try {
             if (ModList.get().isLoaded("maki_chunksmith_chunk_cache")) {
-                // Both APIs agree with the actual chunk/POI write vetoes. The
-                // pregen check also performs an owned player handoff when due.
-                if (BackfillGuard.suppress(level, pos)
-                        || CacheManager.pregenPersistenceSuppressed(level, pos)) return false;
+                // Read-only: cache tick/load/save paths own player handoff.
+                if (!CacheManager.playerLoadReady(level, pos)) return false;
             }
             // A concurrent external Chunksmith task can still veto normal
             // writes. This is a final safety check, not a load/restore gate.

@@ -1,0 +1,235 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'maki.chunksmithcontroller'
+version = '1.4.2'
+
+base {
+    archivesName = 'maki-chunksmith-controller'
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+
+neoForge {
+    version = '21.1.262'
+}
+
+
+dependencies {
+    compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.named('jar') {
+    from(sourceSets.main.allJava) {
+        into 'META-INF/sources'
+    }
+}
+
+def issue66BudgetSource = file('src/main/java/maki/chunksmithcontroller/SharedWorkBudget.java')
+def issue66ApiSource = file('src/main/java/maki/chunksmithcontroller/ResourceBudgetApi.java')
+def issue66MixinSource = file('src/main/java/maki/chunksmithcontroller/mixin/GenerationTaskMixin.java')
+
+tasks.register('verifyIssue66SharedScheduling') {
+    inputs.files(issue66BudgetSource, issue66ApiSource, issue66MixinSource)
+    doLast {
+        def budget = issue66BudgetSource.getText('UTF-8')
+        def api = issue66ApiSource.getText('UTF-8')
+        def mixin = issue66MixinSource.getText('UTF-8')
+        ['draining-follow-dispatch', 'dynamic-cooldown', 'waiting-clean-follow-sample', 'noteCleanFollowSample', 'blockFollowDispatch', 'backfillStarted'].each { token ->
+            if (!budget.contains(token)) throw new GradleException('Issue #66 regression: shared scheduler missing ' + token)
+        }
+        ['activeTaskMode', 'TaskOwnership.isOwned', 'noteFollowInFlight'].each { token ->
+            if (!api.contains(token)) throw new GradleException('Issue #66 regression: resource API ownership/drain handshake missing ' + token)
+        }
+        ['maki$sharedBackfillBarrier', 'ResourceBudgetApi.blockFollowDispatch', 'LockSupport.parkNanos'].each { token ->
+            if (!mixin.contains(token)) throw new GradleException('Issue #66 regression: non-stopping follow dispatch barrier missing ' + token)
+        }
+        def reserveStart=api.indexOf('public static String reserveBackfill')
+        def reserveEnd=api.indexOf('public static boolean backfillReservationHeld',reserveStart)
+        def reserveBody=api.substring(reserveStart,reserveEnd)
+        if (api.contains('requestBackfillExclusivePause') || reserveBody.contains('PlayerCenter.')) {
+            throw new GradleException('Issue #66 regression: Backfill must not stop/restart the follow task lifecycle')
+        }
+    }
+}
+
+def chunksmithIssue66Jar = file('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
+
+tasks.register('verifyIssue66ChunksmithBytecode') {
+    inputs.file(chunksmithIssue66Jar)
+    doLast {
+        def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
+        def process = new ProcessBuilder(
+            javap, '-classpath', chunksmithIssue66Jar.absolutePath,
+            '-p', '-c', 'com.kishku7.chunksmith.GenerationTask'
+        ).redirectErrorStream(true).start()
+        def text = process.inputStream.getText('UTF-8')
+        def exit = process.waitFor()
+        if (exit != 0) throw new GradleException('Issue #66: javap GenerationTask failed\n' + text)
+        [
+          'ChunkIterator.next:()Ljava/lang/Object;',
+          'World.isChunkGenerated:(II)Ljava/util/concurrent/CompletableFuture;',
+          'World.getChunkAtAsync:(II)Ljava/util/concurrent/CompletableFuture;',
+          'CsLodPresenceIndex.markLod:(II)V',
+          'adjustFromTickHealth:',
+          'adjustFromChunkLatency:',
+          'rampUp:'
+        ].each { pattern ->
+            if (!text.contains(pattern)) {
+                throw new GradleException('Chunksmith 4.8.1 controller Mixin ABI drift: '+pattern)
+            }
+        }
+        // Count calls only in the synthetic native dispatch lambda; two are
+        // required by @Redirect(require=2), including the LOD repair path.
+        def dispatchLambda=text.indexOf('lambda$run$1(')
+        if(dispatchLambda<0)throw new GradleException('Chunksmith 4.8.1 dispatch lambda missing')
+    }
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('verifyIssue66SharedScheduling')
+    dependsOn tasks.named('verifyIssue66ChunksmithBytecode')
+}
+
+
+def issue83PlayerCenter = file('src/main/java/maki/chunksmithcontroller/PlayerCenter.java')
+def issue83DeprecatedReset = file('src/main/java/maki/chunksmithcontroller/UnifiedPregenReset.java')
+def issue83Governor = file('src/main/java/maki/chunksmithcontroller/CpuGovernor.java')
+def issue83Mod = file('src/main/java/maki/chunksmithcontroller/MakiChunksmithController.java')
+
+tasks.register('verifyIssue83UnifiedFollow') {
+    inputs.files(issue83PlayerCenter, issue83Governor, issue83Mod)
+    doLast {
+        def center = issue83PlayerCenter.getText('UTF-8')
+        def governor = issue83Governor.getText('UTF-8')
+        def mod = issue83Mod.getText('UTF-8')
+        ['if(online){', 'pipeline-pressure:', 'retrying-incomplete-pairs', 'saved.x=0;saved.z=0'].each { token ->
+            if (!center.contains(token)) throw new GradleException('Issue #83 regression: empty-server unified follow policy missing ' + token)
+        }
+        if (center.contains('UnifiedPregenReset') || mod.contains('UnifiedPregenReset')
+            || issue83DeprecatedReset.exists()) {
+            throw new GradleException('E-lite must not delete old FULL or LOD storage on startup')
+        }
+        if (!governor.contains('pregenRetryPending')
+                || !governor.contains('pipelinePressure()') || !governor.contains('pregenReady')) {
+            throw new GradleException('Issue #83 regression: unified retry/pressure/readiness bridge missing')
+        }
+        if (!center.contains('waiting-cache-ready')) {
+            throw new GradleException('Issue #83 regression: generation can start before FULL cache readiness')
+        }
+        if (!center.contains('persistedOwner==TaskOwnership.PersistedOwner.PREVIOUS_SESSION&&chunky.getConfig().getContinueOnRestart()')
+                || !center.contains('task=new GenerationTask(chunky,selection)')
+                || !center.contains('PlayerCenter-persisted-rewind')) {
+            throw new GradleException('Issue #83 regression: previous-session follow progress can skip in-memory retry debt after restart')
+        }
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifyIssue83UnifiedFollow') }
+
+tasks.register('pregenPerformanceProfileTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.chunksmithcontroller.PregenPerformanceProfileSelfTest'
+}
+tasks.named('check') { dependsOn tasks.named('pregenPerformanceProfileTest') }
+
+def pregenV2PlayerCenter = file('src/main/java/maki/chunksmithcontroller/PlayerCenter.java')
+def pregenV2ResourceApi = file('src/main/java/maki/chunksmithcontroller/ResourceBudgetApi.java')
+def pregenV2GenerationMixin = file('src/main/java/maki/chunksmithcontroller/mixin/GenerationTaskMixin.java')
+def pregenV2Policy = file('src/main/java/maki/chunksmithcontroller/AdaptivePolicy.java')
+def pregenV2Governor = file('src/main/java/maki/chunksmithcontroller/CpuGovernor.java')
+def pregenV2Profile = file('src/main/java/maki/chunksmithcontroller/PregenPerformanceProfile.java')
+
+tasks.register('verifyPregenControllerV2') {
+    inputs.files(pregenV2PlayerCenter,pregenV2ResourceApi,pregenV2GenerationMixin,pregenV2Policy,pregenV2Governor,pregenV2Profile)
+    doLast {
+        def center=pregenV2PlayerCenter.getText('UTF-8')
+        def api=pregenV2ResourceApi.getText('UTF-8')
+        def mixin=pregenV2GenerationMixin.getText('UTF-8')
+        def policy=pregenV2Policy.getText('UTF-8')
+        def governor=pregenV2Governor.getText('UTF-8')
+        def profile=pregenV2Profile.getText('UTF-8')
+        ['ADMISSION_EPOCH','admissionClosed','closeAdmission()','admissionEpoch(GenerationTask task)',
+         'admissionOpen(GenerationTask task)','server.getPlayerCount()>0','nativeTaskStopping',
+         'native-safety-pause'].each { token ->
+            if(!center.contains(token))throw new GradleException('Pregen V2 regression: stop epoch/admission policy missing '+token)
+        }
+        ['blockFollowAdmission(GenerationTask task)','followAdmissionEpoch','followAdmissionOpen','PregenFlowController.admissionBlocked()'].each { token ->
+            if(!api.contains(token))throw new GradleException('Pregen V2 regression: admission bridge missing '+token)
+        }
+        if(!mixin.contains('PregenControlHooks.reserveCandidate('))
+            throw new GradleException('4.8.1 regression: native candidate WIP reserve missing')
+        def gate=mixin.indexOf('ResourceBudgetApi.blockFollowAdmission(task)')
+        def next=mixin.indexOf('Object next=iterator.next()')
+        if(gate<0||next<0||gate>next)throw new GradleException('Pregen V2 regression: WIP gate must run before iterator consumption')
+        ['candidateCap=cap-1','candidateCap=cap+1','pairCompletions','fastSignature',
+         'fast-state-changed','trial-downstream-constrained','throttledMicrosPerSecond',
+         'cpu-quota-throttle-regressed'].each { token ->
+            if(!policy.contains(token))throw new GradleException('Pregen V2 regression: c-neighbourhood policy missing '+token)
+        }
+        if(!governor.contains('pairConfirmedRuntime')||!governor.contains('PregenFlowController.snapshot()'))
+            throw new GradleException('Pregen V2 regression: confirmed PAIR objective or live FAST policy during c probes is missing')
+        if(!governor.contains('budget.throttledMicros()-lastThrottled') || !governor.contains('throttled);'))
+            throw new GradleException('Pregen V2 regression: cgroup quota throttling is not included in c trial cost')
+        if(!governor.contains('notifyGenerationCapChanged(cap)') || !governor.contains('PregenFlowController.generationCapChanged(nextCap)'))
+            throw new GradleException('Pregen V2 regression: FAST service confidence is not reset after c changes')
+        ['CONTROLLER_VERSION','cpuAffinity','cpuQuota','heapMaxBytes','chunksmithConfig','pairFeedVersion',
+         'fastSignature','workClassBand','MAX_AGE_MILLIS'].each { token ->
+            if(!profile.contains(token))throw new GradleException('Pregen V2 regression: environment-scoped performance profile missing '+token)
+        }
+        if(!governor.contains('PregenPerformanceProfile.load') || !governor.contains('POLICY.warmStart')
+                || !governor.contains('PregenPerformanceProfile.save')) {
+            throw new GradleException('Pregen V2 regression: safe c warm-start/profile persistence is not wired to the governor')
+        }
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifyPregenControllerV2') }
+
+tasks.register('verifyEliteOwnership') {
+    def root = file('src/main/java/maki/chunksmithcontroller')
+    def hooks = file('src/main/java/maki/chunksmithcontroller/mixin/GenerationTaskMixin.java')
+    def controller = file('src/main/java/maki/chunksmithcontroller/PregenFlowController.java')
+    def api = file('src/main/java/maki/chunksmithcontroller/ResourceBudgetApi.java')
+    inputs.files(hooks,controller,api)
+    doLast {
+        def mixin = hooks.getText('UTF-8')
+        def flow = controller.getText('UTF-8')
+        def bridge = api.getText('UTF-8')
+        ['maki$sharedBackfillBarrier','maki$observeNativeCandidate','maki$observeNativeRequest','maki$coordinateCompleted'].each {
+            if (!mixin.contains(it)) throw new GradleException('E-lite native admission hook missing ' + it)
+        }
+        // WIP admission now happens before any Chunksmith LOD-index mark.
+        def next=mixin.indexOf('Object next=iterator.next()')
+        def reserve=mixin.indexOf('PregenControlHooks.reserveCandidate(')
+        if (next<0||reserve<next)
+            throw new GradleException('4.8.1 admission must reserve the returned native coordinate')
+        if (mixin.contains('CompletableFuture.failedFuture(')
+            || mixin.contains('PregenControlHooks.defer(')
+            || mixin.contains('PregenControlHooks.consumeRejected('))
+            throw new GradleException('4.8.1 may not fabricate failed generation Futures after markLod')
+        ['fullReady(String token)','lodCommitted(String token)','tryConfirmRuntimePair','proofFeedConnected'].each {
+            if (!flow.contains(it)) throw new GradleException('E-lite local completion accounting missing ' + it)
+        }
+        if (bridge.contains('getMethod("admissionBlocked")') || bridge.contains('getMethod("controllerStatus")'))
+            throw new GradleException('Generation control must not delegate admission to chunk-cache')
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifyEliteOwnership') }
+
+
+// Completion integration tests execute the real controller against the native ABI.
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath

@@ -57,6 +57,8 @@ public final class PromotionLedger {
         return claim != null && claim.loaded();
     }
 
+    static boolean replayBlocked(ServerLevel level, ChunkPos pos) { return BLOCKED.containsKey(new Key(level,pos.toLong())); }
+
     static void blockReplay(ServerLevel level, ChunkPos pos, Path payload) { BLOCKED.put(new Key(level,pos.toLong()),payload); }
     static void normalFullPresent(ServerLevel level, ChunkPos pos) { BLOCKED.remove(new Key(level,pos.toLong())); }
     static boolean owns(ServerLevel level, ChunkPos pos) {

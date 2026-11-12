@@ -10,7 +10,7 @@ final class CacheEnvelope {
 
     static boolean completeEntities(CompoundTag envelope) {
         if (envelope.getInt("schema") != SCHEMA || !envelope.getBoolean("entitiesComplete")
-            || !envelope.getBoolean("lodCommitted")) return false;
+            || !(envelope.getBoolean("fullCommitted") || envelope.getBoolean("lodCommitted"))) return false;
         Tag entities=envelope.getCompound("chunk").get("entities");
         return entities instanceof ListTag list && (list.isEmpty() || list.getElementType()==Tag.TAG_COMPOUND);
     }

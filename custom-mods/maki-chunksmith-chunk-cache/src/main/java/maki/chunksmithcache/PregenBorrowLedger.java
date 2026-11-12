@@ -15,12 +15,12 @@ import net.minecraft.world.level.chunk.ChunkAccess;
 /**
  * Owns the normal-persistence veto for unified pregen targets. A guard is armed
  * either before a newly generated target is requested or before a confirmed
- * cache FULL is borrowed for LOD repair, and remains until unload/player handoff.
+ * cache FULL is borrowed for a Chunksmith load, and remains until unload/player handoff.
  */
 final class PregenBorrowLedger {
     enum Kind { GENERATED, BORROWED }
     private record Key(ServerLevel level, long pos) {}
-    private record Borrow(Path file, Kind kind, GenerationTask owner, CompletableFuture<Boolean> lodDone, AtomicBoolean handedOff, AtomicBoolean fullLoaded,
+    private record Borrow(Path file, Kind kind, GenerationTask owner, CompletableFuture<Boolean> captureDone, AtomicBoolean captureAttached, AtomicBoolean handedOff, AtomicBoolean fullLoaded,
                           java.util.concurrent.atomic.AtomicReference<ChunkAccess> suppressedChunk,
                           java.util.Set<Long> suppressedPoiSections, AtomicBoolean poiWriteRequired) {}
     private static final ConcurrentHashMap<Key, Borrow> ACTIVE = new ConcurrentHashMap<>();
@@ -42,9 +42,9 @@ final class PregenBorrowLedger {
         // Its delayed failure/cancellation can still be queued on the server thread.
         if(existing!=null)return existing.kind()==kind && existing.file().equals(file)
             && existing.owner()==owner && !existing.handedOff().get();
-        CompletableFuture<Boolean> lodDone=new CompletableFuture<>();
-        lodDone.completeOnTimeout(false,30L,TimeUnit.SECONDS);
-        Borrow borrow=new Borrow(file,kind,owner,lodDone,new AtomicBoolean(),new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>(),new java.util.HashSet<>(),new AtomicBoolean());
+        CompletableFuture<Boolean> captureDone=new CompletableFuture<>();
+        if(kind==Kind.BORROWED)captureDone.complete(true);
+        Borrow borrow=new Borrow(file,kind,owner,captureDone,new AtomicBoolean(),new AtomicBoolean(),new AtomicBoolean(),new java.util.concurrent.atomic.AtomicReference<>(),new java.util.HashSet<>(),new AtomicBoolean());
         return ACTIVE.putIfAbsent(key,borrow)==null;
     }
 
@@ -67,17 +67,28 @@ final class PregenBorrowLedger {
         return borrow==null?null:borrow.kind();
     }
 
-    /** Blocks a competing normal cache load only while the owned LOD write is unresolved. */
+    /** Blocks a competing normal cache load only while the owned FULL capture is unresolved. */
     static CompletableFuture<Boolean> pending(ServerLevel level, ChunkPos pos) {
         Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
-        return borrow==null||borrow.lodDone().isDone()?null:borrow.lodDone();
+        return borrow==null||borrow.captureDone().isDone()?null:borrow.captureDone();
     }
 
-    static boolean attachLod(ServerLevel level, ChunkPos pos, CompletableFuture<Boolean> lodCommitted) {
+    static boolean attachCapture(ServerLevel level, ChunkPos pos, CompletableFuture<Boolean> captureCommitted) {
         Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
         if(borrow==null)return false;
-        lodCommitted.whenComplete((saved,error)->borrow.lodDone().complete(error==null&&Boolean.TRUE.equals(saved)));
+        synchronized(borrow) {
+            borrow.captureAttached().set(true);
+            captureCommitted.whenComplete((saved,error)->borrow.captureDone().complete(error==null&&Boolean.TRUE.equals(saved)));
+        }
         return true;
+    }
+
+    static void requestFailed(ServerLevel level,ChunkPos pos,GenerationTask owner) {
+        Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
+        if(borrow==null||borrow.owner()!=owner)return;
+        synchronized(borrow) {
+            if(!borrow.captureAttached().get())borrow.captureDone().complete(false);
+        }
     }
 
     static Path handoffCandidate(ServerLevel level, ChunkPos pos) {
@@ -93,7 +104,7 @@ final class PregenBorrowLedger {
 
     /**
      * A durable normal FULL may win after either a generated-target guard or a
-     * borrowed-cache LOD repair guard was armed. Stop vetoing normal persistence
+     * borrowed-cache a Chunksmith load guard was armed. Stop vetoing normal persistence
      * immediately and restore any chunk/POI dirty state suppressed by that guard.
      */
     static boolean releaseGeneratedToNormal(ServerLevel level, ChunkPos pos) {
@@ -113,7 +124,7 @@ final class PregenBorrowLedger {
         Key key=new Key(level,pos.toLong());
         Borrow borrow=ACTIVE.get(key);
         // Cancellation belongs only to the generated request that armed this guard.
-        // A late callback must not remove a newer task's guard or a LOD-repair borrow.
+        // A late callback must not remove a newer task's guard or a read-only FULL borrow.
         if(borrow==null || borrow.kind()!=Kind.GENERATED || borrow.owner()!=sourceTask)return false;
         return releaseOnServerThread(level,key,borrow,true);
     }
@@ -141,7 +152,7 @@ final class PregenBorrowLedger {
         if(remove && borrow.fullLoaded().get())return false;
         if(remove && !ACTIVE.remove(key,borrow))return false;
         releasePersistence(level,borrow);
-        if(remove&&!borrow.lodDone().isDone())borrow.lodDone().complete(false);
+        if(remove&&!borrow.captureDone().isDone())borrow.captureDone().complete(false);
         return true;
     }
 
@@ -218,16 +229,21 @@ final class PregenBorrowLedger {
 
     static void unloaded(ServerLevel level, ChunkPos pos) {
         Borrow borrow=ACTIVE.remove(new Key(level,pos.toLong()));
-        if(borrow!=null&&!borrow.lodDone().isDone())borrow.lodDone().complete(false);
+        if(borrow!=null&&!borrow.captureDone().isDone())borrow.captureDone().complete(false);
     }
 
     static void clear(MinecraftServer server) {
         ACTIVE.forEach((key,borrow)->{
             if(key.level().getServer()==server) {
                 ACTIVE.remove(key,borrow);
-                borrow.lodDone().complete(false);
+                borrow.captureDone().complete(false);
             }
         });
+    }
+
+    static void handoffPlayers(MinecraftServer server) {
+        for(Key key:ACTIVE.keySet())if(key.level().getServer()==server&&playerNear(key.level(),new ChunkPos(key.pos())))
+            CacheManager.pregenPersistenceSuppressed(key.level(),new ChunkPos(key.pos()));
     }
 
     private static boolean playerNear(ServerLevel level, ChunkPos pos) {

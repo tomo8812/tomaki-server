@@ -25,7 +25,7 @@ public final class PipelineMetrics {
             config.isIoThrottleEnabled(), config.getThrottleMaxChunkMillis(), config.getDispatchMaxConcurrent());
         LoggerFactory.getLogger("MakiChunkCache").info(
             "Generation pipeline intervalMs={}, counts={}, latencyMs=[{}], gauges={}, cacheIo=[{}], worldgen-internal=unknown, sharedBudget=[{}]",
-            (now-lastReport)/1_000_000, COUNTS, TIMES, GAUGES, CacheManager.ioSummary(now), LodResourceBudgetBridge.status());
+            (now-lastReport)/1_000_000, COUNTS, TIMES, GAUGES, CacheManager.ioSummary(now), "FULL");
         COUNTS.clear(); TIMES.clear(); GAUGES.clear(); lastReport = now;
     }
 }

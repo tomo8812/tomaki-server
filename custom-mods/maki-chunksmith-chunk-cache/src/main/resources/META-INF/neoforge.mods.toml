@@ -3,9 +3,9 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_chunksmith_chunk_cache"
-version="1.4.7"
+version="1.5.0"
 displayName="Maki Chunksmith Chunk Cache"
-description="Caches disposable Chunksmith FULL chunks outside normal region storage, promotes them on real loads, and audits semantic worldgen/serialization compatibility before reuse or guarded legacy CSLOD backfill."
+description="Stores temporary Chunksmith FULL chunks and restores them on player loads."
 [[dependencies.maki_chunksmith_chunk_cache]]
 modId="neoforge"
 type="required"
@@ -36,9 +36,9 @@ ordering="AFTER"
 side="SERVER"
 
 [[dependencies.maki_chunksmith_chunk_cache]]
-modId="maki_lod_cpu"
+modId="maki_chunksmith_controller"
 type="required"
-versionRange="[1.4.1,)"
+versionRange="[1.4.2,)"
 ordering="AFTER"
 side="SERVER"
 

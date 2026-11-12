@@ -45,11 +45,11 @@ terrain_slabs-neoforge-3.1.2.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
 maki-assembly-tracking-1.0.0.jar
-maki-chunksmith-chunk-cache-1.4.5.jar
+maki-chunksmith-chunk-cache-1.5.0.jar
 maki-diorama-share-1.0.1.jar
 maki-idle-pregen-1.1.2.jar
-maki-lod-cpu-1.4.3.jar
-maki-millenaire-lod-compat-1.0.8.jar
+maki-chunksmith-controller-1.4.2.jar
+maki-millenaire-lod-compat-1.0.9.jar
 maki-mods-observer-1.0.0.jar
 maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar
@@ -57,7 +57,7 @@ maki-ship-footsteps-1.0.1.jar
 maki-ship-save-1.0.3.jar
 ```
 
-`maki-lod-cpu-online-fix` も廃止されました。旧 `maki-lod-cpu-online-fix-*.jar` は残さないでください。今回更新した `maki-lod-cpu-1.4.1.jar`、`maki-chunksmith-chunk-cache-1.4.0.jar`、`maki-chunksmith-chunk-cache-1.4.1.jar`、`maki-chunksmith-chunk-cache-1.4.3.jar` と `maki-ship-anchor-fix-1.1.1.jar` も、新しいJARと重複して配置しないでください。クライアント側も旧 `maki-ship-anchor-fix-1.1.1.jar` を削除してください。
+`maki-lod-cpu` は `maki-chunksmith-controller` に改名されました。旧 `maki-lod-cpu-*.jar` と `maki-lod-cpu-online-fix-*.jar` は残さないでください。設定ファイルも `config/maki-chunksmith-controller.properties` に移行します。今回更新した `maki-lod-cpu-1.4.1.jar`、`maki-chunksmith-chunk-cache-1.4.0.jar`、`maki-chunksmith-chunk-cache-1.4.1.jar` と `maki-ship-anchor-fix-1.1.1.jar` も、新しいJARと重複して配置しないでください。クライアント側も旧 `maki-ship-anchor-fix-1.1.1.jar` を削除してください。
 
 `maki-lag-observer` は `maki-mods-observer` に置き換えられ、`maki-status-io` は廃止されています。更新時は旧 `maki-lag-observer-*.jar`、`maki-status-io-*.jar`、`config/maki-lag-observer.properties` を残さないでください。詳細診断が必要な場合だけ `config/maki-mods-observer.properties` でObserverを有効化します。詳細診断は既定で無効で、設定を変更しない1セッションあたり既定30分、各stream 5000イベント、各file 16 MiBに制限されます。
 
@@ -67,6 +67,6 @@ Chunksmithのタスク・キャッシュ・カーソル、LOD、Diorama、ワー
 
 この組合せでは、サーバーとクライアント双方の Chunksmith / Millénaire を更新してください。サーバー上の自作MODは、上記の版へ **同時に** 更新します。古い同名MODのJARを残すと重複ロードになります。
 
-更新に伴い Millénaire の地形・村生成方式が変わるため、チャンクキャッシュの互換性判定は従来どおり厳格に維持します。既存のワールドとChunksmithのLOD/保存済みデータは削除しないでください。まずワールドをバックアップして、新規生成・村候補の保留と再投入・FULL/LOD保存・船舶保護を確認してください。
+Controllerはリソースに基づくChunksmithの生成制御、cacheは一時FULLの退避とプレイヤーロード時の引渡し、Millénaire互換modは村候補の保留と再投入を担当します。LOD生成・保存・再利用はChunksmithに委ねます。cacheによるLOD走査・Backfill生成・環境監視、Millénaire互換modによるLOD更新・チャンク保存変更は撤去しています。既存のワールドとChunksmithのLOD/保存済みデータは削除しないでください。まずワールドをバックアップして、新規生成・村候補の保留と再投入・FULL/LOD保存・船舶保護を確認してください。
 
 Millénaire 9.1.0 の村は、プレイヤーが周辺へ来て実FULLチャンクが読み込まれ、建築に必要な全領域で自作キャッシュMODの保存抑制・Backfillの一時保存抑制が解除された後に建築します。事前生成時の地形調査は保持し、キャッシュ復元済み・通常生成済みのいずれもMinecraftがFULLを読み込んでから判定します。\n\n再現可能なJAR取得とハッシュ検証は `scripts/sync-upstream-481-910.sh` を使用します。

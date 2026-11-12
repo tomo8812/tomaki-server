@@ -47,7 +47,7 @@ final class CacheFormatValidator {
             CompoundTag envelope = NbtIo.readCompressed(file, NbtAccounter.create(MAX_NBT_BYTES));
             if (envelope == null || !envelope.contains("schema", Tag.TAG_INT)
                 || envelope.getInt("schema") != CacheEnvelope.SCHEMA) return "cache-schema";
-            if (!CacheEnvelope.completeEntities(envelope)) return "entities-or-lod-incomplete";
+            if (!CacheEnvelope.completeEntities(envelope)) return "entities-or-full-incomplete";
             if (!envelope.contains("fingerprint", Tag.TAG_STRING)
                 || !generation.storedFingerprints().contains(envelope.getString("fingerprint"))) {
                 return "unaccepted-stored-fingerprint";

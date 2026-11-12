@@ -1,45 +1,21 @@
-# maki-chunksmith-chunk-cache
+# Maki Chunksmith Chunk Cache 1.5.0
 
-Server-side cold FULL chunk cache and protected Backfill integration for Minecraft 1.21.1 / NeoForge and Chunksmith.
+Minecraft 1.21.1 / NeoForge 21.1 / Chunksmith 4.8.1用の一時実チャンクキャッシュです。
 
-## Current behavior (1.4.7)
+Chunksmithが生成した一時FULLチャンクを、Entityスナップショットとともに通常のregion保存先から退避します。プレイヤーがロードすると、通常FULLを優先し、必要な場合にキャッシュを復元して通常保存へ引き渡します。チャンク・Entity・POIの保存確認まで復旧用データを保持します。
 
-- Save completed pregenerated FULL chunks in compressed NBT, including their entity snapshots.
-- Restore saved FULL chunks for normal play and as source data for Chunksmith LOD repair.
-- Keep chunk, entity and POI persistence protected while pregeneration owns temporary FULL chunks.
-- Hand ownership to normal vanilla storage once a player needs the chunk.
-- Verify saved FULL schema, completed entities, coordinates, dimension, stored identity and terrain sections before using a cache file.
-- Keep incomplete or damaged cache data in quarantine without discarding other valid chunks.
-- Migrate previously saved FULL files from historical generation-named directories into one stable schema-3 storage namespace.
-- Copy and verify old files before committing saved ownership identities; retain unreadable files and preservation claims for recovery.
-- Coordinate guarded Backfill and shared resource budgets without taking ownership of Chunksmith's native LOD reuse decisions.
-- Apply disk-capacity protections to cache writes and quarantine retention.
+LODの生成・保存・再利用・互換性判断はChunksmithが担当します。このmodはLODファイルを走査・検証・更新せず、LOD不足を補うためのチャンク生成も行いません。
 
-### Ownership and reuse
+## Controllerとの連携
 
-**Chunksmith decides whether existing `.cslod` LOD data can be reused.**
-This MOD makes that decision only for its own saved FULL chunk NBT.
+FULL検証とFULL書込の実開始・実終了、保存確定・失敗を、Controllerが発行した同一試行tokenで通知します。論理タイムアウト後も、開始済み処理の完了通知は実際の終了まで待ちます。生成投入・WIP窓・並列数探索・FULLとLODのPAIR計測はControllerが担当します。
 
-FULL cache storage uses a stable 24-character directory identity tied to the cache envelope format. It does not read or hash Minecraft's running DataVersion, the world seed, `level.dat`, generation settings, MOD JARs, ordinary server configuration, or datapacks to decide whether a FULL cache file can be reused.
+## 保存形式と既存データ
 
-Saved chunk NBT must still contain a correctly typed `DataVersion` field so the stored chunk has valid metadata. That field is **not compared** with the running Minecraft version.
+固定保存先ID `f00dcace0000000000000003` とschema 3を維持します。新しい保存完了印は `fullCommitted` です。旧schema 3の `lodCommitted` は過去のFULL公開完了印として読み取ります。LODファイルの存在や内容を参照せず、旧FULLは新しい印の欠如だけで無効化しません。
 
-`lodCommitted` is the completion receipt for publishing a FULL cache entry together with its corresponding LOD write. It does **not** authorize or reject reuse of the separate Chunksmith LOD cache.
+旧世代からのコピー・検証・原子的な採用記録と、所有権が不明なファイルの保持を継承します。NBT形式、座標、ディメンション、FULL状態、Entityと地形セクションを検証します。Minecraft・生成MOD・設定の変更は、その変更作業時に対応します。環境監視やMOD一覧・設定のハッシュ比較は行いません。
 
-Changing the game's content or generator deliberately is handled alongside that particular server change; there is no automatic prediction, exclusion or version-compatibility policy for future changes.
+## 検証
 
-### Existing-world migration
-
-Earlier releases used 24-hex generation directories and `manifest-v2.txt` files containing hashes of settings, MODs and versions. They remain readable as **historical cache owner metadata only**. The saved configuration entries are ignored. The MOD checks the actual NBT of each candidate FULL file and moves validated copies to the stable storage namespace.
-
-The old FULL files are retained until the destination manifest records their original envelope identities. Corrupt or conflicting copies stay isolated for inspection. The `.promotions` recovery ledger continues protecting ownership of normally saved chunk/entity/POI data.
-
-### Configuration
-
-`config/maki-chunksmith-chunk-cache.properties` contains cache capacity and quarantine-retention controls only. No world-generation compatibility settings or monitoring extensions are supported.
-
-### Testing
-
-Run `./gradlew check` from this custom MOD's project. Tests cover persisted FULL NBT validation, legacy manifest parsing, durable migration copies, interrupted persistence, quarantine retention, backfill ownership and cross-MOD Mixin hooks.
-
-Source: `custom-mods/maki-chunksmith-chunk-cache`.
+プロジェクト内で `gradle check jar` を実行します。FULL形式・旧世代移行・中断された引渡し・保存ACK・容量制限・タイムアウト競合を検証します。

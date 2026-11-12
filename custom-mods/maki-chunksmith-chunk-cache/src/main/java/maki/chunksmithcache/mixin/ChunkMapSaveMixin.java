@@ -1,6 +1,5 @@
 package maki.chunksmithcache.mixin;
 
-import maki.chunksmithcache.BackfillGuard;
 import maki.chunksmithcache.CacheManager;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerLevel;
@@ -25,11 +24,6 @@ public abstract class ChunkMapSaveMixin {
 
    @Inject(method = "save(Lnet/minecraft/world/level/chunk/ChunkAccess;)Z", at = @At("HEAD"), cancellable = true)
    private void maki$backfillVeto(ChunkAccess var1, CallbackInfoReturnable<Boolean> var2) {
-      if (BackfillGuard.suppress(this.level, var1.getPos())) {
-         var1.setUnsaved(false);
-         var2.setReturnValue(false);
-         return;
-      }
       if (CacheManager.pregenPersistenceSuppressed(this.level, var1.getPos())
          && CacheManager.suppressPregenChunkSave(this.level,var1)) {
          var2.setReturnValue(false);

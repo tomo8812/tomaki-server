@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.millenairelod'
-version = '1.0.8'
+version = '1.0.9'
 
 base {
     archivesName = 'maki-millenaire-lod-compat'
@@ -20,7 +20,7 @@ neoForge {
 dependencies {
     compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
     compileOnly files('../../mods/millenaire-9.1.0.jar')
-    compileOnly files('../../mods/maki-chunksmith-chunk-cache-1.4.7.jar')
+    compileOnly files('../../mods/maki-chunksmith-chunk-cache-1.5.0.jar')
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -45,14 +45,7 @@ def registeredMixins = [
     'maki.millenairelod.mixin.MillenaireMixin',
     'maki.millenairelod.mixin.LoneCandidateAccessor',
     'maki.millenairelod.mixin.SpawnQueueMixin',
-    'maki.millenairelod.mixin.SiteHunterMixin',
-    'maki.millenairelod.mixin.VillageSpawnerMixin',
-    'maki.millenairelod.mixin.VillageManagerMixin',
-    'maki.millenairelod.mixin.VillageMixin',
-    'maki.millenairelod.mixin.BuildingInstanceMixin',
-    'maki.millenairelod.mixin.HorizonGuardMixin',
-    'maki.millenairelod.mixin.ExploredLodMixin',
-    'maki.millenairelod.mixin.LodSupportLifecycleMixin'
+    'maki.millenairelod.mixin.SiteHunterMixin'
 ]
 
 def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
@@ -88,46 +81,4 @@ tasks.register('verifyMixinAnnotationRetention') {
     }
 }
 
-tasks.register('verifyChunksmithLodAbi') {
-    doLast {
-        def guard = new ProcessBuilder(
-            javapExecutable,
-            '-classpath', chunksmithJarPath,
-            '-p', '-c', '-s',
-            'com.kishku7.chunksmith.lod.ExploredLodGuard'
-        ).redirectErrorStream(true).start()
-        def guardText = guard.inputStream.getText('UTF-8')
-        def guardExit = guard.waitFor()
-        if (guardExit != 0 ||
-            !guardText.contains('take(net.minecraft.server.level.ServerLevel, net.minecraft.world.level.chunk.LevelChunk, boolean)') ||
-            !guardText.contains('com/kishku7/chunksmith/lod/LodSupport.offer:(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;)V')) {
-            throw new GradleException('Chunksmith ExploredLodGuard ABI/callsite changed; revalidate Issue #43 redirect\n' + guardText)
-        }
-
-        def support = new ProcessBuilder(
-            javapExecutable,
-            '-classpath', chunksmithJarPath,
-            '-p', '-s',
-            'com.kishku7.chunksmith.lod.LodSupport'
-        ).redirectErrorStream(true).start()
-        def supportText = support.inputStream.getText('UTF-8')
-        def supportExit = support.waitFor()
-        if (supportExit != 0 ||
-            !supportText.contains('install(net.minecraft.server.MinecraftServer)') ||
-            !supportText.contains('shutdown()')) {
-            throw new GradleException('Chunksmith LodSupport lifecycle ABI changed; revalidate Issue #43 lifecycle mixin\n' + supportText)
-        }
-    }
-}
-
-tasks.named('check') {
-    dependsOn tasks.named('verifyMixinAnnotationRetention')
-    dependsOn tasks.named('verifyChunksmithLodAbi')
-}
-
-tasks.register('snapshotBudgetTest', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'maki.millenairelod.SnapshotBudgetSelfTest'
-}
-tasks.named('check') { dependsOn tasks.named('snapshotBudgetTest') }
+tasks.named('check') { dependsOn tasks.named('verifyMixinAnnotationRetention') }

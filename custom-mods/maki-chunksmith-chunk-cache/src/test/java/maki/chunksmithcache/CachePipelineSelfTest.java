@@ -17,7 +17,6 @@ public final class CachePipelineSelfTest {
         budget();
         promotions();
         recovery();
-        publication();
         envelopes();
         disk();
         abi();
@@ -189,32 +188,6 @@ public final class CachePipelineSelfTest {
         } finally { RecoveryClaims.clear(ambiguous); deleteTree(ambiguous); }
     }
 
-    private static void publication() {
-        AtomicInteger publications=new AtomicInteger();
-        CompletableFuture<Boolean> lod=new CompletableFuture<>(), cache=new CompletableFuture<>();
-        PublicationGate.afterLod(lod,cache,() -> { publications.incrementAndGet(); cache.complete(true); });
-        require(publications.get()==0 && !cache.isDone(),"detached capture waits without publishing while LOD is pending");
-        lod.complete(true);
-        require(publications.get()==1 && cache.join(),"native success permits exactly one publication");
-        lod.complete(true);
-        require(publications.get()==1,"duplicate native completion cannot publish twice");
-        for (int failure=0;failure<3;failure++) {
-            CompletableFuture<Boolean> failed=new CompletableFuture<>(), result=new CompletableFuture<>();
-            PublicationGate.afterLod(failed,result,publications::incrementAndGet);
-            if (failure==0) failed.complete(false);
-            else failed.completeExceptionally(failure==1 ? new java.io.IOException("native write failed") : new TimeoutException("native ACK expired"));
-            require(!result.join() && publications.get()==1,"LOD rejection/error/timeout cannot leave a visible cache that erases retry debt");
-        }
-        CompletableFuture<Boolean> late=new CompletableFuture<>(), expired=new CompletableFuture<>();
-        PublicationGate.afterLod(late,expired,publications::incrementAndGet);
-        expired.complete(false); // capture deadline/stop returns detached memory immediately
-        late.complete(true);
-        require(publications.get()==1,"late LOD ACK cannot revive expired or stopped capture");
-        CompletableFuture<Boolean> rejected=new CompletableFuture<>();
-        PublicationGate.afterLod(CompletableFuture.completedFuture(true),rejected,() -> { throw new java.util.concurrent.RejectedExecutionException(); });
-        require(!rejected.join(),"bounded writer rejection terminates without waiting forever");
-    }
-
     private static void envelopes() throws Exception {
         CompoundTag chunk=new CompoundTag();
         chunk.putString("Status","minecraft:full");
@@ -229,12 +202,15 @@ public final class CachePipelineSelfTest {
         require(!CacheEnvelope.completeEntities(envelope),"schema1 cannot claim entity completeness");
         envelope.putInt("schema",2);
         envelope.putBoolean("lodCommitted",true);
-        require(!CacheEnvelope.completeEntities(envelope),"draft schema2 cannot prove native LOD acknowledgement");
+        require(!CacheEnvelope.completeEntities(envelope),"draft schema2 cannot prove FULL publication");
         envelope.putInt("schema",CacheEnvelope.SCHEMA);
         envelope.remove("lodCommitted");
-        require(!CacheEnvelope.completeEntities(envelope),"missing LOD acknowledgement is not complete");
+        require(!CacheEnvelope.completeEntities(envelope),"missing FULL publication receipt is not complete");
         envelope.putBoolean("lodCommitted",true);
         require(CacheEnvelope.completeEntities(envelope),"empty entity set is explicitly complete");
+        envelope.remove("lodCommitted");
+        envelope.putBoolean("fullCommitted",true);
+        require(CacheEnvelope.completeEntities(envelope),"new FULL publication is independent of any LOD receipt");
         chunk.remove("entities");
         require(!CacheEnvelope.completeEntities(envelope),"missing is not empty");
         ListTag invalid=new ListTag(); invalid.add(StringTag.valueOf("bad")); chunk.put("entities",invalid);

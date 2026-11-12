@@ -76,7 +76,7 @@ public final class FullCacheCompatibilitySelfTest {
             CompoundTag bad = envelope(historical.fingerprint(), 382, -61);
             bad.putBoolean("entitiesComplete", false);
             NbtIo.writeCompressed(bad, invalid);
-            require("entities-or-lod-incomplete".equals(CacheFormatValidator.rejectReason(
+            require("entities-or-full-incomplete".equals(CacheFormatValidator.rejectReason(
                 invalid, historical, "minecraft:overworld")),
                 "incomplete entities must remain old/quarantined");
 
@@ -191,7 +191,7 @@ public final class FullCacheCompatibilitySelfTest {
             checked = envelope(historical.fingerprint(), 382, -61);
             checked.putBoolean("lodCommitted", false);
             NbtIo.writeCompressed(checked, invalid);
-            require("entities-or-lod-incomplete".equals(CacheFormatValidator.rejectReason(
+            require("entities-or-full-incomplete".equals(CacheFormatValidator.rejectReason(
                 invalid, historical, "minecraft:overworld")),
                 "incomplete LOD must reject");
 

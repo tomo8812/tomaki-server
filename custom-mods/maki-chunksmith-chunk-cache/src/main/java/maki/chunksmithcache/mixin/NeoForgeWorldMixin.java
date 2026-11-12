@@ -1,10 +1,8 @@
 package maki.chunksmithcache.mixin;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.mixin.ServerChunkCacheMixin;
-import maki.chunksmithcache.LodCommitTracker;
 import maki.chunksmithcache.PipelineMetrics;
 import net.minecraft.server.level.ChunkResult;
 import net.minecraft.world.level.chunk.ChunkAccess;
@@ -23,14 +21,10 @@ import org.spongepowered.asm.mixin.injection.At;
 public abstract class NeoForgeWorldMixin {
    @Shadow @Final private ServerLevel world;
 
-   @Redirect(method="lambda$getChunkAtAsync$8", at=@At(value="INVOKE",
-      target="Lcom/kishku7/chunksmith/lod/LodSupport;offer(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/level/chunk/LevelChunk;)V"), require=1)
-   private void maki$offerAndCapture(ServerLevel level, LevelChunk chunk) {
-      long started = System.nanoTime();
-      CompletableFuture<Boolean> lodWritten;
-      try { lodWritten = LodCommitTracker.offer(level, chunk); }
-      finally { PipelineMetrics.time("lod-offer", System.nanoTime()-started); }
-      CacheManager.captureFromChunksmith(level, chunk, lodWritten, CacheManager.currentChunksmithRequestTask());
+   @org.spongepowered.asm.mixin.injection.Inject(method="lambda$getChunkAtAsync$8", at=@At("RETURN"), require=1)
+   private void maki$captureFull(ChunkAccess access, org.spongepowered.asm.mixin.injection.callback.CallbackInfo ci) {
+      if(access instanceof LevelChunk chunk)
+         CacheManager.captureFromChunksmith(world,chunk,CacheManager.currentChunksmithRequestTask());
    }
 
    @Redirect(method="getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;", at=@At(value="INVOKE",
@@ -65,22 +59,6 @@ public abstract class NeoForgeWorldMixin {
          return CompletableFuture.failedFuture(
             new IllegalStateException("Unified pregen FULL request returned no LevelChunk at "+pos));
       });
-   }
-
-   @Redirect(method="getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;", at=@At(value="INVOKE",
-      target="Lcom/kishku7/chunksmith/platform/NeoForgeWorld;ticketSafePoint()Ljava/util/concurrent/Executor;"), require=2)
-   private Executor maki$measureSafePoint(com.kishku7.chunksmith.platform.NeoForgeWorld ignored) {
-      GenerationTask sourceTask=CacheManager.currentChunksmithRequestTask();
-      return task -> {
-         long queued = System.nanoTime();
-         ((com.kishku7.chunksmith.ducks.MinecraftServerExtension) world.getServer()).chunksmith$atTicketSafePoint(() ->
-            CacheManager.runWithChunksmithRequestTask(sourceTask,() -> {
-               PipelineMetrics.time("ticket-safe-point-wait", System.nanoTime()-queued);
-               long started = System.nanoTime();
-               try { task.run(); }
-               finally { PipelineMetrics.time("ticket-safe-point-work",System.nanoTime()-started); }
-            }));
-      };
    }
 
 }

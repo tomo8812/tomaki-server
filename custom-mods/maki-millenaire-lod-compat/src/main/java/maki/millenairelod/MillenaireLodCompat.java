@@ -7,6 +7,6 @@ import org.slf4j.LoggerFactory;
 public final class MillenaireLodCompat {
     public MillenaireLodCompat() {
         LoggerFactory.getLogger("MakiMillenaireLOD").info(
-            "Maki Millenaire Chunksmith Compatibility initialized; deferred village generation, protection reservations and LOD refresh are enabled.");
+            "Maki Millenaire Chunksmith Compatibility initialized; deferred village generation during Chunksmith pregen is enabled.");
     }
 }

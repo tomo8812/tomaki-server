@@ -3,7 +3,6 @@ package maki.chunksmithcache.mixin;
 import it.unimi.dsi.fastutil.longs.LongLinkedOpenHashSet;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
-import maki.chunksmithcache.BackfillGuard;
 import maki.chunksmithcache.CacheManager;
 import maki.chunksmithcache.PregenPoiDirtyBridge;
 import maki.chunksmithcache.PromotionLedger;
@@ -61,11 +60,6 @@ public abstract class SectionStorageMixin implements PregenPoiDirtyBridge {
 
    @Inject(method = "writeColumn(Lnet/minecraft/world/level/ChunkPos;)V", at = @At("HEAD"), cancellable = true)
    private void maki$backfillPoiVeto(ChunkPos pos, CallbackInfo ci) {
-      if (BackfillGuard.activePoi(this, pos)) {
-         this.maki$clearPregenPoiDirty(pos);
-         ci.cancel();
-         return;
-      }
       if (CacheManager.suppressPregenPoiPersistence(this, pos)) ci.cancel();
    }
 }
