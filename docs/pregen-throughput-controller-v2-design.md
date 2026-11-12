@@ -65,7 +65,7 @@ NEW/REPAIRはE-liteの性能比較用の仕事の種類。旧データの有効�
 | Chunksmith | native幅、inFlight、生成要求・完了、LOD writer queue・実物理terminal、ネイティブ停止理由 |
 | FULL cache | 検証・書込待ち、実処理時間、正常公開、FULL自身の容量／メモリ安全圧力 |
 | サーバー | CPU affinity/quota/使用率、MSPT、heap、GC、PSI、プレイヤー参加 |
-| E-lite | stage WIP／窓／最古age、試行token、完成PAIR/s、NEW/REPAIR混合率、再試行座標 |
+| E-lite | stage WIP／窓／最古age、試行token、完成PAIR/s、NEW/REPAIR混合率 |
 
 監視は読み取り専用・低負荷とし、専用の全ファイル走査や追加chunk ticketを発生させない。
 
@@ -86,21 +86,25 @@ FULL保存に必要な証明書を導入する場合はchunk-cache内部で管�
 
 通知の具体的なAPI、起点、責任分担は[PR #90 cache連携契約](e-lite-pr90-cache-integration.md)を参照する。
 
-## 5. 入場制御：lod-cpuでの候補・実リクエスト管理
+## 5. 入場制御：Chunksmith 4.8.1のネイティブ生成経路を維持
 
-E-liteの対象はFollow-owned Chunksmithタスクである。手動・外部タスクを取得して生成制御を上書きしない。
+E-liteの対象はFollow-owned Chunksmithタスクである。手動・外部タスクの生成判断には介入しない。
 
 | 時点 | E-liteの動作 |
 | --- | --- |
-| iteratorで次座標を消費する前 | 既存のネイティブ安全境界・Follow owner・WIP窓を確認し、必要なら待機 |
-| `isChunkGenerated`直前 | 有界の`CANDIDATE_RESERVED`を取得する。Chunksmith自身の生成済み判定結果を変更しない |
-| 非同期skip・失敗 | 未開始stageのcreditを返す。E-liteの一時拒否座標は進捗確定せず再試行台帳へ保持する |
-| `getChunkAtAsync`直前 | `ACTUAL_REQUEST_STARTED`へ転換し、stop epoch／ownerを再確認する |
-| 物理stage終了 | 対応する工程のACK／確実な中止でcreditを一度だけ返す |
+| `ChunkIterator.next()`の前 | Follow owner・stop epoch・共有Backfill予算・WIP窓を確認して待機する |
+| 次座標を選んだ直後 | 選択座標を保持したまま、候補WIP枠を取得するまで待機する |
+| `World.isChunkGenerated`呼出時 | Chunksmithの非同期判定結果を観測し、NEW／既存チャンクを分類する |
+| LOD補完・force load時 | `isChunkGenerated`の呼出しが無くても、先に取得したWIP枠でnative処理を通す。仕事の種類が証明できない場合はUNKNOWNのままにする |
+| `World.getChunkAtAsync`直前 | nativeの実要求を記録する。Chunksmithは直前にLOD存在インデックスを更新するため、E-liteは失敗Futureを偽造しない |
+| Chunksmithのskip・shape対象外 | nativeの`update`から未開始stageの予測creditを返す |
+| 物理stage終了 | 対応する物理terminalまたは確実な不要確定でcreditを一度だけ返す |
 
-これらのフックは**maki-chunksmith-controller自身**が持つ。PR #90統合時にchunk-cache側の重複`GenerationRequestMixin`の生成投入Redirectを除去・統合する。キャッシュ自身のFULL所有権・保存安全ガードは残す。
+この動作はChunksmithの公開ソース`v4.6.0`と`v4.8.1`に共通する。9つのController依存ソースが一致することを確認し、既存の`horizon(1)`およびネイティブ保存・LOD判断は変更していない。
 
-手動pause、player join、recenter、native AutoPause、task stop/detach時はadmission epochを更新して古い要求の新規投入を禁止する。workerが動いている段階のcreditは論理timeoutだけで戻さない。
+以前E-liteが生成失敗を偽装していた`DEFERRED`/`REJECTED_UPDATES`、updateのキャンセル、全域再試行負債は削除した。手動pause、player join、recenter、native AutoPause、task stop/detachでは、既存のChunksmithタスクライフサイクルを尊重する。
+
+PR #90統合時にはchunk-cache側の重複`GenerationRequestMixin` Redirectを統合し、cache自身のFULL保存安全ガードは維持する。
 
 ## 6. FAST制御：工程別ACK補充WIP窓
 
@@ -185,7 +189,7 @@ E-liteのためだけにこれらの保存形式や有効性ルールを変更�
 
 | 段階 | 内容 | 状態 |
 | --- | --- | --- |
-| E-lite本体 | Follow投入・stop epoch・候補/実要求admission、工程別WIP、SLOW c±1・プロフィール・保留座標の再試行 | PR #89のlod-cpuへ移管済み |
+| E-lite本体 | Follow投入・stop epoch・座標取得時の候補admission、実要求観測、工程別WIP、SLOW c±1・プロフィール | PR #89のControllerへ移管済み |
 | cache復元 | PR #89にあったchunk-cacheの全差分と配布JARをmainと同一に戻す | 完了 |
 | PR #90統合 | cacheのFULL固有の計測通知を追加し、重複Mixinを一本化。ChunksmithのLOD物理ACKをlod-cpuへ連携 | 未完了 |
 | ビルド/実機 | 4.8.1実物ABI、Gradle/JAR監査、複製ワールドの旧FULL・LOD再利用、競合・失敗・player join、A1性能比較 | 未完了 |
@@ -196,3 +200,5 @@ PR #89単体での一時的不整合は、PR #90に統合するまで許容す�
 
 [PR #90 cache連携契約](e-lite-pr90-cache-integration.md) と [レビュー履歴](pregen-throughput-review-decisions.md)を参照する。
 
+
+追加監査：[Chunksmith 4.8.1 Controller制御互換性](e-lite-chunksmith-4.8.1-compat-audit.md)。
