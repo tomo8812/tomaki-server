@@ -34,18 +34,19 @@ for forbidden in ("maki-status-io", "maki-lag-observer", "maki-lod-cpu-online-fi
     assert not list(mods_dir.glob(forbidden + "-*.jar")), f"Retired deployable JAR present: {forbidden}"
 
 assert not (root / "config/maki-lag-observer.properties").exists(), "Retired observer config is still deployed"
-fingerprint_config = (root / "config/maki-chunksmith-chunk-cache.properties").read_text(encoding="utf-8")
-assert "maki_lag_observer" not in fingerprint_config, "Retired observer MOD ID remains in active fingerprint config"
-assert "maki-lag-observer.properties" not in fingerprint_config, "Retired observer config path remains in active fingerprint config"
-assert "fingerprint.observation-only-mod-ids" not in fingerprint_config, "MOD-id-only compatibility exemptions must not be deployed"
-assert "fingerprint.audited-neutral-mod-sha256" not in fingerprint_config, "Obsolete future-MOD audit config must be removed"
-assert "fingerprint.generation-sensitive-mod-ids" not in fingerprint_config, "Hypothetical future-MOD policy must not be configured"
-cache_policy = (
-    root / "custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/FingerprintPolicy.java"
-).read_text(encoding="utf-8")
-assert '"epicterrain-"' in cache_policy and '"zfastnoise-"' in cache_policy, "Known terrain generators are not tracked"
-assert "fingerprint.audited-neutral-mod-sha256" not in cache_policy, "Future-MOD SHA audit remains in FULL policy"
-assert "maki-mods-observer-" not in cache_policy, "Observer role must not need a hardcoded compatibility exception"
+cache_config = (root / "config/maki-chunksmith-chunk-cache.properties").read_text(encoding="utf-8")
+assert "quarantine.retention-days" in cache_config and "cache.max-active-bytes" in cache_config
+assert "fingerprint." not in cache_config, "Environment fingerprint settings must not remain in cache config"
+cache_sources = root / "custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache"
+assert (cache_sources / "CacheRetentionPolicy.java").is_file(), "Cache retention policy source is missing"
+assert not (cache_sources / "FingerprintPolicy.java").exists(), "Environment policy must be removed"
+for retired in ("CompatibilityInput.java", "CompatibilityFingerprint.java", "FingerprintWalkBridge.java",
+                "WorldVersionBridge.java", "AuditedGenerationUpgrade.java", "GenerationRoleEvidence.java",
+                "AuditedModCompatibility.java"):
+    assert not (cache_sources / retired).exists(), f"Retired monitoring source remains: {retired}"
+cache_identity = (cache_sources / "Fingerprint.java").read_text(encoding="utf-8")
+assert 'CACHE_ID = "f00dcace0000000000000003"' in cache_identity, "FULL cache storage id changed unexpectedly"
+assert 'getSeed()' not in cache_identity and 'level.dat' not in cache_identity, "World fingerprint monitoring remains"
 
 seen_ids = {}
 checked_sources = 0
