@@ -5,7 +5,7 @@ Chunksmith 4.8.1 / Millénaire 9.1.0を対象とします。
 | 主体 | 責務 |
 | --- | --- |
 | Chunksmith | チャンク生成、LOD生成・保存・再利用判断、native安全制御 |
-| Chunksmith Controller | リソース・処理実績に基づく生成投入と並列数、停止・再開の制御 |
+| Chunksmith Controller | リソース・処理実績に基づく生成投入と並列数、停止・再開、FULL＋LOD容量の観測 |
 | Chunk Cache | 一時FULLの退避・保存・検証・読込・通常保存への引渡し |
 | Millénaire互換mod | 事前生成時の村候補保留とプレイヤーロード時の再投入 |
 
@@ -35,3 +35,6 @@ cacheは自分のFULL保存・読込内部で所有権を確認します。Mill�
 - 実サーバーでMixin適用、村生成、cache復元、再起動後の保存結果を確認すること。
 
 現構成のControllerとcacheは相互に必要なAPIを直接呼び出します。Millénaire互換MODもcacheを必須依存とします。任意依存や反射によるAPI探索は使用しません。
+
+
+追加レビューへの対応とChunksmith側に残るLOD修復・更新の課題は、[現行設計書](pregen-throughput-controller-v2-design.md#追加レビューで確認した境界)に記載しています。Controllerの未完了観測はLOD修復の実装を意味しません。

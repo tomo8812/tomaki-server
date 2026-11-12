@@ -26,11 +26,12 @@ public PlayerList getPlayerList(){return new PlayerList();}public static class P
 public class ServerPlayer {public net.minecraft.world.level.ChunkPos chunkPosition(){return new net.minecraft.world.level.ChunkPos(0,0);}}''',
             'net/minecraft/server/level/ServerLevel.java': '''package net.minecraft.server.level;
 public class ServerLevel {public boolean visible;public final net.minecraft.server.MinecraftServer server=new net.minecraft.server.MinecraftServer();
+public long tick;public long getGameTime(){return tick;}
 public net.minecraft.server.MinecraftServer getServer(){return server;}public Object getPoiManager(){return this;}
 public java.util.List<ServerPlayer> players(){return java.util.List.of(new ServerPlayer());}
 public Source getChunkSource(){return new Source();}public class Source {public Object getChunkNow(int x,int z){return visible?new Object():null;}}}''',
             'maki/chunksmithcache/CacheManager.java': '''package maki.chunksmithcache;
-public class CacheManager {public static int handoffs;public static boolean pregenPersistenceSuppressed(net.minecraft.server.level.ServerLevel level,net.minecraft.world.level.ChunkPos pos){if(PregenBorrowLedger.handoffCandidate(level,pos)!=null)handoffs++;return PregenBorrowLedger.suppressPersistence(level,pos);}}''',
+public class CacheManager {public static int handoffs,failures;public static boolean fail;public static void handoffFailed(net.minecraft.server.level.ServerLevel level,net.minecraft.world.level.ChunkPos pos,RuntimeException error){failures++;}public static boolean pregenPersistenceSuppressed(net.minecraft.server.level.ServerLevel level,net.minecraft.world.level.ChunkPos pos){if(PregenBorrowLedger.handoffCandidate(level,pos)!=null){handoffs++;if(fail&&pos.x==0)throw new IllegalStateException("disk denied");}return PregenBorrowLedger.suppressPersistence(level,pos);}}''',
             'maki/chunksmithcache/Harness.java': '''package maki.chunksmithcache;
 import java.nio.file.*;import com.kishku7.chunksmith.GenerationTask;
 import net.minecraft.server.level.ServerLevel;import net.minecraft.world.level.ChunkPos;
@@ -51,6 +52,20 @@ public static void main(String[] args)throws Exception{
  level.visible=true;check(PregenBorrowLedger.handoffCandidate(level,pos).equals(file),"loaded visible FULL can hand off");
  check(!PregenBorrowLedger.cancel(level,pos,newer),"loaded FULL keeps persistence ownership");
  PregenBorrowLedger.unloaded(level,pos);check(PregenBorrowLedger.kind(level,pos)==null,"unload retires guard");
+ level.visible=false;
+ check(PregenBorrowLedger.beginGenerated(level,pos,file,newer),"fallback guard accepted before real cache read");
+ check(PregenBorrowLedger.suppressPersistence(level,pos),"failed cache read remains protected for FULL generation");
+ check(PregenBorrowLedger.beginBorrowed(level,pos,file,newer),"real validated borrow converts fallback guard");
+ check(PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.BORROWED,"reuse is committed only on actual borrow");
+ PregenBorrowLedger.generatedFullLoaded(level,pos,newer);level.visible=true;
+ var other=new ChunkPos(1,0);check(PregenBorrowLedger.beginBorrowed(level,other,file,newer),"second coordinate borrowed");
+ PregenBorrowLedger.generatedFullLoaded(level,other,newer);CacheManager.fail=true;
+ int before=CacheManager.handoffs;PregenBorrowLedger.handoffPlayers(level.server);
+ check(CacheManager.failures==1&&CacheManager.handoffs==before+2,"one failed handoff cannot prevent another coordinate");
+ check(PregenBorrowLedger.suppressPersistence(level,pos),"failed handoff keeps normal writes blocked");
+ PregenBorrowLedger.handoffPlayers(level.server);check(CacheManager.failures==1,"failed coordinate is rate limited");
+ CacheManager.fail=false;level.tick=20;PregenBorrowLedger.handoffPlayers(level.server);
+ PregenBorrowLedger.clear(level.server);
  System.out.println("Borrow lifecycle PASS");
 }
 static void check(boolean ok,String reason){if(!ok)throw new AssertionError(reason);}

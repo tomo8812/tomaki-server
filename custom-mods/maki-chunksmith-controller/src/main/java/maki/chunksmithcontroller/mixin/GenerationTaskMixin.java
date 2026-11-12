@@ -108,6 +108,8 @@ public abstract class GenerationTaskMixin {
         if(!maki$owned()||Boolean.TRUE.equals(maki$nativeDispatch.get()))return;
         GenerationTask owner=(GenerationTask)(Object)this;
         String dim=selection.world().getName();int x=coordinate.x(),z=coordinate.z();
+        // Observe the exact 4.8.1 skip branch; let native code perform the skip.
+        if(Boolean.TRUE.equals(generated)&&(index==null||index.hasLod(x,z)))return;
         if(!PregenControlHooks.beginActual(dim,x,z,owner)){
             ci.setReturnValue(CompletableFuture.failedFuture(new IllegalStateException("Dispatch admission closed")));
             return;
@@ -115,6 +117,7 @@ public abstract class GenerationTaskMixin {
         ci.setReturnValue(PregenControlHooks.prepareDispatch(selection.world(),x,z,owner).thenCompose(ignored->{
             if(!PlayerCenter.admissionOpen(owner)||owner.isStopping())
                 return CompletableFuture.failedFuture(new IllegalStateException("Dispatch stopped before native LOD mark"));
+            PregenControlHooks.preparationSucceeded(dim,x,z);
             maki$nativeDispatch.set(true);
             try{return maki$dispatch(index,coordinate,lodOnly,horizon,persisted,generated);}
             finally{maki$nativeDispatch.remove();}

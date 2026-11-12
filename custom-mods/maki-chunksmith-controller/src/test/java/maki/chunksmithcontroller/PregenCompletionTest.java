@@ -19,6 +19,7 @@ class PregenCompletionTest {
         field.setAccessible(true);field.set(target instanceof Class<?>?null:target,value);
     }
     @BeforeEach void reset()throws Exception{
+        ((Map<?,?>)field(FLOW,"INCOMPLETE")).clear();
         ((Map<?,?>)field(FLOW,"ACTIVE")).clear();((Map<?,?>)field(FLOW,"BY_TOKEN")).clear();
         for(Object state:((Map<?,?>)field(FLOW,"STAGES")).values())set(state,"outstanding",0);
         set(FLOW,"pairConfirmedRuntime",0L);
@@ -48,6 +49,15 @@ class PregenCompletionTest {
         PregenFlowController.physicalStart(token,stage);
         PregenFlowController.physicalTerminal(token,stage,1000,success);
         if(stage==PregenFlowController.Stage.FULL&&success)PregenFlowController.fullPublished(token);
+    }
+    @Test void isolatedPreparationDebtDoesNotConsumeStageCredits()throws Exception{
+        PregenFlowController.preparationFailed("minecraft:overworld",1,2);
+        assertEquals(1,PregenFlowController.incompleteInRange("minecraft:overworld",0,0,4096));
+        assertTrue(PregenFlowController.hasPreparationFailures("minecraft:overworld"));
+        for(var stage:PregenFlowController.Stage.values())assertEquals(0,outstanding(stage));
+        PregenFlowController.preparationSucceeded("minecraft:overworld",1,2);
+        assertEquals(0,PregenFlowController.incompleteInRange("minecraft:overworld",0,0,4096));
+        assertFalse(PregenFlowController.hasPreparationFailures("minecraft:overworld"));
     }
     @Test void oppositeOrdersAndDuplicatesCountOnce()throws Exception{
         attempt("one");finish("one",PregenFlowController.Stage.VALIDATE,true);
@@ -139,6 +149,7 @@ class PregenCompletionTest {
     }
     @Test void failureAndMissingSinkDoNotCountPair()throws Exception{
         attempt("failed");finish("failed",PregenFlowController.Stage.LOD,false);
+        assertEquals(1,((Map<?,?>)field(FLOW,"INCOMPLETE")).size(),"failed native LOD ACK remains incomplete after WIP drains");
         PregenFlowController.fullPublished("failed");assertEquals(0,pairs());
         PregenFlowController.logicalCaptureFailed("failed");
         assertEquals(1L,field(FLOW,"uncertain"));

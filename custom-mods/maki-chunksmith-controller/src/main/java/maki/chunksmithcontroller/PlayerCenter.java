@@ -264,6 +264,10 @@ public final class PlayerCenter {
             reason="draining-full-cache";report(server,chunky,now);return;
         }
         if(current==null&&!requested&&appliedX!=null&&FollowPolicy.moved(saved.x,saved.z,appliedX,appliedZ)&&FollowPolicy.due(now,lastCenterChange,settings().recenterSeconds))requested=true;
+        if(current==null&&!requested&&lastTask!=null){
+            int incomplete=PregenFlowController.incompleteInRange(WORLD,saved.x,saved.z,settings().followRadius);
+            if(incomplete>0){reason="incomplete-pregen:"+incomplete;report(server,chunky,now);return;}
+        }
         if(current!=null){
             var selection=current.getSelection();
             boolean moved=FollowPolicy.moved(saved.x,saved.z,(int)selection.centerX(),(int)selection.centerZ());
@@ -278,8 +282,11 @@ public final class PlayerCenter {
             if(world.isPresent()){
                 try{
                     GenerationTask task=null;
-                    if(persistedOwner==TaskOwnership.PersistedOwner.CURRENT_SESSION
-                        ||persistedOwner==TaskOwnership.PersistedOwner.PREVIOUS_SESSION&&chunky.getConfig().getContinueOnRestart()){
+                    // Explicit resume can revisit isolated pre-mark failures through
+                    // an ordinary fresh Chunksmith scan, without an independent generator.
+                    if(!PregenFlowController.hasPreparationFailures(WORLD)
+                        &&(persistedOwner==TaskOwnership.PersistedOwner.CURRENT_SESSION
+                        ||persistedOwner==TaskOwnership.PersistedOwner.PREVIOUS_SESSION&&chunky.getConfig().getContinueOnRestart())){
                         var prior=chunky.getTaskLoader().loadTask(world.get());
                         if(prior.isPresent()&&!prior.get().isCancelled()){
                             var selection=prior.get().getSelection();

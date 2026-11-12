@@ -211,10 +211,13 @@ final class GenerationStore {
             FingerprintManifest.Manifest existing =
                 FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
             if (alreadyRecovered(source, snapshot.fingerprint(), old.fingerprint(), existing)) continue;
-            CacheDirectoryMerge.MergeStats copied =
-                copyValidFulls(level, old, current, source, active, budget);
+            // Acceptance must precede partial copies: a capacity deferral can
+            // leave valid, already copied FULLs in the active directory.
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME),
                 snapshot.manifest(acceptedIdentities(snapshot, old, existing)));
+            CacheDirectoryMerge.MergeStats copied = CacheDirectoryMerge.tryRecoverValidated(
+                source,active,cacheValidator(level,old),cacheValidator(level,validationManifest(current,active,old)),budget);
+            if(copied==null)continue; // Optional recovery must not block current FULL loads.
             writeRecoveryReceipt(source, old.fingerprint(), snapshot.fingerprint(), copied, trigger);
             LOG.info("Recovered valid quarantined FULLs {} -> {}; checked={} adopted={} rejected={} trigger={}",
                 old.fingerprint(), snapshot.fingerprint(), copied.sourceEntries(),

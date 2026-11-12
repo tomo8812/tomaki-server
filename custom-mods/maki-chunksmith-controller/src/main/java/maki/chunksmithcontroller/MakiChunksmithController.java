@@ -17,12 +17,14 @@ public final class MakiChunksmithController {
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent e)->{if(e.getEntity() instanceof net.minecraft.server.level.ServerPlayer p)PlayerCenter.logout(p);});
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppingEvent e)->{
             PlayerCenter.shutdown(e.getServer());
+            GenerationStorageBudget.clear();
             LOG.info("Maki Chunksmith Controller stopped; authoritative normal-world data remains untouched and unified pregen state stays resumable.");
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.RegisterCommandsEvent e)->PlayerCenter.register(e.getDispatcher()));
     }
     private void tick(ServerTickEvent.Post event){
         var server=event.getServer();
+        GenerationStorageBudget.observe(server);
         CpuGovernor.tick(server.getAverageTickTimeNanos()/1_000_000.0,server.getPlayerCount());
         PlayerCenter.tick(server);
     }

@@ -10,16 +10,17 @@ final class PendingDispatch {
     private PendingDispatch() {}
     static CompletableFuture<Void> prepare(BooleanSupplier open,Supplier<CompletableFuture<Void>> preparation,Executor retry){
         CompletableFuture<Void> result=new CompletableFuture<>();
-        attempt(open,preparation,retry,result);return result;
+        attempt(open,preparation,retry,result,3);return result;
     }
-    private static void attempt(BooleanSupplier open,Supplier<CompletableFuture<Void>> preparation,Executor retry,CompletableFuture<Void> result){
+    private static void attempt(BooleanSupplier open,Supplier<CompletableFuture<Void>> preparation,Executor retry,CompletableFuture<Void> result,int remaining){
         if(!open.getAsBoolean()){result.completeExceptionally(new IllegalStateException("Dispatch stopped before native LOD mark"));return;}
         CompletableFuture<Void> prepared;
         try{prepared=preparation.get();}catch(RuntimeException error){prepared=CompletableFuture.failedFuture(error);}
         prepared.whenComplete((ignored,error)->{
             if(!open.getAsBoolean())result.completeExceptionally(new IllegalStateException("Dispatch stopped before native LOD mark"));
             else if(error==null)result.complete(null);
-            else retry.execute(()->attempt(open,preparation,retry,result));
+            else if(remaining<=1)result.completeExceptionally(error);
+            else retry.execute(()->attempt(open,preparation,retry,result,remaining-1));
         });
     }
 }

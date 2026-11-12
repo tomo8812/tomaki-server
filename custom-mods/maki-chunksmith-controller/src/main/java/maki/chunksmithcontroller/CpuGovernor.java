@@ -39,7 +39,10 @@ public final class CpuGovernor {
         return CacheManager.fullWorkPending(server,centerX,centerZ,radiusBlocks);
     }
     public static boolean pregenReady(MinecraftServer server){return CacheManager.pregenReady(server);}
-    static void refreshPipelinePressure(){pipelinePressure=CacheManager.resourcePressure();}
+    static void refreshPipelinePressure(){
+        String full=CacheManager.resourcePressure();
+        pipelinePressure=full!=null?full:GenerationStorageBudget.pressure();
+    }
 
     private record ControllerObservation(boolean available,long pairConfirmed,long pairNew,long pairRepair,long uncertain,
                                          long oldestMillis,boolean admissionBlocked,boolean sensorUnknown,

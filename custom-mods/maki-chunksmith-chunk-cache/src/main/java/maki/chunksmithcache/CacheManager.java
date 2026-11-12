@@ -91,6 +91,9 @@ public final class CacheManager {
       boolean generatedTarget=PREGEN_NEW_TARGETS.get(key)==sourceTask;
       if(PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.BORROWED || !generatedTarget) {
          FullTelemetryBridge.reused(token);
+         ResourceBudgetApi.fullSettled(token);
+         CompletableFuture<Void> done=FULL_COMPLETIONS.get(new RequestKey(level,pos.toLong(),sourceTask));
+         if(done!=null)done.complete(null);
          return;
       }
       if(!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(sourceTask)
@@ -122,13 +125,13 @@ public final class CacheManager {
       return NormalChunkStorage.inspectAsync(level,pos).thenCompose(normal->{
          if(normal==NormalChunkStorage.State.UNKNOWN)return CompletableFuture.failedFuture(new IOException("FULL ownership unknown before dispatch"));
          return normal==NormalChunkStorage.State.FULL?CompletableFuture.completedFuture(true)
-             :loadForPregen(level,pos,false).thenApply(Optional::isPresent);
-      }).thenAccept(existing->{
+             :loadForPregen(level,pos,false).thenApply(ignored->false);
+      }).thenAccept(normalFull->{
          if(!FollowCaptureOwnership.active(level,task))throw new IllegalStateException("Preparation stopped");
          CaptureKey key=captureKey(level,pos);
          if(PREGEN_REQUEST_TARGETS.putIfAbsent(key,task)!=null)throw new IllegalStateException("FULL request already owned");
          try{
-            if(!existing&&ResourceBudgetApi.fullCaptureExpected(token)){
+            if(!normalFull&&ResourceBudgetApi.fullCaptureExpected(token)){
                Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
                if(snapshot==null||!PregenBorrowLedger.beginGenerated(level,pos,path(level,pos,snapshot.fingerprint()),task))
                   throw new IllegalStateException("FULL ownership unavailable before dispatch");
@@ -539,14 +542,15 @@ public final class CacheManager {
 
    private static CompletableFuture<Optional<CompoundTag>> loadForPregen(ServerLevel level,ChunkPos pos){return loadForPregen(level,pos,true);}
    private static CompletableFuture<Optional<CompoundTag>> loadForPregen(ServerLevel level, ChunkPos pos,boolean borrow) {
-      // A GENERATED guard is armed before getChunkAtAsync precisely so the target
-      // can reach FULL without entering normal persistence. Do not wait on its own
-      // future FULL publication or try to load a cache that does not exist yet.
-      if(PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.GENERATED)
+      // Before the actual read even a validated cached target has a GENERATED
+      // fallback guard. Only the completed borrow can commit reuse. A retained
+      // FULL already waiting for publication must not wait on its own receipt.
+      if(PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.GENERATED
+         &&FULL_RETRIES.containsKey(new RequestKey(level,pos.toLong(),PREGEN_REQUEST_TARGETS.get(captureKey(level,pos)))))
          return CompletableFuture.completedFuture(Optional.empty());
 
       CompletableFuture<Boolean> active=PregenBorrowLedger.pending(level,pos);
-      if(active!=null) return active.handle((ignored,error)->null).thenCompose(ignored -> loadForPregen(level,pos,borrow));
+      if(active!=null&&PregenBorrowLedger.kind(level,pos)!=PregenBorrowLedger.Kind.GENERATED) return active.handle((ignored,error)->null).thenCompose(ignored -> loadForPregen(level,pos,borrow));
 
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null)return CompletableFuture.completedFuture(Optional.empty());
@@ -599,8 +603,11 @@ public final class CacheManager {
                      return Optional.<CompoundTag>empty();
                   }
                   if(STOPPING.contains(level.getServer()))return Optional.<CompoundTag>empty();
-                  if(borrow&&!PregenBorrowLedger.beginBorrowed(level,pos,file,PREGEN_REQUEST_TARGETS.get(captureKey(level,pos)))) {
-                     return Optional.<CompoundTag>empty();
+                  if(borrow) {
+                     GenerationTask requestOwner=PREGEN_REQUEST_TARGETS.get(captureKey(level,pos));
+                     if(!PregenBorrowLedger.beginBorrowed(level,pos,file,requestOwner))
+                        return Optional.<CompoundTag>empty();
+                     PREGEN_NEW_TARGETS.remove(captureKey(level,pos),requestOwner);
                   }
                   PipelineMetrics.count("pregen-full-borrowed");
                   return Optional.of(envelope.getCompound("chunk"));
@@ -873,6 +880,11 @@ public final class CacheManager {
          &&!PromotionLedger.replayBlocked(level,pos);
    }
 
+   static void handoffFailed(ServerLevel level,ChunkPos pos,RuntimeException error) {
+      PipelineMetrics.count("pregen-player-handoff-failed");
+      LOG.warn("Pregen FULL handoff deferred at {} {}; normal persistence remains blocked",dimensionKey(level),pos,error);
+   }
+
    public static boolean pregenPersistenceSuppressed(ServerLevel level, ChunkPos pos) {
       Path handoff=PregenBorrowLedger.handoffCandidate(level,pos);
       if(handoff!=null) {
@@ -887,6 +899,7 @@ public final class CacheManager {
                }
                PromotionLedger.entitiesRestored(level,pos);
             }
+            PromotionLedger.handoffRecovered(level,pos,handoff);
             // If capture already failed and no payload exists, there is no delayed
             // pregen state left to own; normal player persistence may become authoritative.
             PregenBorrowLedger.handedOff(level,pos);

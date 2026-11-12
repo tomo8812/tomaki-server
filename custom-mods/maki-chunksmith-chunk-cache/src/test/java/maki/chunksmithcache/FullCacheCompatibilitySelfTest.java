@@ -22,6 +22,13 @@ public final class FullCacheCompatibilitySelfTest {
             "FULL storage id must remain a stable cache-format namespace");
         require(!Fingerprint.CACHE_ID.equals(OLD_ID),
             "the stable namespace must differ from historical version-dependent names");
+        var pos=new net.minecraft.world.level.ChunkPos(1,2);
+        var failed=Path.of("failed-handoff.nbt.gz");
+        PromotionLedger.blockReplay(null,pos,failed);
+        PromotionLedger.handoffRecovered(null,pos,Path.of("another-claim.nbt.gz"));
+        require(PromotionLedger.replayBlocked(null,pos),"a different handoff cannot clear another ownership failure");
+        PromotionLedger.handoffRecovered(null,pos,failed);
+        require(!PromotionLedger.replayBlocked(null,pos),"successful exact handoff clears its earlier replay block");
         testLegacyManifestRead();
         testPerFileFormatAndSelectiveMigration(
             new FingerprintManifest.Manifest(OLD_ID, 1L, Set.of(OLD_ID)));
@@ -167,18 +174,23 @@ public final class FullCacheCompatibilitySelfTest {
             boolean budgetBlocked = false;
             try {
                 CacheDirectoryMerge.copyValidatedPreservingSource(
-                    budgetSource,
+                    budgetSource.getParent().getParent(),
                     budgetRoot.resolve("minecraft_overworld/current"),
                     p -> CacheFormatValidator.rejectReason(
                         p, historical, "minecraft:overworld") == null,
                     p -> CacheFormatValidator.rejectReason(
                         p, historical, "minecraft:overworld") == null,
                     budget);
-            } catch (java.io.IOException expected) {
+            } catch (CacheDirectoryMerge.CapacityDeferred expected) {
                 budgetBlocked = true;
             }
             require(budgetBlocked && Files.isRegularFile(budgetSource),
                 "migration must defer without consuming the source when disk reserve/capacity is unavailable");
+            Path currentFull=budgetRoot.resolve("current.nbt.gz");Files.write(currentFull,new byte[]{42});
+            var deferred=CacheDirectoryMerge.tryRecoverValidated(budgetSource.getParent().getParent(),
+                budgetRoot.resolve("minecraft_overworld/current"),p->true,p->true,budget);
+            require(deferred==null&&Files.isRegularFile(budgetSource),"optional recovery defers without blocking current FULLs");
+            require(Files.readAllBytes(currentFull)[0]==42,"current FULL remains usable during recovery deferral");
 
             CompoundTag checked = envelope(historical.fingerprint(), 382, -61);
             checked.getCompound("chunk").putInt("DataVersion", DATA_VERSION + 1);

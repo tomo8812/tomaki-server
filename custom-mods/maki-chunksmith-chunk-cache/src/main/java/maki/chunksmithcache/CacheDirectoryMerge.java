@@ -12,6 +12,14 @@ import java.util.stream.Stream;
 
 final class CacheDirectoryMerge {
     private CacheDirectoryMerge() {}
+    static final class CapacityDeferred extends IOException {
+        CapacityDeferred(Path source,long bytes){super("Chunk-cache recovery deferred by capacity for "+source+" bytes="+bytes);}
+    }
+    static MergeStats tryRecoverValidated(Path source,Path target,Predicate<Path> sourceVerified,
+        Predicate<Path> targetVerified,CacheDiskBudget budget)throws IOException{
+        try{return copyValidatedPreservingSource(source,target,sourceVerified,targetVerified,budget);}
+        catch(CapacityDeferred deferred){return null;}
+    }
 
     static MergeStats merge(Path source, Path target) throws IOException {
         return transferCacheEntries(source, target, false, null, null, null);
@@ -93,9 +101,7 @@ final class CacheDirectoryMerge {
             if (preserveSource) {
                 CacheDiskBudget.Lease lease = budget == null ? null : budget.tryAcquire(sourceBytes);
                 if (budget != null && lease == null) {
-                    throw new IOException(
-                        "Chunk-cache migration deferred by disk capacity/reserve guard for "
-                            + path + " bytes=" + sourceBytes);
+                    throw new CapacityDeferred(path,sourceBytes);
                 }
                 try {
                     copyAtomically(path, destination);

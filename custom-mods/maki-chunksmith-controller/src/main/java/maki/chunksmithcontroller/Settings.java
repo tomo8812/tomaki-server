@@ -3,6 +3,7 @@ package maki.chunksmithcontroller;
 import java.util.Properties;
 
 public final class Settings {
+    public long maxStorageBytes=15L<<30;
     public int min = 1, max = 8;
     public double interval = 5;
     public double highMspt = 50, emergencyMspt = 100, highHeap = 75;
@@ -15,6 +16,8 @@ public final class Settings {
 
     public static Settings parse(Properties p) {
         Settings s = new Settings();
+        s.maxStorageBytes=Long.parseLong(p.getProperty("generation-max-storage-bytes",Long.toString(s.maxStorageBytes)));
+        if(s.maxStorageBytes<=0)throw new IllegalArgumentException("generation-max-storage-bytes");
         s.min = integer(p,"min-concurrent",1,1,64);
         s.max = integer(p,"max-concurrent",8,s.min,64);
         s.interval = number(p,"sample-seconds",5,2,60);

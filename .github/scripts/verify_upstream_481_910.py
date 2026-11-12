@@ -103,6 +103,10 @@ def main():
     ]:
         check(world, name, target, count)
 
+    support = read(args.chunksmith, 'com.kishku7.chunksmith.lod.LodSupport')
+    check(support, 'storeRootBase(net.minecraft.server.MinecraftServer)', 'MinecraftServer.getWorldPath:', 1)
+    check(support, 'storeRootBase(net.minecraft.server.MinecraftServer)', 'java/nio/file/Path.resolve:', 2)
+
     sink = read(args.chunksmith, 'com.kishku7.chunksmith.lod.CsLodStoreSink')
     check(sink, 'persist(com.kishku7.chunksmith.lod.CsLodChunk)', 'CsLodRegionStore.write:', 1)
     explored = read(args.chunksmith, 'com.kishku7.chunksmith.lod.ExploredLodGuard')

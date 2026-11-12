@@ -8,8 +8,13 @@ public final class PregenControlHooks {
     public static java.util.concurrent.CompletableFuture<Void> prepareDispatch(com.kishku7.chunksmith.platform.World world,int x,int z,GenerationTask owner){
         return PendingDispatch.prepare(()->PlayerCenter.admissionOpen(owner)&&!owner.isStopping(),
             ()->maki.chunksmithcache.CacheManager.prepareRequest(world,x,z,owner),
-            java.util.concurrent.CompletableFuture.delayedExecutor(1,java.util.concurrent.TimeUnit.SECONDS));
+            java.util.concurrent.CompletableFuture.delayedExecutor(1,java.util.concurrent.TimeUnit.SECONDS))
+            .whenComplete((ignored,error)->{
+                if(error!=null&&PlayerCenter.admissionOpen(owner)&&!owner.isStopping())preparationFailed(world.getName(),x,z);
+            });
     }
+    public static void preparationFailed(String dim,int x,int z){PregenFlowController.preparationFailed(dim,x,z);}
+    public static void preparationSucceeded(String dim,int x,int z){PregenFlowController.preparationSucceeded(dim,x,z);}
     public static boolean reserveCandidate(String dim,int x,int z,GenerationTask task){
         return PregenFlowController.reserveCandidate(dim,x,z,task);
     }

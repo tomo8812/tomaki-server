@@ -23,6 +23,7 @@ final class PregenBorrowLedger {
     private record Borrow(Path file, Kind kind, GenerationTask owner, CompletableFuture<Boolean> captureDone, AtomicBoolean captureAttached, AtomicBoolean handedOff, AtomicBoolean fullLoaded,
                           java.util.concurrent.atomic.AtomicReference<ChunkAccess> suppressedChunk,
                           java.util.Set<Long> suppressedPoiSections, AtomicBoolean poiWriteRequired) {}
+    private static final ConcurrentHashMap<Key, Long> HANDOFF_RETRY=new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<Key, Borrow> ACTIVE = new ConcurrentHashMap<>();
 
     private PregenBorrowLedger() {}
@@ -32,6 +33,15 @@ final class PregenBorrowLedger {
     }
 
     static boolean beginBorrowed(ServerLevel level, ChunkPos pos, Path file,GenerationTask owner) {
+        if(owner==null)return false;
+        Key key=new Key(level,pos.toLong());Borrow prepared=ACTIVE.get(key);
+        if(prepared!=null&&prepared.kind()==Kind.GENERATED&&prepared.owner()==owner
+            &&!prepared.fullLoaded().get()&&!prepared.handedOff().get()){
+            Borrow borrowed=new Borrow(file,Kind.BORROWED,owner,prepared.captureDone(),prepared.captureAttached(),
+                prepared.handedOff(),prepared.fullLoaded(),prepared.suppressedChunk(),prepared.suppressedPoiSections(),prepared.poiWriteRequired());
+            if(!ACTIVE.replace(key,prepared,borrowed))return false;
+            borrowed.captureDone().complete(true);return true;
+        }
         return begin(level,pos,file,Kind.BORROWED,owner);
     }
 
@@ -228,11 +238,13 @@ final class PregenBorrowLedger {
     }
 
     static void unloaded(ServerLevel level, ChunkPos pos) {
+        HANDOFF_RETRY.remove(new Key(level,pos.toLong()));
         Borrow borrow=ACTIVE.remove(new Key(level,pos.toLong()));
         if(borrow!=null&&!borrow.captureDone().isDone())borrow.captureDone().complete(false);
     }
 
     static void clear(MinecraftServer server) {
+        HANDOFF_RETRY.keySet().removeIf(key->key.level().getServer()==server);
         ACTIVE.forEach((key,borrow)->{
             if(key.level().getServer()==server) {
                 ACTIVE.remove(key,borrow);
@@ -242,8 +254,15 @@ final class PregenBorrowLedger {
     }
 
     static void handoffPlayers(MinecraftServer server) {
-        for(Key key:ACTIVE.keySet())if(key.level().getServer()==server&&playerNear(key.level(),new ChunkPos(key.pos())))
-            CacheManager.pregenPersistenceSuppressed(key.level(),new ChunkPos(key.pos()));
+        for(Key key:ACTIVE.keySet())if(key.level().getServer()==server&&playerNear(key.level(),new ChunkPos(key.pos()))){
+            long now=key.level().getGameTime();Long retry=HANDOFF_RETRY.get(key);
+            if(retry!=null&&now<retry)continue;
+            try{CacheManager.pregenPersistenceSuppressed(key.level(),new ChunkPos(key.pos()));HANDOFF_RETRY.remove(key);}
+            catch(IllegalStateException failed){
+                if(retry==null)CacheManager.handoffFailed(key.level(),new ChunkPos(key.pos()),failed);
+                HANDOFF_RETRY.put(key,now+20L);
+            }
+        }
     }
 
     private static boolean playerNear(ServerLevel level, ChunkPos pos) {

@@ -28,6 +28,31 @@ final class PregenFlowController {
     private static final IdentityHashMap<GenerationTask,Long> TASK_GENERATIONS=new IdentityHashMap<>();
     private static final Map<Key,Attempt> ACTIVE=new HashMap<>();
     private static final Map<String,Attempt> BY_TOKEN=new HashMap<>();
+    private enum Failure { FULL_PREPARATION, LOD_WRITE }
+    // Failed observations consume no physical WIP. Native generation owns repair.
+    private static final Map<Key,EnumSet<Failure>> INCOMPLETE=new HashMap<>();
+    static synchronized void preparationFailed(String dim,int x,int z){incomplete(new Key(dim,packed(x,z)),Failure.FULL_PREPARATION);}
+    static synchronized void preparationSucceeded(String dim,int x,int z){
+        Key key=new Key(dim,packed(x,z));var failures=INCOMPLETE.get(key);
+        if(failures!=null){failures.remove(Failure.FULL_PREPARATION);if(failures.isEmpty())INCOMPLETE.remove(key);}
+    }
+    private static void incomplete(Key key,Failure failure){
+        if(INCOMPLETE.computeIfAbsent(key,ignored->EnumSet.noneOf(Failure.class)).add(failure))
+            org.slf4j.LoggerFactory.getLogger("MakiChunksmithController").warn(
+                "Pregen coordinate incomplete: dimension={} x={} z={} stage={}",key.dimension(),(int)(key.pos()>>32),(int)key.pos(),failure);
+    }
+    static synchronized boolean hasPreparationFailures(String dim){
+        return INCOMPLETE.entrySet().stream().anyMatch(entry->entry.getKey().dimension().equals(dim)
+            &&entry.getValue().contains(Failure.FULL_PREPARATION));
+    }
+    static synchronized int incompleteInRange(String dim,int centerX,int centerZ,int radius){
+        long distance=(long)radius+16L;int count=0;
+        for(Key key:INCOMPLETE.keySet())if(key.dimension().equals(dim)){
+            long dx=((long)(int)(key.pos()>>32)<<4)+8L-centerX,dz=((long)(int)key.pos()<<4)+8L-centerZ;
+            if(dx*dx+dz*dz<=distance*distance)count++;
+        }
+        return count;
+    }
     private static final EnumMap<Stage,StageState> STAGES=new EnumMap<>(Stage.class);
     private static final int MIN_SERVICE_SAMPLES=3;
     private static final long SERVICE_SAMPLE_STALE_NANOS=30_000_000_000L;
@@ -291,6 +316,7 @@ final class PregenFlowController {
             metric(stageMetric(stage,success?"success":"failure"));
         }
         attempt.started.remove(stage);
+        if(!success&&stage==Stage.LOD)incomplete(attempt.key,Failure.LOD_WRITE);
         if(!success&&(!attempt.persistencePending||stage==Stage.LOD))failAttempt(attempt);
         else if(stage==Stage.LOD)attempt.lodReady=true;
         // FULL physical success and FULL publication are distinct notifications.
@@ -332,6 +358,7 @@ final class PregenFlowController {
     private static void tryConfirmRuntimePair(Attempt attempt){
         if(attempt.pairReported||attempt.pairResolved
             ||!attempt.actualStarted||!attempt.lodReady||!attempt.fullReady)return;
+        INCOMPLETE.remove(attempt.key);
         attempt.pairReported=true;
         attempt.pairResolved=true;
         pairConfirmedRuntime++;
@@ -404,7 +431,7 @@ final class PregenFlowController {
     }
 
     static synchronized void clear() {
-        ACTIVE.clear();BY_TOKEN.clear();TASK_GENERATIONS.clear();
+        ACTIVE.clear();BY_TOKEN.clear();TASK_GENERATIONS.clear();INCOMPLETE.clear();
         for(StageState state:STAGES.values()){
             state.outstanding=0;state.serviceSamples=0;state.serviceEwmaNanos=0;
             state.lastServiceSampleNanos=0;
