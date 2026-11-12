@@ -126,7 +126,13 @@ jobs:
           import json, os, pathlib, shutil, subprocess
           output = pathlib.Path('/tmp/maki-rebuilt')
           output.mkdir()
-          for project in json.loads(os.environ['PROJECTS']):
+          projects = json.loads(os.environ['PROJECTS'])
+          # Build the controller first: cache's source regression suite reads
+          # the installed controller artifact, even in a source-only rename PR.
+          if 'maki-chunksmith-controller' in projects:
+              projects.remove('maki-chunksmith-controller')
+              projects.insert(0, 'maki-chunksmith-controller')
+          for project in projects:
               directory = pathlib.Path('custom-mods') / project
               subprocess.run(['gradle', '--build-cache', '-p', str(directory), 'check', 'jar'], check=True)
               jars = list((directory / 'build/libs').glob('maki-*.jar'))
@@ -135,6 +141,8 @@ jobs:
                   raise SystemExit(f'No deployment JAR produced by {project}')
               for jar in jars:
                   shutil.copy2(jar, output / jar.name)
+                  if project == 'maki-chunksmith-controller':
+                      shutil.copy2(jar, pathlib.Path('mods') / jar.name)
           PY
 
       - name: Upload rebuilt deployment JARs
