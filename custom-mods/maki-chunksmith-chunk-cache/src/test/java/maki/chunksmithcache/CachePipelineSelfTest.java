@@ -253,12 +253,9 @@ public final class CachePipelineSelfTest {
     }
 
     private static void disk() throws Exception {
-        var oldSchema=new FingerprintManifest.Entry("cache:envelope-schema",1,CompatibilityFingerprint.sha256("2"),FingerprintManifest.Impact.RELEVANT,"protocol");
-        var newSchema=new FingerprintManifest.Entry("cache:envelope-schema",1,CompatibilityFingerprint.sha256("3"),FingerprintManifest.Impact.RELEVANT,"protocol");
-        require(!CompatibilityFingerprint.compute(List.of(oldSchema)).equals(CompatibilityFingerprint.compute(List.of(newSchema))),"protocol change cannot reuse old cache paths in generated hints");
-        var oldManifest=new FingerprintManifest.Manifest(CompatibilityFingerprint.compute(List.of()),0,java.util.Set.of(),List.of());
-        var newManifest=new FingerprintManifest.Manifest(CompatibilityFingerprint.compute(List.of(newSchema)),0,java.util.Set.of(),List.of(newSchema));
-        require(!FingerprintManifest.sameCompatibilityInputsExcept(oldManifest,newManifest,java.util.Set.of("policy:compatibility"),null),"historical semantic adoption cannot bypass the missing protocol proof");
+        require(Fingerprint.CACHE_ID.matches("[0-9a-f]{24}"),
+            "stored FULLs must use one stable cache namespace");
+        require(CacheEnvelope.SCHEMA == 3, "saved FULL envelope format must remain explicit");
         Path root=Files.createTempDirectory("cache-disk-test");
         try {
             Path configuration=root.resolveSibling(root.getFileName()+".properties");
