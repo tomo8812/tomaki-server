@@ -27,13 +27,12 @@ final class CacheCommands {
     private static int status(CommandSourceStack source) {
         Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(source.getLevel());
         if (snapshot == null) {
-            source.sendFailure(Component.literal("Chunk-cache fingerprint is still being computed or failed closed."));
+            source.sendFailure(Component.literal("Chunk-cache storage is not initialized."));
             return 0;
         }
-        FingerprintPolicy policy = snapshot.policy();
+        CacheRetentionPolicy policy = snapshot.policy();
         source.sendSuccess(() -> Component.literal(
-            "Chunk-cache fingerprint=" + snapshot.fingerprint()
-                + ", legacy=" + snapshot.legacyFingerprint()
+            "Chunk-cache storage id=" + snapshot.fingerprint()
                 + ", quarantine retention=" + policy.retentionDays() + "d"
                 + ", maxGenerations=" + policy.maxGenerations()
                 + ", maxBytes=" + policy.maxBytes()
@@ -86,7 +85,7 @@ final class CacheCommands {
         ServerLevel level = source.getLevel();
         Fingerprint.Snapshot snapshot = Fingerprint.snapshotForLevel(level);
         if (snapshot == null) {
-            source.sendFailure(Component.literal("Restore refused: current compatibility fingerprint is unavailable."));
+            source.sendFailure(Component.literal("Restore refused: cache storage is not initialized."));
             return 0;
         }
         boolean queued = CacheManager.submitMaintenance(() -> {
