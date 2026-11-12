@@ -53,7 +53,7 @@ E-liteが投入拒否のために生成した失敗Future、`REJECTED_UPDATES`�
 
 ### 4. 計測できない仕事をNEW/REPAIRと偽称しない
 
-既存FULLのLOD補完・強制読込のように`isChunkGenerated`を呼ばない場合は`UNKNOWN`のまま管理し、誤って`REPAIR`の件数へ加算しない。FULL/LOD両方の物理完了が取れた場合のPAIR goodputは計上できるが、未知の仕事分類を性能プロファイルの比較に混入させない。
+既存FULLのLOD補完は、Chunksmithの`forceLoadExistingChunks=false`と非照会経路の組合せから`REPAIR`と確定し、不要なFULL検証／書込WIPを即時解放する。`forceLoadExistingChunks=true`で生成済み判定を省いた座標は`UNKNOWN`のまま全stageのWIPを保持し、NEW/REPAIRを偽称しない。FULL/LOD両方の物理完了が取れた場合のPAIR goodputは計上できるが、未知の仕事分類を性能プロファイルの比較に混入させない。
 
 ## バイナリ／テスト
 
