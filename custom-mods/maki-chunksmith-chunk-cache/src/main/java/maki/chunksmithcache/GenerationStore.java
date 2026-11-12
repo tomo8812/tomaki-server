@@ -225,41 +225,35 @@ final class GenerationStore {
         }
     }
 
-    private static void quarantineRejectedRemainders(Path root, Fingerprint.Snapshot snapshot, String trigger) throws IOException {
-        List<Path> generations;
+    /**
+     * Quarantine files which failed their own FULL format/ownership checks.
+     * No environment or server-version changes trigger quarantine.
+     */
+    private static void quarantineRejectedRemainders(
+        Path root, Fingerprint.Snapshot snapshot, String trigger
+    ) throws IOException {
+        List<Path> remaining;
         try (Stream<Path> stream = Files.list(root)) {
-            generations = stream.filter(Files::isDirectory)
+            remaining = stream.filter(Files::isDirectory)
                 .filter(path -> path.getFileName().toString().matches("[0-9a-f]{24}"))
                 .filter(path -> !path.getFileName().toString().equals(snapshot.fingerprint()))
                 .toList();
         }
-        for (Path generation : generations) {
-            String oldFingerprint = generation.getFileName().toString();
-            FingerprintManifest.Manifest oldManifest = FingerprintManifest.readIfValid(generation.resolve(FingerprintManifest.FILE_NAME));
-            Stats stats = stats(generation);
-            String reason;
-            List<String> changed;
-            if (oldManifest == null) {
-                reason = "legacy-or-missing-manifest; compatibility cannot be proven";
-                changed = List.of("unknown: no v2 manifest");
-            } else {
-                FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
-                changed = FingerprintManifest.changedCompatibilityInputs(
-                    oldManifest, current, Set.of("policy:compatibility"), 12, generation
-                );
-                reason = changed.isEmpty()
-                    ? "fingerprint mismatch with no explainable manifest diff; fail-closed"
-                    : "compatibility inputs changed or historical migration proof is missing";
-            }
+        for (Path old : remaining) {
+            Stats stats = stats(old);
+            String oldId = old.getFileName().toString();
             Path quarantine = root.resolve(QUARANTINE_DIR);
             Files.createDirectories(quarantine);
-            Path target = unique(quarantine.resolve(oldFingerprint + "-" + System.currentTimeMillis()));
-            move(generation, target);
+            Path target = unique(quarantine.resolve(oldId + "-" + System.currentTimeMillis()));
+            move(old, target);
             Files.setLastModifiedTime(target, FileTime.fromMillis(System.currentTimeMillis()));
             Files.writeString(target.resolve(QUARANTINE_INFO),
-                "oldFingerprint=" + oldFingerprint + "\nnewFingerprint=" + snapshot.fingerprint() + "\ntrigger=" + trigger + "\nreason=" + reason + "\nchangedInputs=" + changed + "\nentries=" + stats.entries() + "\nbytes=" + stats.bytes() + "\n");
-            LOG.warn("Quarantined incompatible chunk-cache generation {} -> {} for {}; entries={} bytes={} reason={} changedInputs={} trigger={}",
-                oldFingerprint, snapshot.fingerprint(), root.getFileName(), stats.entries(), stats.bytes(), reason, changed, trigger);
+                "sourceCacheId=" + oldId + "\n"
+                + "trigger=" + trigger + "\n"
+                + "reason=incomplete, invalid or conflicting FULL payload or legacy owner metadata\n"
+                + "entries=" + stats.entries() + "\nbytes=" + stats.bytes() + "\n");
+            LOG.warn("Retained unadopted FULL cache files in {} for {}; entries={} bytes={} trigger={}",
+                target, root.getFileName(), stats.entries(), stats.bytes(), trigger);
         }
     }
 
