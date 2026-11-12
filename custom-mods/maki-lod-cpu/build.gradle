@@ -171,7 +171,7 @@ tasks.register('verifyPregenControllerV2') {
          'retrying-admission-deferred','waiting-admission-retry','pregenDeferredCoordinates(lastTask)'].each { token ->
             if(!center.contains(token))throw new GradleException('Pregen V2 regression: stop epoch/admission policy missing '+token)
         }
-        ['blockFollowAdmission(GenerationTask task)','followAdmissionEpoch','followAdmissionOpen'].each { token ->
+        ['blockFollowAdmission(GenerationTask task)','followAdmissionEpoch','followAdmissionOpen','PregenFlowController.admissionBlocked()'].each { token ->
             if(!api.contains(token))throw new GradleException('Pregen V2 regression: admission bridge missing '+token)
         }
         def gate=mixin.indexOf('ResourceBudgetApi.blockFollowAdmission((GenerationTask)(Object)this)')
@@ -182,13 +182,13 @@ tasks.register('verifyPregenControllerV2') {
          'cpu-quota-throttle-regressed'].each { token ->
             if(!policy.contains(token))throw new GradleException('Pregen V2 regression: c-neighbourhood policy missing '+token)
         }
-        if(!governor.contains('pairConfirmedRuntime')||governor.contains('setFastTuningFrozen("probe".equals(POLICY.phase))'))
+        if(!governor.contains('pairConfirmedRuntime')||!governor.contains('PregenFlowController.snapshot()'))
             throw new GradleException('Pregen V2 regression: confirmed PAIR objective or live FAST policy during c probes is missing')
         if(!governor.contains('budget.throttledMicros()-lastThrottled') || !governor.contains('throttled);'))
             throw new GradleException('Pregen V2 regression: cgroup quota throttling is not included in c trial cost')
-        if(!governor.contains('notifyGenerationCapChanged(cap)') || !governor.contains('"generationCapChanged",int.class'))
+        if(!governor.contains('notifyGenerationCapChanged(cap)') || !governor.contains('PregenFlowController.generationCapChanged(nextCap)'))
             throw new GradleException('Pregen V2 regression: FAST service confidence is not reset after c changes')
-        ['CONTROLLER_VERSION','cpuAffinity','cpuQuota','heapMaxBytes','chunksmithConfig','cacheControllerVersion',
+        ['CONTROLLER_VERSION','cpuAffinity','cpuQuota','heapMaxBytes','chunksmithConfig','pairFeedVersion',
          'fastSignature','workClassBand','MAX_AGE_MILLIS'].each { token ->
             if(!profile.contains(token))throw new GradleException('Pregen V2 regression: environment-scoped performance profile missing '+token)
         }
@@ -199,3 +199,26 @@ tasks.register('verifyPregenControllerV2') {
     }
 }
 tasks.named('check') { dependsOn tasks.named('verifyPregenControllerV2') }
+
+tasks.register('verifyEliteOwnership') {
+    def root = file('src/main/java/maki/lodcpu')
+    def hooks = file('src/main/java/maki/lodcpu/mixin/GenerationTaskMixin.java')
+    def controller = file('src/main/java/maki/lodcpu/PregenFlowController.java')
+    def api = file('src/main/java/maki/lodcpu/ResourceBudgetApi.java')
+    inputs.files(hooks,controller,api)
+    doLast {
+        def mixin = hooks.getText('UTF-8')
+        def flow = controller.getText('UTF-8')
+        def bridge = api.getText('UTF-8')
+        ['maki$admitNativeCandidate','maki$admitNativeRequest','maki$preserveDeferred'].each {
+            if (!mixin.contains(it)) throw new GradleException('E-lite native admission hook missing ' + it)
+        }
+        ['fullReady(String token)','lodCommitted(String token)','tryConfirmRuntimePair','proofFeedConnected'].each {
+            if (!flow.contains(it)) throw new GradleException('E-lite local completion accounting missing ' + it)
+        }
+        if (bridge.contains('getMethod("admissionBlocked")') || bridge.contains('getMethod("controllerStatus")'))
+            throw new GradleException('Generation control must not delegate admission to chunk-cache')
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifyEliteOwnership') }
+
