@@ -115,80 +115,38 @@ final class GenerationStore {
             RecoveryClaims.initialize(dimensionRoot(level));
             Path source = quarantineTarget(level, id);
             if (!Files.isDirectory(source)) return "quarantine not found: " + id;
-            FingerprintManifest.Manifest manifest = FingerprintManifest.readIfValid(source.resolve(FingerprintManifest.FILE_NAME));
-            if (manifest == null) return "restore refused: quarantine has no valid compatibility manifest";
-            FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
-            boolean exact = manifest.fingerprint().equals(snapshot.fingerprint());
-            boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(
-                manifest,
-                current,
-                Set.of("policy:compatibility"),
-                source
-            );
-            if (!exact && !semantic) {
-                List<String> changed = FingerprintManifest.changedCompatibilityInputs(
-                    manifest, current, Set.of("policy:compatibility"), 12, source
-                );
-                return "restore refused: quarantined inputs are not proven compatibility-equivalent; current="
-                    + snapshot.fingerprint() + " quarantined=" + manifest.fingerprint() + " changed=" + changed;
-            }
-            CacheDiskBudget migrationBudget = refreshMigrationBudget(level);
+            FingerprintManifest.Manifest old = historicalIdentity(source);
+            if (old == null) return "restore refused: invalid historical cache identity";
+            CacheDiskBudget budget = refreshMigrationBudget(level);
             Path active = dimensionRoot(level).resolve(snapshot.fingerprint());
-            FingerprintManifest.Manifest activeManifest = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
-            List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
-                manifest, current, Set.of("policy:compatibility"), 12, source
-            );
-            CacheDirectoryMerge.MergeStats merge = mergeForCompatibility(
-                level, manifest, current, source, active, false, migrationBudget);
-            Set<String> accepted = new LinkedHashSet<>(manifest.storedFingerprints());
-            accepted.add(manifest.fingerprint());
-            accepted.add(snapshot.fingerprint());
-            if (activeManifest != null) accepted.addAll(activeManifest.storedFingerprints());
-            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
+            FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+            FingerprintManifest.Manifest existing =
+                FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
+            CacheDirectoryMerge.MergeStats merge = copyValidFulls(
+                level, old, current, source, active, budget);
+            Set<String> accepted = acceptedIdentities(snapshot, old, existing);
+            FingerprintManifest.writeAtomic(
+                active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
 
-            long cleanedSourceEntries = 0L;
-            long retainedSourceEntries = 0L;
-            if (Files.isDirectory(source)) {
-                Predicate<Path> sourceVerified = cacheValidator(level, manifest);
-                Predicate<Path> targetVerified = cacheValidator(
-                    level, validationManifest(current, active, manifest));
-                cleanedSourceEntries = CacheDirectoryMerge.cleanupCopiedSources(
-                    source, active, sourceVerified, targetVerified);
-                retainedSourceEntries = stats(source).entries();
-                if (retainedSourceEntries == 0L) {
-                    deleteTree(source);
-                } else {
-                    Files.writeString(
-                        source.resolve(RECOVERY_INFO),
-                        "sourceFingerprint=" + manifest.fingerprint() + "\n"
-                            + "targetFingerprint=" + snapshot.fingerprint() + "\n"
-                            + "proof=manual restore\n"
-                            + "proofDetails=" + proofDetails + "\n"
-                            + "sourceEntries=" + merge.sourceEntries() + "\n"
-                            + "adoptedEntries=" + merge.adoptedEntries() + "\n"
-                            + "duplicateEntries=" + merge.duplicateEntries() + "\n"
-                            + "cleanedSourceEntries=" + cleanedSourceEntries + "\n"
-                            + "retainedSourceEntries=" + retainedSourceEntries + "\n"
-                            + "sourcePreserved=true\n"
-                            + "trigger=manual-restore\n"
-                    );
-                    Files.setLastModifiedTime(source, FileTime.fromMillis(System.currentTimeMillis()));
-                }
+            // Finish cleanup only after the acceptance manifest is durable.
+            long cleaned = CacheDirectoryMerge.cleanupCopiedSources(
+                source, active, cacheValidator(level, old),
+                cacheValidator(level, validationManifest(current, active, old)));
+            long remaining = stats(source).entries();
+            if (remaining == 0) {
+                deleteTree(source);
+            } else {
+                writeRecoveryReceipt(source, old.fingerprint(), snapshot.fingerprint(),
+                    merge, "manual-restore");
             }
-
-            String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
-            long activeEntries = stats(active).entries();
-            LOG.info(
-                "Restored quarantined chunk-cache generation {} for {} after {}; sourceEntries={} adoptedEntries={} duplicateEntries={} cleanedSourceEntries={} retainedSourceEntries={} activeEntriesAfter={} proofDetails={}",
-                id, CacheManager.dimensionKey(level), proof, merge.sourceEntries(), merge.adoptedEntries(),
-                merge.duplicateEntries(), cleanedSourceEntries, retainedSourceEntries, activeEntries, proofDetails
-            );
-            return "restored " + id + " to active fingerprint " + snapshot.fingerprint() + " after " + proof
-                + " (source=" + merge.sourceEntries() + ", adopted=" + merge.adoptedEntries()
-                + ", duplicates=" + merge.duplicateEntries() + ", cleaned=" + cleanedSourceEntries
-                + ", retained=" + retainedSourceEntries + ", active=" + activeEntries + ")";
+            LOG.info("Restored valid FULLs from quarantine {} for {}; adopted={} duplicates={} rejected={} cleaned={} retained={}",
+                id, CacheManager.dimensionKey(level), merge.adoptedEntries(),
+                merge.duplicateEntries(), merge.rejectedEntries(), cleaned, remaining);
+            return "restored " + id + " (adopted=" + merge.adoptedEntries()
+                + ", duplicates=" + merge.duplicateEntries()
+                + ", rejected=" + merge.rejectedEntries() + ", retained=" + remaining + ")";
         } catch (Throwable error) {
-            LOG.warn("Could not restore quarantined chunk-cache generation {}", id, error);
+            LOG.warn("Could not restore quarantined FULL cache {}", id, error);
             return "restore failed: " + error.getClass().getSimpleName();
         }
     }
