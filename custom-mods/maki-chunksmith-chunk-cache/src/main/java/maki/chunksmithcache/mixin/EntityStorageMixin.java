@@ -19,7 +19,7 @@ public abstract class EntityStorageMixin {
    private ServerLevel level;
 
    @Inject(method = "storeEntities(Lnet/minecraft/world/level/entity/ChunkEntities;)V", at = @At("HEAD"), cancellable = true)
-   private void maki$backfillEntityVeto(ChunkEntities<Entity> var1, CallbackInfo var2) {
+   private void maki$temporaryEntityVeto(ChunkEntities<Entity> var1, CallbackInfo var2) {
       if (CacheManager.pregenPersistenceSuppressed(this.level, var1.getPos())) {
          var2.cancel();
       }

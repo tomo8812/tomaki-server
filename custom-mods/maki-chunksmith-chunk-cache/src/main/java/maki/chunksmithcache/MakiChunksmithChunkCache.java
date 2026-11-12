@@ -12,11 +12,10 @@ import org.slf4j.LoggerFactory;
 public final class MakiChunksmithChunkCache {
     private static final Logger LOG = LoggerFactory.getLogger("MakiChunkCache");
     public MakiChunksmithChunkCache() {
-        FullTelemetryBridge.connect();
         LOG.info("Maki Chunksmith Chunk Cache initialized; temporary FULL capture and player-load handoff are enabled.");
         NeoForge.EVENT_BUS.addListener((ServerStoppingEvent event) -> {
             CacheManager.stop(event.getServer());
-            LOG.info("Chunk cache stopping: new work closed; incomplete captures remain retryable, in-use entries remain isolated.");
+            LOG.info("Chunk cache stopping: new work closed; in-use entries remain protected until normal persistence completes.");
         });
         NeoForge.EVENT_BUS.addListener((net.neoforged.neoforge.event.server.ServerStoppedEvent event) -> {
             CacheManager.stopped(event.getServer());

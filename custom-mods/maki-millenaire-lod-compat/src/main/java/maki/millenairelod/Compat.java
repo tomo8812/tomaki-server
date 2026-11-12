@@ -61,6 +61,7 @@ public final class Compat {
       // Millenaire drops the LBCandidate when its native TTL has elapsed.
       // Drop our replay record too, or an expired lone building returns as a village.
       DeferredData.get(level).consume(new ChunkPos(pos).toLong());
+      ReplayController.resolved(level,pos);
    }
 
 }

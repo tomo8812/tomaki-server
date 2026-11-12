@@ -7,7 +7,9 @@
     "MillenaireMixin",
     "LoneCandidateAccessor",
     "SpawnQueueMixin",
-    "SiteHunterMixin"
+    "SiteHunterMixin",
+    "VillageQueueAccessor",
+    "SiteHunterWorkAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

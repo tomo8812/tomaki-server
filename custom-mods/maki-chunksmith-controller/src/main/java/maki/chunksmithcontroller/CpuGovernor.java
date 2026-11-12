@@ -1,6 +1,7 @@
 package maki.chunksmithcontroller;
 
 import com.sun.management.OperatingSystemMXBean;
+import maki.chunksmithcache.CacheManager;
 import java.lang.management.ManagementFactory;
 import java.nio.file.*;
 import java.io.Reader;
@@ -14,7 +15,6 @@ public final class CpuGovernor {
     private static final Path CONFIG=Path.of("config/maki-chunksmith-controller.properties");
     private static final Path PREGEN_PROFILE=Path.of("config/maki-chunksmith-controller-pregen-profile.properties");
     private static final AdaptivePolicy POLICY=new AdaptivePolicy();
-    private static final SharedWorkBudget SHARED_BUDGET=new SharedWorkBudget();
     private static Settings settings=new Settings();
     private static volatile int cap=2;
     private static volatile long taskActivity;
@@ -27,7 +27,6 @@ public final class CpuGovernor {
     private static WorkTelemetry profileWork;
     private static boolean profileDecisionMade;
     private static long profileNewPairs,profileRepairPairs,lastProfileSavedMillis;
-    private static long lastBudgetTransition;
     private static volatile String pipelinePressure;
     private static boolean configGood=true;
     private static double capacity=detectCapacity();
@@ -36,72 +35,28 @@ public final class CpuGovernor {
     public static boolean healthyConfig(){return configGood;}
     public static int cap(){return cap;}
     public static String pipelinePressure(){refreshPipelinePressure();return pipelinePressure;}
-    public static boolean pregenRetryPending(MinecraftServer server,int centerX,int centerZ,int radiusBlocks){
-        // Cache-owned FULL retry debt, kept separate from native dispatch.
-        try { return Boolean.TRUE.equals(Class.forName("maki.chunksmithcache.CacheManager")
-            .getMethod("pregenRetryPending",MinecraftServer.class,int.class,int.class,int.class)
-            .invoke(null,server,centerX,centerZ,radiusBlocks)); }
-        catch (ClassNotFoundException absent) { return false; }
-        catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) { return true; }
+    public static boolean fullWorkPending(MinecraftServer server,int centerX,int centerZ,int radiusBlocks){
+        return CacheManager.fullWorkPending(server,centerX,centerZ,radiusBlocks);
     }
-
-    public static boolean pregenReady(net.minecraft.server.MinecraftServer server){
-        try { return Boolean.TRUE.equals(Class.forName("maki.chunksmithcache.CacheManager")
-            .getMethod("pregenReady",net.minecraft.server.MinecraftServer.class).invoke(null,server)); }
-        catch (ClassNotFoundException absent) { return true; }
-        catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) { return false; }
-    }
-
-    // Observation only: source MODs retain authoritative queue/memory ownership.
-    // Missing optional MODs do not block startup or a healthy standalone governor.
-    static void refreshPipelinePressure() {
-        String reason = null;
-        for (String source : new String[]{"maki.chunksmithcache.CacheManager"}) {
-            try {
-                Object value = Class.forName(source).getMethod("resourcePressure").invoke(null);
-                if (value instanceof String text && !text.isEmpty()) { reason=text; break; }
-            } catch (ClassNotFoundException absent) {
-                // Optional provider is not installed.
-            } catch (ReflectiveOperationException | LinkageError | RuntimeException unavailable) {
-                // A broken observation provider must not deadlock all generation.
-                // Its own bounded admission still protects its storage pipeline.
-                LOG.debug("Pipeline pressure source unavailable: {}",source,unavailable);
-            }
-        }
-        pipelinePressure=reason;
-        SHARED_BUDGET.pipelinePressure(reason);
-    }
+    public static boolean pregenReady(MinecraftServer server){return CacheManager.pregenReady(server);}
+    static void refreshPipelinePressure(){pipelinePressure=CacheManager.resourcePressure();}
 
     private record ControllerObservation(boolean available,long pairConfirmed,long pairNew,long pairRepair,long uncertain,
                                          long oldestMillis,boolean admissionBlocked,boolean sensorUnknown,
                                          long fastSignature,String reason){}
 
     private static ControllerObservation controllerObservation() {
-        // Stage windows and PAIR goodput now belong exclusively to lod-cpu.
-        // PR #90's cache/Chunksmith integrations will report physical outcomes
-        // through ResourceBudgetApi. Missing proof feed disables SLOW learning.
+        // Completion events come directly from the installed FULL cache and native LOD sink.
         PregenFlowController.Snapshot state=PregenFlowController.snapshot();
-        boolean ready=PregenFlowController.proofFeedConnected();
-        return new ControllerObservation(ready,state.pairConfirmedRuntime(),state.pairNew(),
+        return new ControllerObservation(true,state.pairConfirmedRuntime(),state.pairNew(),
             state.pairRepair(),state.uncertain(),state.oldestMillis(),state.blocked(),
-            state.sensorUnknown()||!ready,state.fastSignature(),
-            ready?"elite-local-control":"waiting-pair-telemetry");
+            state.sensorUnknown(),state.fastSignature(),
+            "elite-local-control");
     }
 
     private static void notifyGenerationCapChanged(int nextCap) {
         PregenFlowController.generationCapChanged(nextCap);
     }
-
-    static SharedWorkBudget.Decision reserveBackfill(String taskMode){
-        if(!configGood)return new SharedWorkBudget.Decision(false,false,"invalid-config",0L);
-        return SHARED_BUDGET.request(System.nanoTime(),taskMode,settings);
-    }
-    static boolean backfillReservationHeld(){return SHARED_BUDGET.reserved();}
-    static void noteFollowInFlight(int count){SHARED_BUDGET.noteFollowInFlight(count);}
-    static boolean blockFollowDispatch(){return SHARED_BUDGET.blockFollowDispatch();}
-    static void backfillStarted(){SHARED_BUDGET.backfillStarted(System.nanoTime());}
-    static void releaseBackfill(String outcome){SHARED_BUDGET.release(System.nanoTime(),outcome,settings);}
-    static String sharedBudgetStatus(){return SHARED_BUDGET.summary(System.nanoTime());}
 
     public static void markActive(){taskActivity=System.nanoTime();}
     public static void observe(WorkTelemetry work){observedWork=work;}
@@ -113,7 +68,7 @@ public final class CpuGovernor {
         long cpu=cpuTime(),gc=gcMillis();
         if(lastTime==0){
             lastTime=now;lastCpu=cpu;lastGc=gc;
-            LOG.info("Maki Chunksmith Controller E-lite ready: allocated {} cores, ceiling {}..{}; follow dispatch and real-chunk backfill share one pressure-aware time budget, and CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);
+            LOG.info("Maki Chunksmith Controller E-lite ready: allocated {} cores, ceiling {}..{}; generation uses stage WIP and confirmed FULL/LOD results",capacity,settings.min,settings.max);
             return;
         }
 
@@ -154,17 +109,13 @@ public final class CpuGovernor {
             sync,(stateFresh&&state.held()) || pipelinePressure!=null,batch.latencyP95Ms(),oom,throttled);
 
         refreshPipelinePressure();
-        SHARED_BUDGET.observe(new SharedWorkBudget.Sample(
-            now,players,used,mspt,heap,gcPercent,budget.headroomMb(),budget.memoryPsi(),budget.ioPsi(),
-            writes/seconds,batch.completions()/seconds,stateFresh?state.width():0,stateFresh?state.inFlight():0,
-            lod.queue(),stateFresh?state.worldWrites():-1,sync,stateFresh&&state.held()));
-
         ControllerObservation controller=controllerObservation();
         long pairDelta=controller.available()&&previousPairConfirmed>=0
             ?Math.max(0,controller.pairConfirmed()-previousPairConfirmed):0;
         long newDelta=controller.available()&&previousPairNew>=0?Math.max(0,controller.pairNew()-previousPairNew):0;
         long repairDelta=controller.available()&&previousPairRepair>=0?Math.max(0,controller.pairRepair()-previousPairRepair):0;
         long uncertainDelta=controller.available()&&previousUncertain>=0?Math.max(0,controller.uncertain()-previousUncertain):0;
+        long unknownDelta=Math.max(0L,pairDelta-newDelta-repairDelta);
         previousPairConfirmed=controller.available()?controller.pairConfirmed():-1;
         previousPairNew=controller.available()?controller.pairNew():-1;
         previousPairRepair=controller.available()?controller.pairRepair():-1;
@@ -176,9 +127,7 @@ public final class CpuGovernor {
         }
         String workClassBand=PregenPerformanceProfile.workClassBand(profileNewPairs,profileRepairPairs);
 
-        long budgetTransition=SHARED_BUDGET.transitionSerial();
-        boolean sharedBackfillPause=SHARED_BUDGET.reserved()||budgetTransition!=lastBudgetTransition;
-        if(!profileDecisionMade&&active&&players==0&&!sharedBackfillPause&&pairAvailable
+        if(!profileDecisionMade&&active&&players==0&&pairAvailable
             &&!"UNKNOWN".equals(workClassBand)){
             PregenPerformanceProfile.Environment environment=performanceEnvironment(controller.fastSignature(),workClassBand);
             OptionalInt warm=PregenPerformanceProfile.load(PREGEN_PROFILE,environment,settings,System.currentTimeMillis());
@@ -192,14 +141,11 @@ public final class CpuGovernor {
         if(!configGood)cap=POLICY.unavailable(settings,"invalid-config");
         else if(players>0)cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked(),
             controller.fastSignature(),newDelta,repairDelta,uncertainDelta,controller.oldestMillis());
-        else if(sharedBackfillPause)cap=POLICY.updateSafetyOnly(sample,players,settings);
         else if(!active)cap=POLICY.reset(settings,"generation-idle");
         else {
             cap=POLICY.update(sample,players,settings,pairDelta,pairAvailable,controller.admissionBlocked(),
                 controller.fastSignature(),newDelta,repairDelta,uncertainDelta,controller.oldestMillis());
-            SHARED_BUDGET.noteCleanFollowSample();
         }
-        lastBudgetTransition=budgetTransition;
         if(previous!=cap)notifyGenerationCapChanged(cap);
 
         boolean experimentFinished=reportedExperiment!=POLICY.experimentNumber;
@@ -216,10 +162,10 @@ public final class CpuGovernor {
                 lastProfileSavedMillis=wallNow;
         }
         if(previous!=cap||experimentFinished||now-lastReport>=30_000_000_000L){
-            LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); confirmed PAIR {}/s ({} in sample), all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}, admissionBlocked={}, controllerReason={}; shared budget [{}]",
+            LOG.info("LOD CPU ceiling {} -> {}; CPU {}% of {} cores, MSPT {}, heap {}%, players {}, reason {} (follow-owned); confirmed PAIR {}/s ({} in sample; new {}, reused FULL {}, unclassified {}), all LOD saved {}/s ({} in sample), follow requests {}/s ({} in sample), GC {}%, native width {}, in-flight {}, LOD queue {}, phase {}, admissionBlocked={}, controllerReason={}",
                 previous,cap,fmt(used),fmt(capacity),fmt(mspt),fmt(heap),players,POLICY.reason,
-                fmt(pairDelta/seconds),pairDelta,fmt(writes/seconds),writes,fmt(batch.completions()/seconds),batch.completions(),fmt(gcPercent),
-                sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase,controller.admissionBlocked(),controller.reason(),SHARED_BUDGET.summary(now));
+                fmt(pairDelta/seconds),pairDelta,newDelta,repairDelta,unknownDelta,fmt(writes/seconds),writes,fmt(batch.completions()/seconds),batch.completions(),fmt(gcPercent),
+                sample.nativeWidth(),sample.inFlight(),sample.lodQueue(),POLICY.phase,controller.admissionBlocked(),controller.reason());
             lastReport=now;
         }
     }
@@ -257,7 +203,7 @@ public final class CpuGovernor {
     }
 
     private static String pairFeedVersion(){
-        return PregenFlowController.proofFeedConnected()?"E_LITE_PAIR_V1":"absent";
+        return "E_LITE_FULL_PROVENANCE_V2";
     }
 
     private static String fmt(double n){return String.format(Locale.ROOT,"%.1f",n);}
@@ -315,11 +261,10 @@ public final class CpuGovernor {
             configGood=true;
             cap=POLICY.reset(settings,"config-reloaded");
             profileDecisionMade=false;profileNewPairs=profileRepairPairs=0;
-            LOG.info("Loaded {}; CPU budget {} cores, ceiling {}..{}; confirmed-PAIR c-neighbourhood window {}s, settle {}s; safe backfill spacing {}..{}s",
-                CONFIG,capacity,fresh.min,fresh.max,fresh.windowSeconds,fresh.settleSeconds,
-                fresh.backfillMinSpacingSeconds,fresh.backfillMaxSafeWaitSeconds);
+            LOG.info("Loaded {}; CPU budget {} cores, ceiling {}..{}; confirmed-PAIR c-neighbourhood window {}s, settle {}s",
+                CONFIG,capacity,fresh.min,fresh.max,fresh.windowSeconds,fresh.settleSeconds);
         }catch(Exception e){
-            if(configGood)LOG.error("Throughput governor config missing/invalid; limiting generation and blocking new backfill until fixed: {}",e.toString());
+            if(configGood)LOG.error("Throughput governor config missing/invalid; limiting generation until fixed: {}",e.toString());
             configGood=false;
         }
     }

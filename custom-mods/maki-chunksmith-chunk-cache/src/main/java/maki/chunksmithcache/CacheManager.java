@@ -2,11 +2,10 @@ package maki.chunksmithcache;
 
 import com.kishku7.chunksmith.ChunksmithProvider;
 import com.kishku7.chunksmith.GenerationTask;
+import maki.chunksmithcontroller.ResourceBudgetApi;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Collections;
@@ -56,12 +55,8 @@ public final class CacheManager {
    private static final ConcurrentHashMap<String, CompletableFuture<Boolean>> ROTATION_RESULTS = new ConcurrentHashMap<>();
    private static final Map<String,Long> ROTATION_RETRY = new ConcurrentHashMap<>();
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
-   // Retry state covers FULL storage ownership only.
-   private static final Set<CaptureKey> PREGEN_RETRY = ConcurrentHashMap.newKeySet();
    private static final ConcurrentHashMap<CaptureKey,Long> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_REQUEST_TARGETS = new ConcurrentHashMap<>();
-   private static final ConcurrentHashMap<CaptureKey,Path> CONFIRMED_PREGEN = new ConcurrentHashMap<>();
-   private static final ConcurrentHashMap<CaptureKey,FileStamp> CONFIRMED_PREGEN_STAMP = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<Path,ConcurrentHashMap<String,Long>> NEXT_LOCAL_RECOVERY_WARNING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
    private static final Map<MinecraftServer, List<Path>> STOPPING_DIMENSIONS = new WeakHashMap<>();
@@ -95,47 +90,40 @@ public final class CacheManager {
       if(PREGEN_REQUEST_TARGETS.get(key)!=sourceTask) { FullTelemetryBridge.failed(token); return; }
       boolean generatedTarget=PREGEN_NEW_TARGETS.remove(key)!=null;
       if(PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.BORROWED || !generatedTarget) {
-         FullTelemetryBridge.ready(token);
+         FullTelemetryBridge.reused(token);
          return;
       }
-      if(!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(level)
+      if(!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(sourceTask)
          || PregenBorrowLedger.kind(level,pos)!=PregenBorrowLedger.Kind.GENERATED
          || PregenBorrowLedger.isHandedOff(level,pos)) {
          FullTelemetryBridge.failed(token);
          return;
       }
-      CompletableFuture<Boolean> saved=capture(level,chunk,token);
-      PregenBorrowLedger.attachCapture(level,pos,saved);
-      saved.whenComplete((ok,error)->{
-         if(error==null&&Boolean.TRUE.equals(ok)) {
-            Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
-            if(snapshot!=null&&!STOPPING.contains(level.getServer()))
-               confirmPregenFull(key,path(level,pos,snapshot.fingerprint()));
-         } else addRetry(PREGEN_RETRY,key);
-      });
+      PregenBorrowLedger.attachCapture(level,pos,capture(level,chunk,token));
+
    }
 
-   /** Storage integration called by the sole Controller generation hook. */
-   public static CompletableFuture<Boolean> observeGenerated(com.kishku7.chunksmith.platform.World world,
-      int x,int z,GenerationTask task,CompletableFuture<Boolean> nativeResult) {
-      if(!(world instanceof com.kishku7.chunksmith.platform.NeoForgeWorld neoforge))return nativeResult;
-      ServerLevel level=neoforge.getWorld();
-      ChunkPos pos=new ChunkPos(x,z);
-      return protectChunksmithGeneratedResult(level,pos,task,nativeResult).whenComplete((generated,error)->{
-         if(error==null)noteChunksmithGeneratedResult(level,pos,task,Boolean.TRUE.equals(generated));
-         else noteChunksmithGeneratedFailure(level,pos,task);
-      });
-   }
-
+   /** FULL ownership at the actual native load boundary. */
    public static CompletableFuture<Void> request(com.kishku7.chunksmith.platform.World world,
       int x,int z,GenerationTask task,java.util.function.Supplier<CompletableFuture<Void>> nativeRequest) {
-      if(!(world instanceof com.kishku7.chunksmith.platform.NeoForgeWorld neoforge))return nativeRequest.get();
-      ServerLevel level=neoforge.getWorld();
+      ServerLevel level=((com.kishku7.chunksmith.platform.NeoForgeWorld)world).getWorld();
       ChunkPos pos=new ChunkPos(x,z);
-      CompletableFuture<Boolean> classified=PREGEN_NEW_TARGETS.containsKey(captureKey(level,pos))
-         ? CompletableFuture.completedFuture(false):confirmNativeGenerated(level,pos,captureKey(level,pos));
-      return classified.thenCompose(generated->{
-         noteChunksmithGeneratedResult(level,pos,task,generated);
+      String token=FullTelemetryBridge.token(level,pos,task);
+      CompletableFuture<Boolean> classified=NormalChunkStorage.inspectAsync(level,pos).thenCompose(normal->{
+         if(normal==NormalChunkStorage.State.FULL){
+            PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
+            return CompletableFuture.completedFuture(true);
+         }
+         if(normal==NormalChunkStorage.State.UNKNOWN)
+            return CompletableFuture.failedFuture(new IOException("FULL storage ownership unavailable at "+pos));
+         // Reading/borrowing the actual cache protects FULL data without changing
+         // Chunksmith's generated-state or LOD decisions.
+         return loadForPregen(level,pos).thenApply(Optional::isPresent);
+      });
+      return classified.thenCompose(existingFull->{
+         CaptureKey key=captureKey(level,pos);
+         if(!existingFull&&ResourceBudgetApi.fullCaptureExpected(token))PREGEN_NEW_TARGETS.put(key,System.currentTimeMillis());
+         else PREGEN_NEW_TARGETS.remove(key);
          // FULL ownership is storage policy, independent of resource admission.
          if(!preparePregenRequest(level,pos,task)) {
             pregenRequestFailed(level,pos,task);
@@ -147,30 +135,12 @@ public final class CacheManager {
       });
    }
 
-   public static boolean pregenRetryPending(MinecraftServer server, int centerX, int centerZ, int radiusBlocks) {
+   public static boolean fullWorkPending(MinecraftServer server, int centerX, int centerZ, int radiusBlocks) {
       if(server==null)return false;
       long radius=(long)Math.max(0,radiusBlocks)+16L;
       long radiusSquared=radius*radius;
-      if(anyInRange(server,PREGEN_RETRY,centerX,centerZ,radiusSquared))return true;
       if(anyInRange(server,PREGEN_NEW_TARGETS.keySet(),centerX,centerZ,radiusSquared))return true;
       return anyInRange(server,CAPTURE_PENDING.keySet(),centerX,centerZ,radiusSquared);
-   }
-
-   public static void noteChunksmithGeneratedResult(ServerLevel level,ChunkPos pos,GenerationTask sourceTask,boolean generated) {
-      if(level==null||pos==null||sourceTask==null||STOPPING.contains(level.getServer())
-         || !FollowCaptureOwnership.active(level,sourceTask))return;
-      CaptureKey key=captureKey(level,pos);
-      if(generated) PREGEN_NEW_TARGETS.remove(key);
-      else PREGEN_NEW_TARGETS.put(key,System.currentTimeMillis());
-   }
-
-   public static void noteChunksmithGeneratedFailure(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
-      if(level==null||pos==null||sourceTask==null||STOPPING.contains(level.getServer())
-         || !FollowCaptureOwnership.active(level,sourceTask))return;
-      CaptureKey key=captureKey(level,pos);
-      PREGEN_NEW_TARGETS.remove(key);
-      addRetry(PREGEN_RETRY,key);
-      PipelineMetrics.count("pregen-generated-state-failed");
    }
 
    public static boolean preparePregenRequest(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
@@ -192,19 +162,9 @@ public final class CacheManager {
          PipelineMetrics.count("pregen-request-owner-conflict");
          return false;
       }
-      // A retry debt without an admitted NEW target means ownership is still
-      // unproven (normal storage UNKNOWN, an active claim, or an I/O failure).
-      // Chunksmith may request a missing LOD even after generated=true, so do
-      // not let that request create an unguarded FULL chunk.
-      if(PREGEN_RETRY.contains(key) && !PREGEN_NEW_TARGETS.containsKey(key)
-         && PregenBorrowLedger.kind(level,pos)==null) {
-         PipelineMetrics.count("pregen-unproven-full-request-blocked");
-         return false;
-      }
       if(!PREGEN_NEW_TARGETS.containsKey(key))return true;
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null) {
-         addRetry(PREGEN_RETRY,key);
          return false;
       }
       Path file=path(level,pos,snapshot.fingerprint());
@@ -212,7 +172,6 @@ public final class CacheManager {
       if(kind!=null && kind!=PregenBorrowLedger.Kind.GENERATED)return false;
       // A guard from a stopped task cannot be reused by this request.
       if(PregenBorrowLedger.beginGenerated(level,pos,file,sourceTask))return true;
-      addRetry(PREGEN_RETRY,key);
       return false;
    }
 
@@ -261,7 +220,6 @@ public final class CacheManager {
       }
       if(success)return;
       PREGEN_NEW_TARGETS.remove(key);
-      addRetry(PREGEN_RETRY,key);
       // Cancel only when no FULL was observed. A stopped task may already have
       // a live FULL in vanilla's chunk manager, which still needs the save veto.
       PregenBorrowLedger.requestFailed(level,pos,sourceTask);
@@ -294,184 +252,7 @@ public final class CacheManager {
     * small race before that atomic move.
     */
 
-   public static CompletableFuture<Boolean> protectChunksmithGeneratedResult(
-      ServerLevel level, ChunkPos pos, GenerationTask sourceTask, CompletableFuture<Boolean> nativeResult
-   ) {
-      if(level==null||pos==null||sourceTask==null||nativeResult==null)return nativeResult;
-      if(!FollowCaptureOwnership.owns(sourceTask))return nativeResult;
-      CaptureKey key=captureKey(level,pos);
-      return nativeResult.thenCompose(generated -> {
-         if(!FollowCaptureOwnership.active(level,sourceTask)) {
-            PipelineMetrics.count("pregen-stale-generated-result-blocked");
-            return CompletableFuture.failedFuture(
-               new IllegalStateException("Unified pregen generated-state result belongs to a stopped or detached task at "+pos));
-         }
-         if(Boolean.TRUE.equals(generated))return confirmNativeGenerated(level,pos,key);
-         CompletableFuture<Boolean> cacheDecision=chunksmithGeneratedDecision(level,pos);
-         return cacheDecision==null?CompletableFuture.completedFuture(false):cacheDecision;
-      });
-   }
-
-   private static CompletableFuture<Boolean> confirmNativeGenerated(ServerLevel level,ChunkPos pos,CaptureKey key) {
-      CompletableFuture<Boolean> cacheDecision=chunksmithGeneratedDecision(level,pos);
-      if(cacheDecision==null)return confirmNormalFull(level,pos,key);
-      return cacheDecision.handle((accepted,error) -> error==null?accepted:null)
-         .thenCompose(accepted -> Boolean.TRUE.equals(accepted)
-            ? CompletableFuture.completedFuture(true)
-            : confirmNormalFull(level,pos,key));
-   }
-
-   private static CompletableFuture<Boolean> confirmNormalFull(ServerLevel level,ChunkPos pos,CaptureKey key) {
-      try {
-         return NormalChunkStorage.inspectAsync(level,pos).handle((normal,error) -> {
-            if(error==null && normal==NormalChunkStorage.State.FULL) {
-               PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
-               PREGEN_RETRY.remove(key);
-               PREGEN_NEW_TARGETS.remove(key);
-               return true;
-            }
-            addRetry(PREGEN_RETRY,key);
-            if(error!=null || normal==null || normal==NormalChunkStorage.State.UNKNOWN) {
-               PipelineMetrics.count("pregen-normal-full-inspection-unknown");
-               // generated=true is not a safe way to stop: Chunksmith will
-               // still request a FULL chunk if its LOD is missing. Complete
-               // exceptionally so neither generation nor LOD repair starts.
-               throw new java.util.concurrent.CompletionException(
-                  new IllegalStateException("Normal FULL ownership is unknown at "+pos,error));
-            }
-            return false;
-         });
-      } catch(Throwable inspectFailure) {
-         addRetry(PREGEN_RETRY,key);
-         PipelineMetrics.count("pregen-normal-full-inspection-unknown");
-         return CompletableFuture.failedFuture(inspectFailure);
-      }
-   }
-
-   public static CompletableFuture<Boolean> chunksmithGeneratedDecision(ServerLevel level, ChunkPos pos) {
-      if(level==null||pos==null)return null;
-      if(STOPPING.contains(level.getServer()))return CompletableFuture.completedFuture(true);
-      CaptureKey key=captureKey(level,pos);
-      CaptureFlight pending=CAPTURE_PENDING.get(key);
-      if(pending!=null)return pending.result().thenApply(Boolean.TRUE::equals);
-
-      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
-      if(snapshot==null)return null;
-      String fingerprint=snapshot.fingerprint();
-      Path file=path(level,pos,fingerprint);
-      if(confirmedPregenMatches(key,file)) {
-         PREGEN_RETRY.remove(key);
-         return CompletableFuture.completedFuture(true);
-      }
-
-      Path claim=PromotionClaim.claimedPath(file);
-      try {
-         if(RecoveryClaims.claimExists(claim)) {
-            addRetry(PREGEN_RETRY,key);
-            return CompletableFuture.completedFuture(true);
-         }
-      } catch(IOException ownershipUnknown) {
-         addRetry(PREGEN_RETRY,key);
-         PipelineMetrics.count("promotion-claim-inspection-failed");
-         return CompletableFuture.completedFuture(true);
-      }
-      if(!Files.isRegularFile(file))return null;
-
-      try {
-         return CompletableFuture.supplyAsync(() -> {
-            try(var pathLock=CachePathLocks.lock(file)) {
-               try {
-                  if(RecoveryClaims.claimExists(claim)) {
-                     addRetry(PREGEN_RETRY,key);
-                     return true;
-                  }
-                  CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
-                  if(validEnvelope(envelope,level,pos,fingerprint)) {
-                     if(!STOPPING.contains(level.getServer()))confirmPregenFull(key,file);
-                     else addRetry(PREGEN_RETRY,key);
-                     PipelineMetrics.count("pregen-full-validated");
-                     return true;
-                  }
-                  clearConfirmedPregen(key);
-                  quarantineRejected(file);
-                  PipelineMetrics.count("pregen-full-invalid");
-                  return false;
-               } catch(IOException ownershipOrReadFailure) {
-                  clearConfirmedPregen(key);
-                  try {
-                     if(RecoveryClaims.claimExists(claim)) {
-                        addRetry(PREGEN_RETRY,key);
-                        return true;
-                     }
-                  } catch(IOException ownershipUnknown) {
-                     addRetry(PREGEN_RETRY,key);
-                     return true;
-                  }
-                  quarantineRejected(file);
-                  PipelineMetrics.count("pregen-full-invalid");
-                  return false;
-               } catch(Throwable invalid) {
-                  clearConfirmedPregen(key);
-                  quarantineRejected(file);
-                  PipelineMetrics.count("pregen-full-invalid");
-                  return false;
-               }
-            }
-         },READ_IO);
-      } catch(RejectedExecutionException full) {
-         addRetry(PREGEN_RETRY,key);
-         return CompletableFuture.completedFuture(true);
-      }
-   }
-
-   private record FileStamp(long size, FileTime modified) {}
-
-   private static FileStamp fileStamp(Path file) {
-      if(file==null)return null;
-      try {
-         BasicFileAttributes attrs=Files.readAttributes(file,BasicFileAttributes.class);
-         return attrs.isRegularFile()?new FileStamp(attrs.size(),attrs.lastModifiedTime()):null;
-      } catch(IOException unavailable) {
-         return null;
-      }
-   }
-
-   private static boolean confirmPregenFull(CaptureKey key,Path file) {
-      FileStamp stamp=fileStamp(file);
-      if(stamp==null) {
-         clearConfirmedPregen(key);
-         addRetry(PREGEN_RETRY,key);
-         return false;
-      }
-      CONFIRMED_PREGEN.put(key,file);
-      CONFIRMED_PREGEN_STAMP.put(key,stamp);
-      PREGEN_RETRY.remove(key);
-      return true;
-   }
-
-   private static void clearConfirmedPregen(CaptureKey key) {
-      if(key==null)return;
-      CONFIRMED_PREGEN.remove(key);
-      CONFIRMED_PREGEN_STAMP.remove(key);
-   }
-
-   private static boolean confirmedPregenMatches(CaptureKey key,Path expected) {
-      Path confirmed=CONFIRMED_PREGEN.get(key);
-      if(confirmed==null)return false;
-      FileStamp recorded=CONFIRMED_PREGEN_STAMP.get(key);
-      FileStamp current=expected==null?null:fileStamp(expected);
-      if(expected!=null&&expected.equals(confirmed)&&recorded!=null&&recorded.equals(current))return true;
-      clearConfirmedPregen(key);
-      addRetry(PREGEN_RETRY,key);
-      PipelineMetrics.count("pregen-full-confirmation-invalidated");
-      return false;
-   }
-
    private record CaptureKey(ServerLevel level, long pos) {}
-
-   private static void addRetry(Set<CaptureKey> retrySet,CaptureKey key) {
-      if(key!=null&&!STOPPING.contains(key.level().getServer())) retrySet.add(key);
-   }
 
    private record CaptureFlight(CompletableFuture<Boolean> result, long startedNanos) {}
 
@@ -617,7 +398,6 @@ public final class CacheManager {
          }
          if (normal == NormalChunkStorage.State.FULL) {
             PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
-            PREGEN_RETRY.remove(captureKey(level,pos));
             PipelineMetrics.count("capture-normal-full-won");
             work.result.complete(false);
             return;
@@ -650,7 +430,7 @@ public final class CacheManager {
          work.storage.published(Files.size(file)-previous);
          PipelineMetrics.time("cache-write", System.nanoTime()-started);
          published=true;
-         FullTelemetryBridge.ready(work.token);
+         FullTelemetryBridge.published(work.token);
          work.result.complete(true);
       } catch (Throwable error) {
          LOG.warn("Could not write chunk cache {}", file, error);
@@ -679,7 +459,7 @@ public final class CacheManager {
          if(snapshot.get()==null || !telemetry.start("FULL"))return null;
          CompoundTag tag=snapshot.getAndSet(null);
          writing=tag!=null;
-         if(writing) { writeStart=System.nanoTime();  }
+         if(writing) { writeStart=System.nanoTime();}
          return tag;
       }
       synchronized boolean validationStarted() {
@@ -756,13 +536,11 @@ public final class CacheManager {
          .whenComplete((claim,error) -> {
             if(error!=null) {
                PromotionLedger.blockReplay(level,pos,RecoveryClaims.root(dimension));
-               addRetry(PREGEN_RETRY,captureKey(level,pos));
             }
          })
          .thenCompose(ownership -> {
             if(ownership!=null) {
                PromotionLedger.blockReplay(level,pos,ownership);
-               addRetry(PREGEN_RETRY,captureKey(level,pos));
                return CompletableFuture.failedFuture(new IOException("Promotion ownership is active at "+ownership));
             }
             if(!Files.isRegularFile(file))return CompletableFuture.completedFuture(Optional.empty());
@@ -778,24 +556,19 @@ public final class CacheManager {
                      currentClaim=RecoveryClaims.claimForCoordinate(dimension,pos.x,pos.z);
                   } catch(IOException ownershipFailure) {
                      PromotionLedger.blockReplay(level,pos,RecoveryClaims.root(dimension));
-                     addRetry(PREGEN_RETRY,captureKey(level,pos));
                      throw new java.io.UncheckedIOException(ownershipFailure);
                   }
                   if(currentClaim!=null) {
                      PromotionLedger.blockReplay(level,pos,currentClaim);
-                     addRetry(PREGEN_RETRY,captureKey(level,pos));
                      throw new java.io.UncheckedIOException(new IOException("Promotion ownership changed at "+currentClaim));
                   }
                   CompoundTag envelope=NbtIo.readCompressed(file,NbtAccounter.create(64L<<20));
                   if(!validEnvelope(envelope,level,pos,fingerprint)) {
                      quarantineRejected(file);
-                     addRetry(PREGEN_RETRY,captureKey(level,pos));
                      return Optional.<CompoundTag>empty();
                   }
                   if(STOPPING.contains(level.getServer()))return Optional.<CompoundTag>empty();
-                  if(!confirmPregenFull(captureKey(level,pos),file))return Optional.<CompoundTag>empty();
                   if(!PregenBorrowLedger.beginBorrowed(level,pos,file)) {
-                     addRetry(PREGEN_RETRY,captureKey(level,pos));
                      return Optional.<CompoundTag>empty();
                   }
                   PipelineMetrics.count("pregen-full-borrowed");
@@ -804,14 +577,12 @@ public final class CacheManager {
                   throw ownershipFailure;
                } catch(Throwable invalid) {
                   quarantineRejected(file);
-                  addRetry(PREGEN_RETRY,captureKey(level,pos));
                   LOG.warn("Pregen FULL {} could not be validated for a Chunksmith load; quarantined for coordinate-local regeneration",file,invalid);
                   return Optional.<CompoundTag>empty();
                }
             }
          },READ_IO);
             } catch(RejectedExecutionException full) {
-               addRetry(PREGEN_RETRY,captureKey(level,pos));
                return CompletableFuture.failedFuture(full);
             }
          });
@@ -1154,7 +925,6 @@ public final class CacheManager {
             // pregen guard. Once durable normal FULL wins, normal persistence
             // must no longer be vetoed for this coordinate.
             PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
-            PREGEN_RETRY.remove(captureKey(level,pos));
             retireClaim(file, () -> {});
          }
       });
@@ -1324,11 +1094,8 @@ public final class CacheManager {
       LIVE_INSPECTIONS.forEach(permit -> { if(permit.server==server) permit.close(); });
       PromotionLedger.clear(server);
       PregenBorrowLedger.clear(server);
-      PREGEN_RETRY.removeIf(key -> key.level().getServer()==server);
       PREGEN_NEW_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
       PREGEN_REQUEST_TARGETS.keySet().removeIf(key -> key.level().getServer()==server);
-      CONFIRMED_PREGEN.keySet().removeIf(key -> key.level().getServer()==server);
-      CONFIRMED_PREGEN_STAMP.keySet().removeIf(key -> key.level().getServer()==server);
       List<Path> stoppingDimensions;
       synchronized(STOPPING_DIMENSIONS) { stoppingDimensions=STOPPING_DIMENSIONS.remove(server); }
       if(stoppingDimensions==null) {

@@ -32,7 +32,6 @@ final class PregenFlowController {
     private static final int MIN_SERVICE_SAMPLES=3;
     private static final long SERVICE_SAMPLE_STALE_NANOS=30_000_000_000L;
     private static long pairConfirmedRuntime,pairNew,pairRepair,uncertain;
-    private static boolean proofFeedConnected;
     /**
      * Native LOD/force-load paths bypass isChunkGenerated. Reserve candidates
      * at ChunkIterator.next and wait instead of forging failed native Futures.
@@ -44,9 +43,7 @@ final class PregenFlowController {
             // Without force-load, 4.8.1 bypasses isChunkGenerated ONLY for an
             // existing FULL chunk missing its LOD: it needs LOD credit, not
             // speculative FULL validation/write credit.
-            boolean forced=true;
-            try { forced=owner.getChunky().getConfig().isForceLoadExistingChunks(); }
-            catch(RuntimeException|LinkageError unavailable) { /* keep UNKNOWN */ }
+            boolean forced=owner.getChunky().getConfig().isForceLoadExistingChunks();
             if(!forced)return beginActual(dimension,x,z,owner,false);
             // Force-load bypasses the same query for arbitrary coordinates.
             // Retain all stages and avoid inventing NEW/REPAIR evidence.
@@ -65,11 +62,6 @@ final class PregenFlowController {
 
     private static final Map<String,java.util.concurrent.atomic.LongAdder> COUNTERS=new HashMap<>();
 
-    static synchronized boolean connectProofFeed(String protocol) {
-        proofFeedConnected="E_LITE_PAIR_V1".equals(protocol);
-        return proofFeedConnected;
-    }
-    static synchronized boolean proofFeedConnected(){return proofFeedConnected;}
     static synchronized long counter(String name){
         var count=COUNTERS.get(name);return count==null?0L:count.sum();
     }
@@ -81,7 +73,6 @@ final class PregenFlowController {
             &&PlayerCenter.admissionEpoch(owner)>=0;
     }
     private static long packed(int x,int z){return ((long)x<<32)|(z&0xffffffffL);}
-
 
     static {
         STAGES.put(Stage.LOD,new StageState(4,2,32,6_000_000_000L));
@@ -101,6 +92,7 @@ final class PregenFlowController {
         boolean actualStarted;
         boolean lodReady;
         boolean fullReady;
+        boolean fullPublished;
         boolean pairReported;
         boolean pairResolved;
         Attempt(Key key,GenerationTask owner,long epoch,String token) {
@@ -234,10 +226,15 @@ final class PregenFlowController {
         finishIfDone(attempt);
     }
 
+    private static void failAttempt(Attempt attempt){
+        if(!attempt.pairResolved&&attempt.actualStarted)uncertain++;
+        attempt.pairResolved=true;
+    }
+
     static synchronized void requestFailed(String dimension,int x,int z,GenerationTask owner) {
         Attempt attempt=attempt(dimension,x,z,owner);
         if(attempt==null)return;
-        attempt.pairResolved=true;
+        failAttempt(attempt);
         releaseAllUnstarted(attempt);
         finishIfDone(attempt);
     }
@@ -245,7 +242,7 @@ final class PregenFlowController {
     static synchronized void logicalCaptureFailed(String token) {
         Attempt attempt=BY_TOKEN.get(token);
         if(attempt==null)return;
-        attempt.pairResolved=true;
+        failAttempt(attempt);
         releaseAllUnstarted(attempt);
         finishIfDone(attempt);
     }
@@ -253,7 +250,7 @@ final class PregenFlowController {
     static synchronized void stageUnavailable(String token,Stage stage) {
         Attempt attempt=BY_TOKEN.get(token);
         if(attempt==null)return;
-        attempt.pairResolved=true;
+        failAttempt(attempt);
         releaseIfUnstarted(attempt,stage);
         finishIfDone(attempt);
     }
@@ -275,9 +272,9 @@ final class PregenFlowController {
             metric(stageMetric(stage,success?"success":"failure"));
         }
         attempt.started.remove(stage);
-        if(!success)attempt.pairResolved=true;
+        if(!success)failAttempt(attempt);
         else if(stage==Stage.LOD)attempt.lodReady=true;
-        else if(stage==Stage.FULL)attempt.fullReady=true;
+        // FULL physical success and FULL publication are distinct notifications.
         tryConfirmRuntimePair(attempt);
         finishIfDone(attempt);
     }
@@ -291,23 +288,38 @@ final class PregenFlowController {
     }
 
     /** FULL validity and publication come from the FULL owner (cache or normal world). */
-    static synchronized void fullReady(String token){
+    static synchronized void fullPublished(String token){
         Attempt attempt=BY_TOKEN.get(token);
         if(attempt==null||!attempt.actualStarted)return;
         attempt.fullReady=true;
+        attempt.fullPublished=true;
         tryConfirmRuntimePair(attempt);
     }
 
+    static synchronized void fullReused(String token){
+        Attempt attempt=BY_TOKEN.get(token);
+        if(attempt==null||!attempt.actualStarted)return;
+        attempt.fullReady=true;
+        releaseIfUnstarted(attempt,Stage.VALIDATE);
+        releaseIfUnstarted(attempt,Stage.FULL);
+        tryConfirmRuntimePair(attempt);
+    }
+
+    static synchronized boolean fullCaptureExpected(String token){
+        Attempt attempt=BY_TOKEN.get(token);
+        return attempt!=null&&attempt.workClass!=WorkClass.REPAIR;
+    }
+
     private static void tryConfirmRuntimePair(Attempt attempt){
-        if(!proofFeedConnected||attempt.pairReported||attempt.pairResolved
+        if(attempt.pairReported||attempt.pairResolved
             ||!attempt.actualStarted||!attempt.lodReady||!attempt.fullReady)return;
         attempt.pairReported=true;
         attempt.pairResolved=true;
         pairConfirmedRuntime++;
-        if(attempt.workClass==WorkClass.NEW) {
+        if(attempt.fullPublished&&attempt.workClass==WorkClass.NEW) {
             pairNew++;
             metric("pair-confirmed-new");
-        }else if(attempt.workClass==WorkClass.REPAIR) {
+        }else if(!attempt.fullPublished) {
             pairRepair++;
             metric("pair-confirmed-repair");
         }else {
@@ -316,16 +328,6 @@ final class PregenFlowController {
             metric("pair-confirmed-unclassified");
         }
         finishIfDone(attempt);
-    }
-
-    static synchronized void uncertain(String token,String reason) {
-        uncertain++;
-        Attempt attempt=token==null?null:BY_TOKEN.get(token);
-        if(attempt!=null) {
-            attempt.pairResolved=true;
-            finishIfDone(attempt);
-        }
-        metric("pair-uncertain-"+sanitize(reason));
     }
 
     static synchronized boolean admissionBlocked() {
@@ -355,7 +357,6 @@ final class PregenFlowController {
             full.outstanding,effectiveWindow(Stage.FULL),TimeUnit.NANOSECONDS.toMillis(oldest),admissionBlockedNoPrune(),unknown,
             fastSignature());
     }
-
 
     static synchronized void generationCapChanged(int cap) {
         for(StageState state:STAGES.values()){
@@ -389,7 +390,6 @@ final class PregenFlowController {
             state.outstanding=0;state.serviceSamples=0;state.serviceEwmaNanos=0;
             state.lastServiceSampleNanos=0;
         }
-        proofFeedConnected=false;
     }
 
     private static String attemptToken(GenerationTask owner,long epoch) {
@@ -486,8 +486,4 @@ final class PregenFlowController {
         };
     }
 
-    private static String sanitize(String reason) {
-        if(reason==null||reason.isBlank())return "unknown";
-        return reason.replaceAll("[^A-Za-z0-9_-]","-");
-    }
 }

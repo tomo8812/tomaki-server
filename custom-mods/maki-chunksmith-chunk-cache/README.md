@@ -8,7 +8,7 @@ LODの生成・保存・再利用・互換性判断はChunksmithが担当しま�
 
 ## Controllerとの連携
 
-FULL検証とFULL書込の実開始・実終了、保存確定・失敗を、Controllerが発行した同一試行tokenで通知します。論理タイムアウト後も、開始済み処理の完了通知は実際の終了まで待ちます。生成投入・WIP窓・並列数探索・FULLとLODのPAIR計測はControllerが担当します。
+FULL検証とFULL書込の実開始・実終了、保存確定・既存FULL再利用・失敗を、Controllerが発行した同一試行tokenで通知します。論理タイムアウト後も、開始済み処理の完了通知は実際の終了まで待ちます。生成投入・WIP窓・並列数探索・FULLとLODのPAIR計測はControllerが担当します。
 
 ## 保存形式と既存データ
 

@@ -22,10 +22,11 @@ class PregenCompletionTest {
         ((Map<?,?>)field(FLOW,"ACTIVE")).clear();((Map<?,?>)field(FLOW,"BY_TOKEN")).clear();
         for(Object state:((Map<?,?>)field(FLOW,"STAGES")).values())set(state,"outstanding",0);
         set(FLOW,"pairConfirmedRuntime",0L);
-        PregenFlowController.connectProofFeed("E_LITE_PAIR_V1");
+        set(FLOW,"uncertain",0L);
+        set(FLOW,"pairNew",0L);set(FLOW,"pairRepair",0L);
     }
     @SuppressWarnings({"unchecked","rawtypes"})
-    private void attempt(String token)throws Exception{
+    private Object attempt(String token)throws Exception{
         Class<?> keyType=Class.forName(FLOW.getName()+"$Key");
         var keyConstructor=keyType.getDeclaredConstructors()[0];keyConstructor.setAccessible(true);
         Object key=keyConstructor.newInstance("minecraft:overworld",(long)token.hashCode());
@@ -33,9 +34,11 @@ class PregenCompletionTest {
         var constructor=attemptType.getDeclaredConstructors()[0];constructor.setAccessible(true);
         Object attempt=constructor.newInstance(key,null,0L,token);
         set(attempt,"actualStarted",true);
+        set(attempt,"workClass",PregenFlowController.WorkClass.NEW);
         ((EnumSet)field(attempt,"held")).addAll(EnumSet.allOf(PregenFlowController.Stage.class));
         for(Object state:((Map<?,?>)field(FLOW,"STAGES")).values())set(state,"outstanding",(int)field(state,"outstanding")+1);
         ((Map)field(FLOW,"ACTIVE")).put(key,attempt);((Map)field(FLOW,"BY_TOKEN")).put(token,attempt);
+        return attempt;
     }
     private long pairs()throws Exception{return (long)field(FLOW,"pairConfirmedRuntime");}
     private int outstanding(PregenFlowController.Stage stage)throws Exception{
@@ -44,12 +47,13 @@ class PregenCompletionTest {
     private void finish(String token,PregenFlowController.Stage stage,boolean success){
         PregenFlowController.physicalStart(token,stage);
         PregenFlowController.physicalTerminal(token,stage,1000,success);
+        if(stage==PregenFlowController.Stage.FULL&&success)PregenFlowController.fullPublished(token);
     }
     @Test void oppositeOrdersAndDuplicatesCountOnce()throws Exception{
         attempt("one");finish("one",PregenFlowController.Stage.VALIDATE,true);
         finish("one",PregenFlowController.Stage.FULL,true);
         assertEquals(0,pairs());finish("one",PregenFlowController.Stage.LOD,true);
-        assertEquals(1,pairs());PregenFlowController.fullReady("one");PregenFlowController.lodCommitted("one");
+        assertEquals(1,pairs());PregenFlowController.fullPublished("one");PregenFlowController.lodCommitted("one");
         assertEquals(1,pairs());
         attempt("two");finish("two",PregenFlowController.Stage.LOD,true);
         finish("two",PregenFlowController.Stage.VALIDATE,true);
@@ -57,7 +61,7 @@ class PregenCompletionTest {
     }
     @Test void differentTokensCannotFormPair()throws Exception{
         attempt("full");attempt("lod");
-        PregenFlowController.fullReady("full");PregenFlowController.lodCommitted("lod");
+        PregenFlowController.fullPublished("full");PregenFlowController.lodCommitted("lod");
         assertEquals(0,pairs());
     }
     @Test void logicalFailureRetainsStartedPhysicalCreditUntilAck()throws Exception{
@@ -69,6 +73,30 @@ class PregenCompletionTest {
         assertEquals(0,outstanding(PregenFlowController.Stage.FULL));assertEquals(0,pairs());
         PregenFlowController.physicalTerminal("slow",PregenFlowController.Stage.FULL,1000,true);
         assertEquals(0,outstanding(PregenFlowController.Stage.FULL));
+    }
+    @Test void borrowedFullDoesNotCountAsNewFullEvenWhenNativeHintSaidNew()throws Exception{
+        attempt("borrowed");
+        PregenFlowController.fullReused("borrowed");
+        finish("borrowed",PregenFlowController.Stage.LOD,true);
+        assertEquals(1,pairs());assertEquals(0L,field(FLOW,"pairNew"));assertEquals(1L,field(FLOW,"pairRepair"));
+        assertEquals(0,outstanding(PregenFlowController.Stage.FULL));
+        assertEquals(0,outstanding(PregenFlowController.Stage.VALIDATE));
+    }
+    @Test void physicalWriteAloneDoesNotProvePublication()throws Exception{
+        attempt("unpublished");finish("unpublished",PregenFlowController.Stage.VALIDATE,true);
+        finish("unpublished",PregenFlowController.Stage.LOD,true);
+        PregenFlowController.physicalStart("unpublished",PregenFlowController.Stage.FULL);
+        PregenFlowController.physicalTerminal("unpublished",PregenFlowController.Stage.FULL,1000,true);
+        assertEquals(0,pairs());
+        PregenFlowController.fullPublished("unpublished");
+        assertEquals(1,pairs());assertEquals(1L,field(FLOW,"pairNew"));
+    }
+    @Test void forcedUnclassifiedPublicationIsNotInventedNewGeneration()throws Exception{
+        Object attempt=attempt("forced");set(attempt,"workClass",PregenFlowController.WorkClass.UNKNOWN);
+        finish("forced",PregenFlowController.Stage.VALIDATE,true);
+        finish("forced",PregenFlowController.Stage.LOD,true);
+        finish("forced",PregenFlowController.Stage.FULL,true);
+        assertEquals(1,pairs());assertEquals(0L,field(FLOW,"pairNew"));assertEquals(0L,field(FLOW,"pairRepair"));
     }
     @Test void nativeAckBelongsToExactRecord()throws Exception{
         attempt("record");
@@ -88,8 +116,10 @@ class PregenCompletionTest {
     }
     @Test void failureAndMissingSinkDoNotCountPair()throws Exception{
         attempt("failed");finish("failed",PregenFlowController.Stage.LOD,false);
-        PregenFlowController.fullReady("failed");assertEquals(0,pairs());
+        PregenFlowController.fullPublished("failed");assertEquals(0,pairs());
+        PregenFlowController.logicalCaptureFailed("failed");
+        assertEquals(1L,field(FLOW,"uncertain"));
         attempt("no-sink");PregenFlowController.stageUnavailable("no-sink",PregenFlowController.Stage.LOD);
-        PregenFlowController.fullReady("no-sink");assertEquals(0,pairs());
+        PregenFlowController.fullPublished("no-sink");assertEquals(0,pairs());
     }
 }

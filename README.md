@@ -69,4 +69,8 @@ Chunksmithのタスク・キャッシュ・カーソル、LOD、Diorama、ワー
 
 Controllerはリソースに基づくChunksmithの生成制御、cacheは一時FULLの退避とプレイヤーロード時の引渡し、Millénaire互換modは村候補の保留と再投入を担当します。LOD生成・保存・再利用はChunksmithに委ねます。cacheによるLOD走査・Backfill生成・環境監視、Millénaire互換modによるLOD更新・チャンク保存変更は撤去しています。既存のワールドとChunksmithのLOD/保存済みデータは削除しないでください。まずワールドをバックアップして、新規生成・村候補の保留と再投入・FULL/LOD保存・船舶保護を確認してください。
 
-Millénaire 9.1.0 の村は、プレイヤーが周辺へ来て実FULLチャンクが読み込まれ、建築に必要な全領域で自作キャッシュMODの保存抑制・Backfillの一時保存抑制が解除された後に建築します。事前生成時の地形調査は保持し、キャッシュ復元済み・通常生成済みのいずれもMinecraftがFULLを読み込んでから判定します。\n\n再現可能なJAR取得とハッシュ検証は `scripts/sync-upstream-481-910.sh` を使用します。
+Millénaire 9.1.0 の村は、プレイヤーが周辺へ来て実FULLチャンクが読み込まれ、建築に必要な全領域で自作キャッシュMODから通常保存への引渡しが完了した後に建築します。事前生成時の地形調査は保持し、キャッシュ復元済み・通常生成済みのいずれもMinecraftがFULLを読み込んでから判定します。
+
+再現可能なJAR取得とハッシュ検証は `scripts/sync-upstream-481-910.sh` を使用します。
+
+現構成のController・FULL cache・Millénaire互換MODは必須依存として直接連携します。村候補の再投入はnativeキューの空きと再試行待ちだけを扱い、Chunksmithの並列数・LODキュー・独自MSPT/GC判定には依存しません。

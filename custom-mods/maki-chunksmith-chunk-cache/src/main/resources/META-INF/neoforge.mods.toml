@@ -9,7 +9,7 @@ description="Stores temporary Chunksmith FULL chunks and restores them on player
 [[dependencies.maki_chunksmith_chunk_cache]]
 modId="neoforge"
 type="required"
-versionRange="[21.1,21.2)"
+versionRange="[21.1.262]"
 side="SERVER"
 [[dependencies.maki_chunksmith_chunk_cache]]
 modId="minecraft"
@@ -23,22 +23,9 @@ versionRange="[4.8.1]"
 ordering="AFTER"
 side="SERVER"
 [[dependencies.maki_chunksmith_chunk_cache]]
-modId="maki_millenaire_lod"
-type="optional"
-versionRange="[1.0.2,)"
-ordering="AFTER"
-side="SERVER"
-[[dependencies.maki_chunksmith_chunk_cache]]
-modId="maki_idle_pregen"
-type="optional"
-versionRange="[1.0.1,)"
-ordering="AFTER"
-side="SERVER"
-
-[[dependencies.maki_chunksmith_chunk_cache]]
 modId="maki_chunksmith_controller"
 type="required"
-versionRange="[1.4.2,)"
+versionRange="[1.4.2]"
 ordering="AFTER"
 side="SERVER"
 

@@ -160,35 +160,6 @@ public final class AdaptivePolicy {
         return cap;
     }
 
-    /**
-     * Backfill's exclusive slice is intentionally excluded from c learning. Only
-     * hard safety may reduce the cap while that barrier is held.
-     */
-    public int updateSafetyOnly(AdaptiveSample x,int players,Settings s){
-        cap=Math.max(s.min,Math.min(s.max,cap));
-        if(players>0){reset(s,"players-online-paused");cap=1;return cap;}
-        if(!Double.isFinite(x.seconds())||x.seconds()<=0)return cap;
-        sinceReduction+=x.seconds();
-        if(!Double.isFinite(x.mspt())||!Double.isFinite(x.heap())){reason="shared-backfill-measurement-unavailable";return cap;}
-        boolean hard=x.mspt()>=s.emergencyMspt||x.heap()>=90||x.oomKills()>0;
-        String pressure=x.oomKills()>0?"cgroup-oom":x.mspt()>=s.highMspt?"tick-pressure":
-            x.heap()>=s.highHeap?"heap-pressure":
-            x.memoryHeadroomMb()>=0&&x.memoryHeadroomMb()<s.memoryReserveMb?"memory-headroom":
-            x.gc()>=50||(x.gc()>=s.gcPressurePercent&&x.heap()>=55)?"gc-pressure":
-            x.nativeHeld()||x.synchronousWrites()>0?"native-backpressure":"";
-        if(hard||!pressure.isEmpty()){
-            pressureSamples++;
-            if(hard||(pressureSamples>=3&&sinceReduction>=10)){
-                int drop=hard?Math.max(1,cap/2):1;
-                cap=Math.max(s.min,cap-drop);sinceReduction=0;pressureSamples=0;
-                abandon(s,"pressure-recovery",s.retrySeconds);
-            }
-            reason=hard?"emergency-"+(pressure.isEmpty()?"heap":pressure):pressure;
-            return cap;
-        }
-        pressureSamples=0;withoutProgress=0;reason="shared-backfill-pause";return cap;
-    }
-
     public double retryRemainingSeconds(){return cooldown;}
     private void abandon(Settings s,String why,double wait){
         if(!phase.equals("baseline")&&baseline!=null)cap=Math.min(cap,baselineCap);

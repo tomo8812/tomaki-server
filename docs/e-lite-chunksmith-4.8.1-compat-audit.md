@@ -1,3 +1,5 @@
+> PR #89時点の監査記録です。現行の実装状態は[pregen-throughput-controller-v2-design.md](pregen-throughput-controller-v2-design.md)を参照してください。
+
 # Chunksmith 4.8.1：E-lite生成制御の互換性対応
 
 確認日：2026-11-12

@@ -45,7 +45,9 @@ def registeredMixins = [
     'maki.millenairelod.mixin.MillenaireMixin',
     'maki.millenairelod.mixin.LoneCandidateAccessor',
     'maki.millenairelod.mixin.SpawnQueueMixin',
-    'maki.millenairelod.mixin.SiteHunterMixin'
+    'maki.millenairelod.mixin.SiteHunterMixin',
+    'maki.millenairelod.mixin.VillageQueueAccessor',
+    'maki.millenairelod.mixin.SiteHunterWorkAccessor'
 ]
 
 def mixinClassesPath = sourceSets.main.output.classesDirs.asPath
@@ -82,3 +84,10 @@ tasks.register('verifyMixinAnnotationRetention') {
 }
 
 tasks.named('check') { dependsOn tasks.named('verifyMixinAnnotationRetention') }
+
+tasks.register('replayBudgetTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.millenairelod.ReplayBudgetSelfTest'
+}
+tasks.named('check') { dependsOn tasks.named('replayBudgetTest') }

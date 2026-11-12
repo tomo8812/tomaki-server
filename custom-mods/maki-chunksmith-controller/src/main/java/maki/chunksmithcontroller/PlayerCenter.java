@@ -108,15 +108,13 @@ public final class PlayerCenter {
     }
     private static Vec3 worldPosition(Level level,Vec3 pos)throws ReflectiveOperationException {
         if(!checkedVs){
-            try{
-                Class<?> vs=Class.forName("org.valkyrienskies.mod.common.VSGameUtilsKt",false,PlayerCenter.class.getClassLoader());
-                MethodHandle transform=ExactStatic.find(vs,"toWorldCoordinates",Vec3.class,Level.class,Vec3.class);
-                MethodHandle contains=ExactStatic.find(vs,"isBlockInShipyard",boolean.class,Level.class,Vec3.class);
-                toWorld=transform;isShipyard=contains;checkedVs=true;
-            }catch(ClassNotFoundException ignored){checkedVs=true;}
+            Class<?> vs=Class.forName("org.valkyrienskies.mod.common.VSGameUtilsKt",false,PlayerCenter.class.getClassLoader());
+            toWorld=ExactStatic.find(vs,"toWorldCoordinates",Vec3.class,Level.class,Vec3.class);
+            isShipyard=ExactStatic.find(vs,"isBlockInShipyard",boolean.class,Level.class,Vec3.class);
+            checkedVs=true;
         }
         try {
-            if(toWorld!=null&&isShipyard!=null&&(boolean)isShipyard.invokeExact(level,pos)){
+            if((boolean)isShipyard.invokeExact(level,pos)){
                 pos=(Vec3)toWorld.invokeExact(level,pos);
                 if((boolean)isShipyard.invokeExact(level,pos))throw new IllegalStateException("Ship world transform is not available yet");
             }
@@ -262,8 +260,8 @@ public final class PlayerCenter {
             // An interrupted native run is a native pause, not retry debt.
             manualPause=true;reason="native-safety-pause";report(server,chunky,now);return;
         }
-        if(current==null&&!requested&&lastTask!=null&&lastTask.getCount()>=lastTask.getChunkIterator().total()&&CpuGovernor.pregenRetryPending(server,saved.x,saved.z,settings().followRadius)){
-            requested=true;reason="retrying-incomplete-pairs";
+        if(current==null&&!requested&&lastTask!=null&&lastTask.getCount()>=lastTask.getChunkIterator().total()&&CpuGovernor.fullWorkPending(server,saved.x,saved.z,settings().followRadius)){
+            reason="draining-full-cache";report(server,chunky,now);return;
         }
         if(current==null&&!requested&&appliedX!=null&&FollowPolicy.moved(saved.x,saved.z,appliedX,appliedZ)&&FollowPolicy.due(now,lastCenterChange,settings().recenterSeconds))requested=true;
         if(current!=null){

@@ -19,6 +19,7 @@ neoForge {
 
 dependencies {
     compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
+    compileOnly files('../../mods/maki-chunksmith-chunk-cache-1.5.0.jar')
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
@@ -35,34 +36,6 @@ tasks.named('test') {
 tasks.named('jar') {
     from(sourceSets.main.allJava) {
         into 'META-INF/sources'
-    }
-}
-
-def issue66BudgetSource = file('src/main/java/maki/chunksmithcontroller/SharedWorkBudget.java')
-def issue66ApiSource = file('src/main/java/maki/chunksmithcontroller/ResourceBudgetApi.java')
-def issue66MixinSource = file('src/main/java/maki/chunksmithcontroller/mixin/GenerationTaskMixin.java')
-
-tasks.register('verifyIssue66SharedScheduling') {
-    inputs.files(issue66BudgetSource, issue66ApiSource, issue66MixinSource)
-    doLast {
-        def budget = issue66BudgetSource.getText('UTF-8')
-        def api = issue66ApiSource.getText('UTF-8')
-        def mixin = issue66MixinSource.getText('UTF-8')
-        ['draining-follow-dispatch', 'dynamic-cooldown', 'waiting-clean-follow-sample', 'noteCleanFollowSample', 'blockFollowDispatch', 'backfillStarted'].each { token ->
-            if (!budget.contains(token)) throw new GradleException('Issue #66 regression: shared scheduler missing ' + token)
-        }
-        ['activeTaskMode', 'TaskOwnership.isOwned', 'noteFollowInFlight'].each { token ->
-            if (!api.contains(token)) throw new GradleException('Issue #66 regression: resource API ownership/drain handshake missing ' + token)
-        }
-        ['maki$sharedBackfillBarrier', 'ResourceBudgetApi.blockFollowDispatch', 'LockSupport.parkNanos'].each { token ->
-            if (!mixin.contains(token)) throw new GradleException('Issue #66 regression: non-stopping follow dispatch barrier missing ' + token)
-        }
-        def reserveStart=api.indexOf('public static String reserveBackfill')
-        def reserveEnd=api.indexOf('public static boolean backfillReservationHeld',reserveStart)
-        def reserveBody=api.substring(reserveStart,reserveEnd)
-        if (api.contains('requestBackfillExclusivePause') || reserveBody.contains('PlayerCenter.')) {
-            throw new GradleException('Issue #66 regression: Backfill must not stop/restart the follow task lifecycle')
-        }
     }
 }
 
@@ -100,7 +73,6 @@ tasks.register('verifyIssue66ChunksmithBytecode') {
 }
 
 tasks.named('check') {
-    dependsOn tasks.named('verifyIssue66SharedScheduling')
     dependsOn tasks.named('verifyIssue66ChunksmithBytecode')
 }
 
@@ -116,14 +88,14 @@ tasks.register('verifyIssue83UnifiedFollow') {
         def center = issue83PlayerCenter.getText('UTF-8')
         def governor = issue83Governor.getText('UTF-8')
         def mod = issue83Mod.getText('UTF-8')
-        ['if(online){', 'pipeline-pressure:', 'retrying-incomplete-pairs', 'saved.x=0;saved.z=0'].each { token ->
+        ['if(online){', 'pipeline-pressure:', 'draining-full-cache', 'saved.x=0;saved.z=0'].each { token ->
             if (!center.contains(token)) throw new GradleException('Issue #83 regression: empty-server unified follow policy missing ' + token)
         }
         if (center.contains('UnifiedPregenReset') || mod.contains('UnifiedPregenReset')
             || issue83DeprecatedReset.exists()) {
             throw new GradleException('E-lite must not delete old FULL or LOD storage on startup')
         }
-        if (!governor.contains('pregenRetryPending')
+        if (!governor.contains('fullWorkPending')
                 || !governor.contains('pipelinePressure()') || !governor.contains('pregenReady')) {
             throw new GradleException('Issue #83 regression: unified retry/pressure/readiness bridge missing')
         }
@@ -167,7 +139,7 @@ tasks.register('verifyPregenControllerV2') {
          'native-safety-pause'].each { token ->
             if(!center.contains(token))throw new GradleException('Pregen V2 regression: stop epoch/admission policy missing '+token)
         }
-        ['blockFollowAdmission(GenerationTask task)','followAdmissionEpoch','followAdmissionOpen','PregenFlowController.admissionBlocked()'].each { token ->
+        ['blockFollowAdmission(GenerationTask task)','PregenFlowController.admissionBlocked()'].each { token ->
             if(!api.contains(token))throw new GradleException('Pregen V2 regression: admission bridge missing '+token)
         }
         if(!mixin.contains('PregenControlHooks.reserveCandidate('))
@@ -208,7 +180,7 @@ tasks.register('verifyEliteOwnership') {
         def mixin = hooks.getText('UTF-8')
         def flow = controller.getText('UTF-8')
         def bridge = api.getText('UTF-8')
-        ['maki$sharedBackfillBarrier','maki$observeNativeCandidate','maki$observeNativeRequest','maki$coordinateCompleted'].each {
+        ['maki$candidateAdmission','maki$observeNativeCandidate','maki$observeNativeRequest','maki$coordinateCompleted'].each {
             if (!mixin.contains(it)) throw new GradleException('E-lite native admission hook missing ' + it)
         }
         // WIP admission now happens before any Chunksmith LOD-index mark.
@@ -220,7 +192,7 @@ tasks.register('verifyEliteOwnership') {
             || mixin.contains('PregenControlHooks.defer(')
             || mixin.contains('PregenControlHooks.consumeRejected('))
             throw new GradleException('4.8.1 may not fabricate failed generation Futures after markLod')
-        ['fullReady(String token)','lodCommitted(String token)','tryConfirmRuntimePair','proofFeedConnected'].each {
+        ['fullPublished(String token)','fullReused(String token)','lodCommitted(String token)','tryConfirmRuntimePair'].each {
             if (!flow.contains(it)) throw new GradleException('E-lite local completion accounting missing ' + it)
         }
         if (bridge.contains('getMethod("admissionBlocked")') || bridge.contains('getMethod("controllerStatus")'))

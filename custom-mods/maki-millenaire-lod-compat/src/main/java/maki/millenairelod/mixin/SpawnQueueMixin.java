@@ -153,6 +153,8 @@ public abstract class SpawnQueueMixin {
             // Native non-lone DEFERRED already re-enqueues into candidates;
             // our construction guard produces DEFERRED without that enqueue.
             ReplayController.deferred(level, pos, !lone, !lone && !guardedByCompat);
+        } else {
+            ReplayController.resolved(level,pos);
         }
     }
 }

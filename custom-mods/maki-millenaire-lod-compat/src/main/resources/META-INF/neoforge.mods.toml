@@ -9,7 +9,7 @@ description="Defers Millenaire village generation during Chunksmith pregeneratio
 [[dependencies.maki_millenaire_lod]]
 modId="neoforge"
 type="required"
-versionRange="[21.1,21.2)"
+versionRange="[21.1.262]"
 side="BOTH"
 [[dependencies.maki_millenaire_lod]]
 modId="minecraft"
@@ -30,8 +30,8 @@ ordering="AFTER"
 side="BOTH"
 [[dependencies.maki_millenaire_lod]]
 modId="maki_chunksmith_chunk_cache"
-type="optional"
-versionRange="[1.5.0,)"
+type="required"
+versionRange="[1.5.0]"
 side="SERVER"
 [[mixins]]
 config="maki-millenaire-lod.mixins.json"

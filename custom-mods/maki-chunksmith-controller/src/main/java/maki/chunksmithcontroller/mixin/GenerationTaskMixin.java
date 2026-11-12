@@ -4,7 +4,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CompletableFuture;
 import com.kishku7.chunksmith.platform.World;
 import maki.chunksmithcontroller.PregenControlHooks;
-import maki.chunksmithcontroller.FullCacheIntegration;
+import maki.chunksmithcache.CacheManager;
+import maki.chunksmithcontroller.RequestContext;
 import java.util.concurrent.locks.LockSupport;
 import maki.chunksmithcontroller.CpuGovernor;
 import maki.chunksmithcontroller.ResourceBudgetApi;
@@ -56,7 +57,7 @@ public abstract class GenerationTaskMixin {
     @Redirect(method="run()V",
         at=@At(value="INVOKE",target="Lcom/kishku7/chunksmith/iterator/ChunkIterator;next()Ljava/lang/Object;"),
         require=1)
-    private Object maki$sharedBackfillBarrier(ChunkIterator iterator) {
+    private Object maki$candidateAdmission(ChunkIterator iterator) {
         GenerationTask task=(GenerationTask)(Object)this;
         if(maki$owned()){
             while(!stopped&&ResourceBudgetApi.blockFollowAdmission(task))
@@ -69,10 +70,6 @@ public abstract class GenerationTaskMixin {
             while(!stopped&&!PregenControlHooks.reserveCandidate(
                 dimension,coordinate.x(),coordinate.z(),task))
                 LockSupport.parkNanos(1_000_000L);
-        }
-        while(!stopped&&ResourceBudgetApi.blockFollowDispatch()){
-            ResourceBudgetApi.noteFollowInFlight(inFlight.get());
-            LockSupport.parkNanos(1_000_000L);
         }
         return next;
     }
@@ -88,7 +85,6 @@ public abstract class GenerationTaskMixin {
         if(!maki$owned())return result;
         GenerationTask owner=(GenerationTask)(Object)this;
         String dimension=selection.world().getName();
-        result=FullCacheIntegration.generated(world,x,z,owner,result);
         return result.whenComplete((generated,error)->{
             if(error!=null)PregenControlHooks.candidateFailed(dimension,x,z,owner);
             else PregenControlHooks.classify(dimension,x,z,owner,Boolean.TRUE.equals(generated));
@@ -109,7 +105,7 @@ public abstract class GenerationTaskMixin {
         String dimension=selection.world().getName();
         boolean tracked=PregenControlHooks.beginActual(dimension,x,z,owner);
         try{
-            return FullCacheIntegration.request(world,x,z,owner).whenComplete((value,error)->{
+            return CacheManager.request(world,x,z,owner,()->RequestContext.with(owner,()->world.getChunkAtAsync(x,z))).whenComplete((value,error)->{
                 if(tracked&&error!=null)PregenControlHooks.requestFailed(dimension,x,z,owner);
             });
         }catch(Throwable error){

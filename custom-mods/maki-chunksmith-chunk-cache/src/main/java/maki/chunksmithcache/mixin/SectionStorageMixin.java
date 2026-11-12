@@ -59,7 +59,7 @@ public abstract class SectionStorageMixin implements PregenPoiDirtyBridge {
    }
 
    @Inject(method = "writeColumn(Lnet/minecraft/world/level/ChunkPos;)V", at = @At("HEAD"), cancellable = true)
-   private void maki$backfillPoiVeto(ChunkPos pos, CallbackInfo ci) {
+   private void maki$temporaryPoiVeto(ChunkPos pos, CallbackInfo ci) {
       if (CacheManager.suppressPregenPoiPersistence(this, pos)) ci.cancel();
    }
 }

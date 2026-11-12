@@ -5,10 +5,7 @@ import maki.chunksmithcache.CacheManager;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.level.ChunkPos;
-import net.neoforged.fml.ModList;
 import org.millenaire.world.VillageTerrainMap;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Admission for actual Millenaire construction, independent of the origin of
@@ -18,15 +15,12 @@ import org.slf4j.LoggerFactory;
  * pregeneration horizon happens to be armed. It is not a readiness signal.
  */
 public final class VillagePlacementReadiness {
-    private static final Logger LOG = LoggerFactory.getLogger("MakiMillenaireLOD");
-    private static volatile boolean persistenceErrorLogged;
 
     private VillagePlacementReadiness() {}
 
     /** Used by the deferred candidate queue before giving work to Millenaire. */
-    public static boolean candidateReady(Object level, Object pos) {
-        if (!(level instanceof ServerLevel world) || !(pos instanceof ChunkPos chunk)) return false;
-        return hasNearbyPlayer(world, chunk.x, chunk.z) && loadedAndPersistable(world, chunk.x, chunk.z);
+    public static boolean candidateReady(ServerLevel level, ChunkPos pos) {
+        return hasNearbyPlayer(level, pos.x, pos.z) && loadedAndPersistable(level, pos.x, pos.z);
     }
 
     /**
@@ -72,20 +66,6 @@ public final class VillagePlacementReadiness {
         // result is a FULL chunk already published by the native load pipeline.
         if (level.getChunkSource().getChunkNow(x, z) == null) return false;
         ChunkPos pos = new ChunkPos(x, z);
-        try {
-            if (ModList.get().isLoaded("maki_chunksmith_chunk_cache")) {
-                // Read-only: cache tick/load/save paths own player handoff.
-                if (!CacheManager.playerLoadReady(level, pos)) return false;
-            }
-            // A concurrent external Chunksmith task can still veto normal
-            // writes. This is a final safety check, not a load/restore gate.
-            return !HorizonGuard.drop(level, pos);
-        } catch (RuntimeException | LinkageError error) {
-            if (!persistenceErrorLogged) {
-                persistenceErrorLogged = true;
-                LOG.error("Unable to establish safe village persistence; retaining Millenaire candidate", error);
-            }
-            return false;
-        }
+        return CacheManager.playerLoadReady(level,pos)&&!HorizonGuard.drop(level,pos);
     }
 }
