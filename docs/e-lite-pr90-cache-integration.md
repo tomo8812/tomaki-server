@@ -4,6 +4,8 @@
 PR #90の確認時点のHEAD：`4b7d69209415d0509abab25bcc71a8e27181996f`。
 この文書は**実装先の要求仕様**。PR #89だけでは旧cacheとのイベント接続・Mixin統合が完了しないことを許容する。
 
+**現在のPR #89では `custom-mods/maki-chunksmith-chunk-cache/`、`config/maki-chunksmith-chunk-cache.properties`、chunk-cache配布JARの差分を完全に0件に戻している。** 新Controller IDを使うためにcache側で必要な `neoforge.mods.toml` の依存ID、`LodResourceBudgetBridge` と `FollowCaptureOwnership` の反射先、FULL互換性判定・試験修正は **PR #90のcache HEAD上で実装する予定の作業**。現時点では旧ID `maki_lod_cpu` を参照するcacheと新ID Controllerが一致しない状態を許容する。PR #89にcache変更を再導入しない。
+
 ## PR #89の追加整理
 
 - MOD名を**Maki Chunksmith Controller**、MOD IDを`maki_chunksmith_controller`、パッケージを`maki.chunksmithcontroller`、JARを`maki-chunksmith-controller-1.4.2.jar`、設定を`config/maki-chunksmith-controller.properties`へ改名。既存のワールド状態・Chunksmithタスク所有者の保存キーは引き継ぐ。
