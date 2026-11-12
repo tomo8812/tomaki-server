@@ -195,83 +195,33 @@ final class GenerationStore {
         }
     }
 
+    /** Reconsider old quarantines by validating their FULL payloads alone. */
     private static void recoverPreviousQuarantines(
-        ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger,
-        CacheDiskBudget migrationBudget
+        ServerLevel level, Path root, Fingerprint.Snapshot snapshot,
+        String trigger, CacheDiskBudget budget
     ) throws IOException {
-        Path quarantineRoot = root.resolve(QUARANTINE_DIR);
-        if (!Files.isDirectory(quarantineRoot)) return;
-
-        FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
-        List<QuarantineCandidate> candidates = new ArrayList<>();
-        try (Stream<Path> stream = Files.list(quarantineRoot)) {
-            for (Path candidate : stream.filter(Files::isDirectory).toList()) {
-                FingerprintManifest.Manifest manifest = FingerprintManifest.readIfValid(candidate.resolve(FingerprintManifest.FILE_NAME));
-                if (manifest != null) candidates.add(new QuarantineCandidate(candidate, manifest));
-            }
+        Path quarantine = root.resolve(QUARANTINE_DIR);
+        if (!Files.isDirectory(quarantine)) return;
+        List<Path> candidates;
+        try (Stream<Path> stream = Files.list(quarantine)) {
+            candidates = stream.filter(Files::isDirectory).sorted().toList();
         }
-        candidates.sort(Comparator.comparingLong((QuarantineCandidate value) -> value.manifest().createdAtMillis()).reversed());
-
         Path active = root.resolve(snapshot.fingerprint());
-        for (QuarantineCandidate candidateValue : candidates) {
-            Path candidate = candidateValue.path();
-            FingerprintManifest.Manifest old = candidateValue.manifest();
-            FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
-            if (alreadyRecovered(candidate, snapshot.fingerprint(), old.fingerprint(), existing)) continue;
-
-            boolean exact = old.fingerprint().equals(snapshot.fingerprint());
-            boolean semantic = !exact && FingerprintManifest.sameCompatibilityInputsExcept(
-                old,
-                current,
-                Set.of("policy:compatibility"),
-                candidate
-            );
-            if (!exact && !semantic) {
-                List<String> changed = FingerprintManifest.changedCompatibilityInputs(
-                    old, current, Set.of("policy:compatibility"), 12, candidate
-                );
-                LOG.info(
-                    "Kept quarantined chunk-cache generation {} for {}; migration refused; reason=compatibility proof missing or inputs changed; changedInputs={} trigger={}",
-                    old.fingerprint(), root.getFileName(), changed, trigger
-                );
-                continue;
-            }
-
-            Stats before = stats(candidate);
-            List<String> proofDetails = exact ? List.of() : FingerprintManifest.compatibilityProofs(
-                old, current, Set.of("policy:compatibility"), 12, candidate
-            );
-            CacheDirectoryMerge.MergeStats merge = mergeForCompatibility(
-                level, old, current, candidate, active, true, migrationBudget);
-
-            Set<String> accepted = new LinkedHashSet<>();
-            accepted.add(snapshot.fingerprint());
-            accepted.add(old.fingerprint());
-            accepted.addAll(old.storedFingerprints());
-            if (existing != null) accepted.addAll(existing.storedFingerprints());
-            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
-
-            long activeEntries = stats(active).entries();
-            String proof = exact ? "exact fingerprint match" : "audited semantic compatibility";
-            Files.writeString(
-                candidate.resolve(RECOVERY_INFO),
-                "sourceFingerprint=" + old.fingerprint() + "\n"
-                    + "targetFingerprint=" + snapshot.fingerprint() + "\n"
-                    + "proof=" + proof + "\n"
-                    + "proofDetails=" + proofDetails + "\n"
-                    + "sourceEntries=" + merge.sourceEntries() + "\n"
-                    + "adoptedEntries=" + merge.adoptedEntries() + "\n"
-                    + "duplicateEntries=" + merge.duplicateEntries() + "\n"
-                    + "activeEntriesAfter=" + activeEntries + "\n"
-                    + "sourcePreserved=true\n"
-                    + "trigger=" + trigger + "\n"
-            );
-            Files.setLastModifiedTime(candidate, FileTime.fromMillis(System.currentTimeMillis()));
-            LOG.info(
-                "Re-adopted quarantined chunk-cache generation {} as {} for {}; proof={}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} bytes={} proofDetails={}; quarantine source preserved until retention/capacity pruning; trigger={}",
-                old.fingerprint(), snapshot.fingerprint(), root.getFileName(), proof, merge.sourceEntries(),
-                merge.adoptedEntries(), merge.duplicateEntries(), activeEntries, before.bytes(), proofDetails, trigger
-            );
+        FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+        for (Path source : candidates) {
+            FingerprintManifest.Manifest old = historicalIdentity(source);
+            if (old == null) continue;
+            FingerprintManifest.Manifest existing =
+                FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
+            if (alreadyRecovered(source, snapshot.fingerprint(), old.fingerprint(), existing)) continue;
+            CacheDirectoryMerge.MergeStats copied =
+                copyValidFulls(level, old, current, source, active, budget);
+            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME),
+                snapshot.manifest(acceptedIdentities(snapshot, old, existing)));
+            writeRecoveryReceipt(source, old.fingerprint(), snapshot.fingerprint(), copied, trigger);
+            LOG.info("Recovered valid quarantined FULLs {} -> {}; checked={} adopted={} rejected={} trigger={}",
+                old.fingerprint(), snapshot.fingerprint(), copied.sourceEntries(),
+                copied.adoptedEntries(), copied.rejectedEntries(), trigger);
         }
     }
 
