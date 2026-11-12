@@ -116,13 +116,13 @@ public abstract class GenerationTaskMixin {
         }
     }
 
-    @Inject(method="update(IIZZ)V",at=@At("HEAD"),cancellable=true,require=1)
-    private void maki$preserveDeferred(int x,int z,boolean loaded,boolean persisted,CallbackInfo ci){
+    // Chunksmith's shape/LOD/native skip branches call update without any
+    // asynchronous request. Release the predictive stage credits for skips.
+    @Inject(method="update(IIZZ)V",at=@At("HEAD"),require=1)
+    private void maki$coordinateCompleted(int x,int z,boolean loaded,boolean persisted,CallbackInfo ci){
         GenerationTask owner=(GenerationTask)(Object)this;
-        if(!maki$owned())return;
-        String dim=selection.world().getName();
-        if(PregenControlHooks.consumeRejected(dim,x,z,owner)){ci.cancel();return;}
-        PregenControlHooks.nativeCoordinateFinished(dim,x,z,owner);
+        if(maki$owned())PregenControlHooks.nativeCoordinateFinished(
+            selection.world().getName(),x,z,owner);
     }
 
     @Unique
