@@ -36,27 +36,11 @@ public final class ResourceBudgetApi {
     public static boolean connectPairTelemetry(String protocol) {
         return PregenFlowController.connectProofFeed(protocol);
     }
-    public static boolean reserveCandidate(String dimension,int x,int z,GenerationTask owner) {
-        return PregenFlowController.reserveCandidate(dimension,x,z,owner);
-    }
-    public static void classifyCandidate(String dimension,int x,int z,GenerationTask owner,boolean alreadyGenerated) {
-        PregenFlowController.classify(dimension,x,z,owner,alreadyGenerated);
-    }
-    public static boolean beginActual(String dimension,int x,int z,GenerationTask owner,boolean generatedNew) {
-        return PregenFlowController.beginActual(dimension,x,z,owner,generatedNew);
-    }
+    /** Read-only token lookup for a FULL result belonging to this native attempt. */
     public static String attemptToken(String dimension,int x,int z,GenerationTask owner) {
         return PregenFlowController.token(dimension,x,z,owner);
     }
-    public static void candidateSkipped(String dimension,int x,int z,GenerationTask owner) {
-        PregenFlowController.skipped(dimension,x,z,owner);
-    }
-    public static void candidateFailed(String dimension,int x,int z,GenerationTask owner) {
-        PregenFlowController.candidateFailed(dimension,x,z,owner);
-    }
-    public static void requestFailed(String dimension,int x,int z,GenerationTask owner) {
-        PregenFlowController.requestFailed(dimension,x,z,owner);
-    }
+
     public static void captureFailed(String token) {PregenFlowController.logicalCaptureFailed(token);}
     public static void stageUnavailable(String token,String stage) {
         PregenFlowController.stageUnavailable(token,PregenFlowController.Stage.valueOf(stage));
@@ -69,11 +53,7 @@ public final class ResourceBudgetApi {
     }
     /** Cache-owned FULL successfully published or validated; no LOD decision here. */
     public static void fullReady(String token){PregenFlowController.fullReady(token);}
-    /** Chunksmith physical LOD commit notification; no FULL reuse decision here. */
-    public static void lodCommitted(String token){PregenFlowController.lodCommitted(token);}
-    public static void pairExisting(String token){PregenFlowController.pairExisting(token);}
     public static void pairUncertain(String token,String reason){PregenFlowController.uncertain(token,reason);}
-    public static void pairRevalidated(){PregenFlowController.pairRevalidated();}
 
     public static long followAdmissionEpoch(GenerationTask task){return PlayerCenter.admissionEpoch(task);}
     public static boolean followAdmissionOpen(GenerationTask task){return PlayerCenter.admissionOpen(task);}
