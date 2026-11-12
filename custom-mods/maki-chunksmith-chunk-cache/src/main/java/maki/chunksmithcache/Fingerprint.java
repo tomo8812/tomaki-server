@@ -17,14 +17,14 @@ import net.minecraft.server.level.ServerLevel;
  */
 final class Fingerprint {
     static final String CACHE_ID = "f00dcace0000000000000003";
-    private static final Map<MinecraftServer, CompletableFuture<FingerprintPolicy>> POLICIES = new WeakHashMap<>();
+    private static final Map<MinecraftServer, CompletableFuture<CacheRetentionPolicy>> POLICIES = new WeakHashMap<>();
     private static final Map<ServerLevel, Snapshot> LEVEL_SNAPSHOTS = new WeakHashMap<>();
 
     private Fingerprint() {}
 
     static synchronized void kick(MinecraftServer server) {
         POLICIES.computeIfAbsent(server, value ->
-            CompletableFuture.supplyAsync(() -> FingerprintPolicy.load(value.getServerDirectory())));
+            CompletableFuture.supplyAsync(() -> CacheRetentionPolicy.load(value.getServerDirectory())));
     }
 
     static String forLevel(ServerLevel level) {
@@ -34,7 +34,7 @@ final class Fingerprint {
 
     static CompletableFuture<Snapshot> whenReady(ServerLevel level) {
         kick(level.getServer());
-        CompletableFuture<FingerprintPolicy> policy;
+        CompletableFuture<CacheRetentionPolicy> policy;
         synchronized (Fingerprint.class) {
             policy = POLICIES.get(level.getServer());
         }
@@ -43,7 +43,7 @@ final class Fingerprint {
 
     static Snapshot snapshotForLevel(ServerLevel level) {
         kick(level.getServer());
-        CompletableFuture<FingerprintPolicy> ready;
+        CompletableFuture<CacheRetentionPolicy> ready;
         synchronized (Fingerprint.class) {
             Snapshot cached = LEVEL_SNAPSHOTS.get(level);
             if (cached != null) return cached;
@@ -60,7 +60,7 @@ final class Fingerprint {
         }
     }
 
-    record Snapshot(String fingerprint, FingerprintPolicy policy) {
+    record Snapshot(String fingerprint, CacheRetentionPolicy policy) {
         FingerprintManifest.Manifest manifest(Set<String> storedFingerprints) {
             return new FingerprintManifest.Manifest(
                 fingerprint, System.currentTimeMillis(), storedFingerprints);
