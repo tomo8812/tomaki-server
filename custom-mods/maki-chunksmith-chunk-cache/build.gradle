@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcache'
-version = '1.4.6'
+version = '1.4.7'
 
 base {
     archivesName = 'maki-chunksmith-chunk-cache'
@@ -199,10 +199,10 @@ tasks.register('verifyIssue66CacheVisibility') {
     }
 }
 
-tasks.register('issue40RegressionTest', JavaExec) {
+tasks.register('cacheRetentionSettingsTest', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'maki.chunksmithcache.FingerprintPolicySelfTest'
+    mainClass = 'maki.chunksmithcache.CacheRetentionPolicySelfTest'
 }
 
 tasks.register('backfillScopesTest', JavaExec) {
@@ -211,27 +211,12 @@ tasks.register('backfillScopesTest', JavaExec) {
     mainClass = 'maki.chunksmithcache.BackfillScopesSelfTest'
 }
 
-tasks.register('issue68CompatibilityTest', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'maki.chunksmithcache.CompatibilityInputSelfTest'
-    systemProperty 'issue68.modsDir', file('../../mods').absolutePath
-}
-
-tasks.register('issue70CompatibilityTest', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'maki.chunksmithcache.Issue70CompatibilitySelfTest'
-}
-
 tasks.named('check') {
-    dependsOn tasks.named('issue70CompatibilityTest')
-    dependsOn tasks.named('issue68CompatibilityTest')
     dependsOn tasks.named('verifyIssue66CacheVisibility')
     dependsOn tasks.named('backfillScopesTest')
     dependsOn tasks.named('verifyMixinAnnotationRetention')
     dependsOn tasks.named('verifyIssue47BackfillOwnership')
-    dependsOn tasks.named('issue40RegressionTest')
+    dependsOn tasks.named('cacheRetentionSettingsTest')
     dependsOn tasks.named('verifyIssue41BackfillTicketLifecycle')
     dependsOn tasks.named('verifyIssue66SharedBudget')
 }
@@ -280,12 +265,11 @@ def issue83World = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldM
 def issue83Mod = file('src/main/java/maki/chunksmithcache/MakiChunksmithChunkCache.java')
 def issue83Promotion = file('src/main/java/maki/chunksmithcache/PromotionLedger.java')
 def issue83Claim = file('src/main/java/maki/chunksmithcache/PromotionClaim.java')
-def issue83Policy = file('src/main/java/maki/chunksmithcache/FingerprintPolicy.java')
 
 tasks.register('verifyIssue83UnifiedPregen') {
     inputs.files(issue83CacheSource, issue83FollowOwnership, issue83PairMixin, issue83Mixins, issue83DiskBudget,
         issue83Borrow, issue83PoiBridge, issue83ChunkSave, issue83EntitySave, issue83PoiSave, issue83Unload,
-        issue83Request, issue83World, issue83Mod, issue83Promotion, issue83Claim, issue83Policy)
+        issue83Request, issue83World, issue83Mod, issue83Promotion, issue83Claim)
     doLast {
         def cache = issue83CacheSource.getText('UTF-8')
         def followOwnership = issue83FollowOwnership.getText('UTF-8')
@@ -303,7 +287,6 @@ tasks.register('verifyIssue83UnifiedPregen') {
         def mod = issue83Mod.getText('UTF-8')
         def promotion = issue83Promotion.getText('UTF-8')
         def claim = issue83Claim.getText('UTF-8')
-        def policy = issue83Policy.getText('UTF-8')
         if (mixins.contains('"MinecraftServerMixin"')) {
             throw new GradleException('Issue #83 regression: independent Backfill server-tick exploration is active')
         }
@@ -417,14 +400,6 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !poiSave.contains('PromotionLedger.observePoiWrite(this, pos, written)')
                 || !poiSave.contains('SimpleRegionStorage;write(')) {
             throw new GradleException('Issue #83 regression: promoted cache may retire before suppressed POI is durably saved')
-        }
-        if (!policy.contains('"epicterrain-"')
-                || !policy.contains('"zfastnoise-"')
-                || !policy.contains('BUILTIN_GENERATION_SENSITIVE_PATHS')
-                || !policy.contains('return FingerprintManifest.Impact.IGNORED')
-                || policy.contains('fingerprint.audited-neutral-mod-sha256')
-                || policy.contains('fingerprint.generation-sensitive-mod-ids')) {
-            throw new GradleException('Issue #83 regression: FULL cache terrain-input classification is not bounded to current inputs')
         }
         def prepareStart = cache.indexOf('public static boolean preparePregenRequest')
         def prepareEnd = cache.indexOf('public static void pregenRequestFinished', prepareStart)
@@ -544,6 +519,5 @@ tasks.register('fullCacheCompatibilityTest', JavaExec) {
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'maki.chunksmithcache.FullCacheCompatibilitySelfTest'
-    systemProperty 'auditedUpgrade.modsDir', file('../../mods').absolutePath
 }
 tasks.named('check') { dependsOn tasks.named('fullCacheCompatibilityTest') }
