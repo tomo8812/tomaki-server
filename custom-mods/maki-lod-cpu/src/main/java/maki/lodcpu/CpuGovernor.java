@@ -31,12 +31,9 @@ public final class CpuGovernor {
     private static volatile String pipelinePressure;
     private static boolean configGood=true;
     private static double capacity=detectCapacity();
-    private static double observedCpu=Double.NaN,observedMspt=Double.NaN,observedHeap=100;
 
     public static Settings settings(){return settings;}
     public static boolean healthyConfig(){return configGood;}
-    public static boolean onlineOverload(){return !configGood||!Double.isFinite(observedCpu)||observedCpu>=98||observedMspt>=45||observedHeap>=settings.highHeap;}
-    public static boolean recovered(){return configGood&&Double.isFinite(observedCpu)&&observedCpu<80&&observedMspt<25&&observedHeap<settings.highHeap-10;}
     public static int cap(){return cap;}
     public static String pipelinePressure(){refreshPipelinePressure();return pipelinePressure;}
     public static boolean pregenRetryPending(MinecraftServer server,int centerX,int centerZ,int radiusBlocks){
@@ -121,7 +118,7 @@ public final class CpuGovernor {
         long cpu=cpuTime(),gc=gcMillis();
         if(lastTime==0){
             lastTime=now;lastCpu=cpu;lastGc=gc;
-            LOG.info("Throughput governor 1.4.2 ready: allocated {} cores, ceiling {}..{}; follow dispatch and real-chunk backfill share one pressure-aware time budget, and CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);
+            LOG.info("Maki Chunksmith Controller E-lite ready: allocated {} cores, ceiling {}..{}; follow dispatch and real-chunk backfill share one pressure-aware time budget, and CPU saturation alone does not reduce idle generation",capacity,settings.min,settings.max);
             return;
         }
 
@@ -132,7 +129,6 @@ public final class CpuGovernor {
 
         var memory=ManagementFactory.getMemoryMXBean().getHeapMemoryUsage();
         double heap=memory.getMax()>0?100.0*memory.getUsed()/memory.getMax():Double.NaN;
-        observedCpu=used;observedMspt=mspt;observedHeap=heap;
 
         MemoryBudget budget=MemoryBudget.read();
         LodCounters lod=LodCounters.read();
