@@ -10,6 +10,10 @@ Minecraft 1.21.1 / NeoForge 21.1.262。PR #89はChunksmith 4.6.0を基点とし�
 | 実装状況 | **E-liteの制御部をlod-cpuへ移管済み**。PR #90のFULL通知・Mixin統合・配布JAR更新・実機検証は未完了 |
 | 関連資料 | [PR #90のcache連携契約](e-lite-pr90-cache-integration.md) / [Issue #83](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/issues/83) / [レビュー判断記録（67件＋先行レビュー）](pregen-throughput-review-decisions.md) / [起動前計測](../scripts/a1-pregen-preflight.py) |
 
+**名称と後方互換性:** MODの表示名は「Maki Chunksmith Controller」。他MODが参照する内部MOD ID `maki_lod_cpu`、Javaパッケージ `maki.lodcpu`、設定 `config/maki-lod-cpu.properties`、現行JAR名は変更しない。E-liteが本体であり、旧CPU閾値ベースの`Decision`制御は削除した。
+
+**運用データ:** 初回起動時に旧LODやFULLキャッシュを削除する`UnifiedPregenReset`を撤去。既存LODの利用はChunksmith、FULLの利用はcacheの判断に従う。生成制御は旧データの消去・隔離を要求しない。
+
 ## 1. 目的・守るべき条件
 
 最適化するのは、後でプレイヤーが再生成なしで使える**正しく保存されたFULLとLODの組**を、単位実時間当たりに新たに確定させる速度である。生成要求数、単独LOD書込数、既存完成物のスキップ数は成果に数えない。中心からの同心円順を守り、中心近くの未完成穴を増やし続けないことも重要な評価条件とする。
