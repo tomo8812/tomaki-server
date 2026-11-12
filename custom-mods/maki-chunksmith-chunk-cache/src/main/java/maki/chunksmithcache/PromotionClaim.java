@@ -41,7 +41,6 @@ final class PromotionClaim {
         // Same filesystem. If atomic rename is unavailable, refuse promotion.
         // A copy/delete fallback could expose the same snapshot twice after a crash.
         Files.move(available, target, StandardCopyOption.ATOMIC_MOVE);
-        PairReceiptStore.invalidate(available);
         return new PromotionClaim(target, hasEntities);
         }
     }
@@ -49,8 +48,8 @@ final class PromotionClaim {
     static boolean publish(Path temporary, Path available) throws IOException {
         try(var ignored=CachePathLocks.lock(claimedPath(available))) {
         if (RecoveryClaims.claimExists(claimedPath(available))) return false;
-        // Fail closed: non-atomic fallback could expose an uncommitted FULL.
-        Files.move(temporary, available, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        try { Files.move(temporary, available, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
+        catch (AtomicMoveNotSupportedException unsupported) { Files.move(temporary, available, StandardCopyOption.REPLACE_EXISTING); }
         return true;
         }
     }

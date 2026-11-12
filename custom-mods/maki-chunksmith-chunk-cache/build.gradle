@@ -50,7 +50,6 @@ def registeredMixins = [
     'maki.chunksmithcache.mixin.GenerationTaskPairMixin',
     'maki.chunksmithcache.mixin.GenerationRequestMixin',
     'maki.chunksmithcache.mixin.LodStoreCommitMixin',
-    'maki.chunksmithcache.mixin.LodRegionOffsetGuardMixin',
     'maki.chunksmithcache.mixin.ServerLevelEntityAccessor',
     'maki.chunksmithcache.mixin.EntitySectionManagerAccessor',
     'maki.chunksmithcache.mixin.EntityStorageWriteAckMixin',
@@ -373,9 +372,8 @@ tasks.register('verifyIssue83UnifiedPregen') {
         }
         if (!request.contains('maki$trackGeneratedDecision')
                 || !request.contains('GenerationTask sourceTask=(GenerationTask)(Object)this')
-                || !request.contains('CacheManager.reservePregenCandidate(neoforge.getWorld(),pos,sourceTask)')
                 || !request.contains('CacheManager.withChunksmithRequestTask(')
-                || !request.contains('sourceTask,()->world.getChunkAtAsync(x,z)')
+                || !request.contains('sourceTask, () -> world.getChunkAtAsync(x,z)')
                 || !request.contains('CacheManager.protectChunksmithGeneratedResult(')
                 || !request.contains('sourceTask,nativeResult')
                 || !request.contains('CacheManager.noteChunksmithGeneratedResult')
@@ -384,7 +382,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !request.contains('pos,sourceTask)')
                 || !request.contains('CacheManager.preparePregenRequest(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)')
                 || !request.contains('CacheManager.pregenRequestFinished(neoforge.getWorld(),new ChunkPos(x,z),sourceTask,error==null)')
-                || !request.contains('CacheManager.pregenRequestFailed(neoforge.getWorld(),pos,sourceTask)')
+                || !request.contains('CacheManager.pregenRequestFailed(neoforge.getWorld(),new ChunkPos(x,z),sourceTask)')
                 || world.contains('maki$rememberGeneratedDecision')) {
             throw new GradleException('Issue #83 regression: generated/request state must remain bound to the originating task')
         }
@@ -392,9 +390,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !world.contains('unifiedPregenRequestAdmitted(this.world,pos,sourceTask)')
                 || !world.contains('unifiedPregenRequestActive(this.world,pos,sourceTask)')
                 || !world.contains('runWithChunksmithRequestTask(sourceTask')
-                || !world.contains('pregenAttemptToken(level,chunk.getPos(),sourceTask)')
-                || !world.contains('LodCommitTracker.offer(level,chunk,attemptToken)')
-                || !world.contains('captureFromChunksmith(level,chunk,lodWritten,sourceTask,attemptToken)')
+                || !world.contains('captureFromChunksmith(level, chunk, lodWritten, CacheManager.currentChunksmithRequestTask())')
                 || !world.contains('result.ifSuccess')
                 || !world.contains('chunk instanceof LevelChunk')
                 || !world.contains('CompletableFuture.failedFuture')) {
@@ -454,7 +450,7 @@ tasks.register('verifyIssue83UnifiedPregen') {
                 || !validateBody.contains('PregenBorrowLedger.releaseGeneratedToNormal(level,pos)')
                 || !cache.contains('PregenBorrowLedger.releaseGeneratedToNormal(level,pos);\n         PromotionLedger.normalFullPresent(level,pos);')
                 || !cache.contains('written.whenComplete((ignored,error) -> {')
-                || !cache.contains('PregenBorrowLedger.releaseGeneratedToNormal(level,pos);\n            PREGEN_RETRY.complete(captureKey(level,pos));')) {
+                || !cache.contains('PregenBorrowLedger.releaseGeneratedToNormal(level,pos);\n            PREGEN_RETRY.remove(captureKey(level,pos));')) {
             throw new GradleException('Issue #83 regression: a competing durable normal FULL can leave the generated pregen persistence guard armed')
         }
         def releaseStart = borrow.indexOf('static boolean releaseGeneratedToNormal')
@@ -542,136 +538,3 @@ tasks.register('verifyIssue83UnifiedPregen') {
     }
 }
 tasks.named('check') { dependsOn tasks.named('verifyIssue83UnifiedPregen') }
-
-tasks.register('lodPhysicalTest', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'maki.chunksmithcache.LodPhysicalSelfTest'
-}
-tasks.named('check') { dependsOn tasks.named('lodPhysicalTest') }
-
-tasks.register('pregenRetryLedgerTest', JavaExec) {
-    dependsOn tasks.named('testClasses')
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'maki.chunksmithcache.PregenRetryLedgerSelfTest'
-}
-tasks.named('check') { dependsOn tasks.named('pregenRetryLedgerTest') }
-
-def pregenV2Flow = file('src/main/java/maki/chunksmithcache/PregenFlowController.java')
-def pregenV2Receipt = file('src/main/java/maki/chunksmithcache/PairReceiptStore.java')
-def pregenV2LodTracker = file('src/main/java/maki/chunksmithcache/LodCommitTracker.java')
-def pregenV2LodStore = file('src/main/java/maki/chunksmithcache/mixin/LodStoreCommitMixin.java')
-def pregenV2Request = file('src/main/java/maki/chunksmithcache/mixin/GenerationRequestMixin.java')
-def pregenV2Pair = file('src/main/java/maki/chunksmithcache/mixin/GenerationTaskPairMixin.java')
-def pregenV2World = file('src/main/java/maki/chunksmithcache/mixin/NeoForgeWorldMixin.java')
-def pregenV2RegionGuard = file('src/main/java/maki/chunksmithcache/mixin/LodRegionOffsetGuardMixin.java')
-def pregenV2RegionCapacity = file('src/main/java/maki/chunksmithcache/LodRegionCapacity.java')
-def pregenV2Disk = file('src/main/java/maki/chunksmithcache/CacheDiskBudget.java')
-def pregenV2Cache = file('src/main/java/maki/chunksmithcache/CacheManager.java')
-def pregenV2Promotion = file('src/main/java/maki/chunksmithcache/PromotionClaim.java')
-def pregenV2RetryLedger = file('src/main/java/maki/chunksmithcache/PregenRetryLedger.java')
-def pregenV2Storage = file('src/main/java/maki/chunksmithcache/NormalChunkStorage.java')
-
-tasks.register('verifyPregenControllerV2') {
-    inputs.files(pregenV2Flow,pregenV2Receipt,pregenV2LodTracker,pregenV2LodStore,pregenV2Request,pregenV2Pair,pregenV2World,pregenV2RegionGuard,pregenV2RegionCapacity,pregenV2Disk,pregenV2Cache,pregenV2Promotion,pregenV2RetryLedger,pregenV2Storage)
-    doLast {
-        def flow=pregenV2Flow.getText('UTF-8')
-        def receipt=pregenV2Receipt.getText('UTF-8')
-        def lod=pregenV2LodTracker.getText('UTF-8')
-        def lodStore=pregenV2LodStore.getText('UTF-8')
-        def request=pregenV2Request.getText('UTF-8')
-        def pair=pregenV2Pair.getText('UTF-8')
-        def world=pregenV2World.getText('UTF-8')
-        def region=pregenV2RegionGuard.getText('UTF-8')
-        def regionCapacity=pregenV2RegionCapacity.getText('UTF-8')
-        def disk=pregenV2Disk.getText('UTF-8')
-        def cache=pregenV2Cache.getText('UTF-8')
-        def promotion=pregenV2Promotion.getText('UTF-8')
-        def retryLedger=pregenV2RetryLedger.getText('UTF-8')
-        def storage=pregenV2Storage.getText('UTF-8')
-        ['enum Stage { LOD, VALIDATE, FULL }','reserveCandidate','beginActual','physicalStart','physicalTerminal',
-         'pairConfirmedRuntime','pairResolved','releaseTaskGenerationIfUnused','stageUnavailable',
-         'effectiveWindow','admissionEpoch','60_000_000_000L&&!attempt.held.isEmpty()',
-         'generationCapChanged','pregen-service-model-reset','MIN_SERVICE_SAMPLES=3',
-         'SERVICE_SAMPLE_STALE_NANOS','serviceSamples<MIN_SERVICE_SAMPLES',
-         'stageMetric(stage,"physical-start")','stageMetric(stage,"terminal")',
-         'if(!attempt.actualStarted)'].each { token ->
-            if(!flow.contains(token))throw new GradleException('Pregen V2 regression: stage/WIP controller missing '+token)
-        }
-        if(!cache.contains('PREGEN_SCANNED_COORDINATES.increment()')
-                || !cache.contains('PREGEN_EFFECTIVE_RETRY_FULL.increment()')
-                || !cache.contains('PREGEN_EFFECTIVE_RETRY_LOD.increment()')
-                || !cache.contains('scannedCoordinates=')
-                || !cache.contains('effectiveRetryFull=')
-                || !cache.contains('effectiveRetryLod=')) {
-            throw new GradleException('Pregen V2 regression: whole-area retry scans lack low-cost scanned/effective diagnostics')
-        }
-        if(!request.contains('reservePregenCandidate') || !request.contains('preparePregenRequest')
-                || !request.contains('markPregenProgressRejected') || !request.contains('update(IIZZ)V')
-                || !request.contains('pregen-progress-update-suppressed')
-                || !pair.contains('pregenCandidateSkipped') || !world.contains('pregenAttemptToken')) {
-            throw new GradleException('Pregen V2 regression: two-stage admission is not bound to the native GenerationTask path')
-        }
-        ['LodReceipt','sourceToken','PHYSICAL','BY_COORDINATE','physicalTerminal'].each { token ->
-            if(!lod.contains(token))throw new GradleException('Pregen V2 regression: exact LOD physical/source proof missing '+token)
-        }
-        if(!lod.contains('writeStartedNanos') || !lod.contains('lod-physical-queue-wait')
-                || !lodStore.contains('LodCommitTracker.writing(record)')) {
-            throw new GradleException('Pregen V2 regression: LOD service-rate learning includes queue wait or lacks actual writer start')
-        }
-        ['completion','fullSha256','lodSha256','ATOMIC_MOVE','channel.force(true)','store.read(pos.x,pos.z)','lodDigest(record)',
-         'currentLodMatches','CachePathLocks.lock(PromotionClaim.claimedPath(full))','VALIDATION_CACHE_LIMIT=4096',
-         'revalidatedProcess','fullProven'].each { token ->
-            if(!receipt.contains(token))throw new GradleException('Pregen V2 regression: durable PAIR receipt/revalidation missing '+token)
-        }
-        def completionStart=receipt.indexOf('String completion=')
-        def completionEnd=receipt.indexOf('Path receipt=receipt(full)',completionStart)
-        def completionBody=receipt.substring(completionStart,completionEnd)
-        if(completionBody.contains('sourceToken') || completionBody.contains('fullMtime') || completionBody.contains('fileKey()'))
-            throw new GradleException('Pregen V2 regression: completion identity is coupled to an attempt or file instance')
-        if(!receipt.contains('receiptMetadataMatches(prior,properties)') || !receipt.contains('existing?PublishResult.EXISTING:PublishResult.NEW'))
-            throw new GradleException('Pregen V2 regression: canonical completion re-publication can be double-counted')
-        if(!lod.contains('coordinateClear(LodReceipt receipt)')
-                || !promotion.contains('PairReceiptStore.invalidate(available)')) {
-            throw new GradleException('Pregen V2 regression: LOD overtaking or promotion can leave a stale PAIR proof')
-        }
-        if(!cache.contains('pairReceiptValidIfRequired') || !cache.contains('PairReceiptStore.publish(')
-                || !cache.contains('pairProofValidIfRequired') || !cache.contains('"pairRequired"')
-                || !cache.contains('pregen-full-retry-hint-deferred')
-                || !cache.contains('deferPregenAdmissionRetry')
-                || !cache.contains('return resource.hardBlock()||resource.softBackpressure()||resource.sensorUnknown()')
-                || !cache.contains('pregen-final-admission-pressure-rejected')
-                || !cache.contains('!"stage-wip-window".equals(finalPressure.pressureReason())')
-                || !cache.contains('PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.VALIDATE)')
-                || !cache.contains('PregenFlowController.physicalStart(sourceToken,PregenFlowController.Stage.FULL)')) {
-            throw new GradleException('Pregen V2 regression: physical validation/FULL terminals or restart proof missing')
-        }
-        if(!disk.contains('toRealPath()') || !disk.contains('samePhysicalStore(')
-                || !disk.contains('sharedFileStore') || !disk.contains('cacheUsableBytes')
-                || !disk.contains('lodUsableBytes') || !disk.contains('"lod-disk-reserve"')
-                || !disk.contains('PregenFlowController.snapshot().lodOutstanding()')
-                || !disk.contains('observedLodBytes=inventory?treeBytes(realLodRoot):0L')) {
-            throw new GradleException('Pregen V2 regression: independent physical FileStore/projected LOD disk guard missing')
-        }
-        if(!region.contains('Integer.MAX_VALUE-MAX_RECORD_BYTES') || !region.contains('RandomAccessFile;length()J')) {
-            throw new GradleException('Pregen V2 regression: signed 32-bit CSLOD offset guard missing')
-        }
-        if(!regionCapacity.contains('PREGEN_HEADROOM=64L<<20') || !regionCapacity.contains('allowPregen')
-                || !cache.contains('LodRegionCapacity.written(currentServer,record,bytes)')
-                || !cache.contains('LodRegionCapacity.allowPregen(level,pos)')) {
-            throw new GradleException('Pregen V2 regression: Follow-specific CSLOD headroom guard missing')
-        }
-        ['LIMIT=4096','retryAtNanos','ledgerComplete','overflowDirty','overflowRescanDue'].each { token ->
-            if(!retryLedger.contains(token))throw new GradleException('Pregen V2 regression: bounded retry ledger missing '+token)
-        }
-        ['retryLedgerComplete','retryOverflowDirty','nextRetryMillis','anyDueInRange','pregen-retry-overflow-rescan'].each { token ->
-            if(!cache.contains(token))throw new GradleException('Pregen V2 regression: retry debt scheduling/diagnostics missing '+token)
-        }
-        ['ScannerStatus','SCAN_IN_FLIGHT','normal-scanner-permit-rejected','normal-scanner-unknown'].each { token ->
-            if(!storage.contains(token))throw new GradleException('Pregen V2 regression: Minecraft scanner pressure telemetry missing '+token)
-        }
-        if(!cache.contains('NormalChunkStorage.scannerStatus()'))
-            throw new GradleException('Pregen V2 regression: scanner and VALIDATE pressure are not reported separately')
-    }
-}
-tasks.named('check') { dependsOn tasks.named('verifyPregenControllerV2') }

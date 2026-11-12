@@ -1,6 +1,5 @@
 package maki.chunksmithcache.mixin;
 
-import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.Selection;
 import com.kishku7.chunksmith.lod.CsLodPresenceIndex;
 import com.kishku7.chunksmith.platform.NeoForgeWorld;
@@ -92,11 +91,8 @@ public abstract class GenerationTaskPairMixin {
         if(lod && selection.world() instanceof NeoForgeWorld world
             && CacheManager.unifiedPregenOwns(world.getWorld()))
             lod=CacheManager.chunksmithLodSkipHint(world.getWorld(),new ChunkPos(x,z),index);
-        if(lod && selection.world() instanceof NeoForgeWorld world) {
-            ChunkPos pos=new ChunkPos(x,z);
-            CacheManager.noteObservedLodPresent(world.getWorld(),pos);
-            CacheManager.pregenCandidateSkipped(world.getWorld(),pos,(GenerationTask)(Object)this);
-        }
+        if(lod && selection.world() instanceof NeoForgeWorld world)
+            CacheManager.noteObservedLodPresent(world.getWorld(),new ChunkPos(x,z));
         return lod;
     }
 }

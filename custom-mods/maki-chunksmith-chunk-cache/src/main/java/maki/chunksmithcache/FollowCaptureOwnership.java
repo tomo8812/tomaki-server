@@ -36,25 +36,4 @@ final class FollowCaptureOwnership {
             return false;
         }
     }
-
-    static long admissionEpoch(GenerationTask task) {
-        if(task==null||!owns(task))return -1L;
-        try {
-            Object value=Class.forName("maki.lodcpu.ResourceBudgetApi")
-                .getMethod("followAdmissionEpoch",GenerationTask.class).invoke(null,task);
-            return value instanceof Number number?number.longValue():-1L;
-        } catch(ReflectiveOperationException|LinkageError|RuntimeException error) {
-            return -1L;
-        }
-    }
-
-    static boolean admissionOpen(GenerationTask task) {
-        if(task==null||!owns(task))return false;
-        try {
-            return Boolean.TRUE.equals(Class.forName("maki.lodcpu.ResourceBudgetApi")
-                .getMethod("followAdmissionOpen",GenerationTask.class).invoke(null,task));
-        } catch(ReflectiveOperationException|LinkageError|RuntimeException error) {
-            return false;
-        }
-    }
 }

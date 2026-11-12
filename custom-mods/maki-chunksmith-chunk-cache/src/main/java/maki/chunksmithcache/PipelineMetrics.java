@@ -16,23 +16,16 @@ public final class PipelineMetrics {
     public static synchronized void time(String name, long nanos) {
         TIMES.computeIfAbsent(name, ignored -> new LatencyHistogram()).record(nanos);
     }
-    static void report() {
+    static synchronized void report() {
         long now = System.nanoTime();
-        long intervalMillis;
-        String counts, times, gauges;
-        synchronized (PipelineMetrics.class) {
-            if (now - lastReport < 60_000_000_000L) return;
-            intervalMillis=(now-lastReport)/1_000_000;
-            counts=COUNTS.toString(); times=TIMES.toString(); gauges=GAUGES.toString();
-            COUNTS.clear(); TIMES.clear(); GAUGES.clear(); lastReport=now;
-        }
-        // Slow log formatting and providers cannot block native writer ACKs.
+        if (now - lastReport < 60_000_000_000L) return;
         var config = com.kishku7.chunksmith.ChunksmithProvider.get().getConfig();
         LoggerFactory.getLogger("MakiChunkCache").info(
             "Chunksmith effective config: ioThrottle={}, maxChunkMillis={}, dispatchMaxConcurrent={}",
             config.isIoThrottleEnabled(), config.getThrottleMaxChunkMillis(), config.getDispatchMaxConcurrent());
         LoggerFactory.getLogger("MakiChunkCache").info(
             "Generation pipeline intervalMs={}, counts={}, latencyMs=[{}], gauges={}, cacheIo=[{}], worldgen-internal=unknown, sharedBudget=[{}]",
-            intervalMillis, counts, times, gauges, CacheManager.ioSummary(now), LodResourceBudgetBridge.status());
+            (now-lastReport)/1_000_000, COUNTS, TIMES, GAUGES, CacheManager.ioSummary(now), LodResourceBudgetBridge.status());
+        COUNTS.clear(); TIMES.clear(); GAUGES.clear(); lastReport = now;
     }
 }

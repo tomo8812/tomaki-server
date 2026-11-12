@@ -17,12 +17,6 @@ import net.minecraft.world.level.chunk.status.ChunkStatus;
 
 final class NormalChunkStorage {
    private static final java.util.concurrent.Semaphore SCANS=new java.util.concurrent.Semaphore(64);
-   private static final java.util.concurrent.atomic.AtomicInteger SCAN_IN_FLIGHT=new java.util.concurrent.atomic.AtomicInteger();
-   private static final java.util.concurrent.atomic.LongAdder SCAN_REJECTED=new java.util.concurrent.atomic.LongAdder();
-   private static final java.util.concurrent.atomic.LongAdder SCAN_COMPLETED=new java.util.concurrent.atomic.LongAdder();
-   private static final java.util.concurrent.atomic.LongAdder SCAN_UNKNOWN=new java.util.concurrent.atomic.LongAdder();
-
-   record ScannerStatus(int inFlight,int availablePermits,long rejected,long completed,long unknown) {}
    enum State {
       ABSENT,
       PROTO,
@@ -64,44 +58,20 @@ final class NormalChunkStorage {
    }
 
    private static java.util.concurrent.CompletableFuture<State> inspectStatus(ServerLevel level,ChunkPos pos) {
-      if (!SCANS.tryAcquire()) {
-         SCAN_REJECTED.increment();
-         PipelineMetrics.count("normal-scanner-permit-rejected");
-         return java.util.concurrent.CompletableFuture.completedFuture(State.UNKNOWN);
-      }
-      SCAN_IN_FLIGHT.incrementAndGet();
-      long started=System.nanoTime();
+      if (!SCANS.tryAcquire()) return java.util.concurrent.CompletableFuture.completedFuture(State.UNKNOWN);
       try {
          FieldSelector statusSelector = new FieldSelector(StringTag.TYPE, "Status");
          CollectFields collector = new CollectFields(new FieldSelector[]{statusSelector});
          return level.getChunkSource().chunkScanner().scanChunk(pos, collector)
              .handle((ignored, error) -> {
                SCANS.release();
-               SCAN_IN_FLIGHT.decrementAndGet();
-               SCAN_COMPLETED.increment();
-               PipelineMetrics.time("normal-scanner",System.nanoTime()-started);
-               State result=error != null ? State.UNKNOWN : collector.getResult() == null ? State.ABSENT
+               return error != null ? State.UNKNOWN : collector.getResult() == null ? State.ABSENT
                   : collector.getResult() instanceof CompoundTag tag ? fromTag(tag) : State.UNKNOWN;
-               if(result==State.UNKNOWN){
-                  SCAN_UNKNOWN.increment();
-                  PipelineMetrics.count("normal-scanner-unknown");
-               }
-               return result;
             });
       } catch (Throwable unavailable) {
          SCANS.release();
-         SCAN_IN_FLIGHT.decrementAndGet();
-         SCAN_COMPLETED.increment();
-         SCAN_UNKNOWN.increment();
-         PipelineMetrics.time("normal-scanner",System.nanoTime()-started);
-         PipelineMetrics.count("normal-scanner-unknown");
          return java.util.concurrent.CompletableFuture.completedFuture(State.UNKNOWN);
       }
-   }
-
-   static ScannerStatus scannerStatus() {
-      return new ScannerStatus(SCAN_IN_FLIGHT.get(),SCANS.availablePermits(),
-         SCAN_REJECTED.sum(),SCAN_COMPLETED.sum(),SCAN_UNKNOWN.sum());
    }
 
    static State fromTag(CompoundTag tag) {
