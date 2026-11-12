@@ -147,7 +147,7 @@ public final class PlayerCenter {
             save(System.currentTimeMillis());
         }
     }
-    public static void shutdown(MinecraftServer server){if(owner==server&&saved!=null)save(System.currentTimeMillis());closeAdmission();owner=null;nativeTaskLifecycle.clear();controllerStopTask=null;}
+    public static void shutdown(MinecraftServer server){if(owner==server&&saved!=null)save(System.currentTimeMillis());closeAdmission();PregenFlowController.clear();owner=null;nativeTaskLifecycle.clear();controllerStopTask=null;}
     private static void save(long now){
         if(stateFile==null)return;
         try{
