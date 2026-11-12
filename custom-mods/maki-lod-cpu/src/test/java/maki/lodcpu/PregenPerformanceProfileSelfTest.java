@@ -12,7 +12,7 @@ public final class PregenPerformanceProfileSelfTest {
         long now=1_000_000L;
         var env=new PregenPerformanceProfile.Environment(
             PregenPerformanceProfile.CONTROLLER_VERSION,"0-1","200000 100000",2.0,8L<<30,
-            "true|50|8","1.4.2",12345L,"MIXED");
+            "true|50|8","E_LITE_PAIR_V1",12345L,"MIXED");
 
         require(PregenPerformanceProfile.workClassBand(3,3).equals("UNKNOWN"),"small samples remain unknown");
         require(PregenPerformanceProfile.workClassBand(8,0).equals("NEW_HEAVY"),"new-heavy band");
@@ -27,11 +27,11 @@ public final class PregenPerformanceProfileSelfTest {
         settings.max=8;
         var changedQuota=new PregenPerformanceProfile.Environment(
             env.controllerVersion(),env.cpuAffinity(),"100000 100000",env.cpuCapacity(),env.heapMaxBytes(),
-            env.chunksmithConfig(),env.cacheControllerVersion(),env.fastSignature(),env.workClassBand());
+            env.chunksmithConfig(),env.pairFeedVersion(),env.fastSignature(),env.workClassBand());
         require(PregenPerformanceProfile.load(file,changedQuota,settings,now+1000).isEmpty(),"quota change rejects warm start");
         var changedBand=new PregenPerformanceProfile.Environment(
             env.controllerVersion(),env.cpuAffinity(),env.cpuQuota(),env.cpuCapacity(),env.heapMaxBytes(),
-            env.chunksmithConfig(),env.cacheControllerVersion(),env.fastSignature(),"NEW_HEAVY");
+            env.chunksmithConfig(),env.pairFeedVersion(),env.fastSignature(),"NEW_HEAVY");
         require(PregenPerformanceProfile.load(file,changedBand,settings,now+1000).isEmpty(),"work-class change rejects warm start");
         require(PregenPerformanceProfile.load(file,env,settings,now+PregenPerformanceProfile.MAX_AGE_MILLIS+1).isEmpty(),
             "stale profile is rejected");
