@@ -175,20 +175,17 @@ final class GenerationStore {
                 LOG.warn("Keeping historical cache with invalid owner metadata {}; recovery will preserve it", source);
                 continue;
             }
-            Stats before = stats(source);
             FingerprintManifest.Manifest existing =
                 FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
-            CacheDirectoryMerge.MergeStats copied =
-                copyValidFulls(level, old, current, source, active, budget);
+            // Publish acceptance first. Interrupted per-file renames remain readable
+            // at either the old or new location and are resumed on the next pass.
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME),
                 snapshot.manifest(acceptedIdentities(snapshot, old, existing)));
-            CacheDirectoryMerge.cleanupCopiedSources(
-                source, active, cacheValidator(level, old),
-                cacheValidator(level, validationManifest(current, active, old)));
-            if (stats(source).entries() == 0) {
-                deleteTree(source);
-                budget.deleted(before.bytes());
-            }
+            CacheDirectoryMerge.MergeStats copied=CacheDirectoryMerge.adoptValidatedInPlace(
+                source,active,cacheValidator(level,old),
+                cacheValidator(level,validationManifest(current,active,old)));
+            if(stats(source).entries()==0)deleteTree(source);
+            budget.invalidateInventory();
             LOG.info("Adopted historical FULL cache {} -> {}; checked={} adopted={} duplicates={} rejected={} trigger={}",
                 old.fingerprint(), snapshot.fingerprint(), copied.sourceEntries(),
                 copied.adoptedEntries(), copied.duplicateEntries(), copied.rejectedEntries(), trigger);

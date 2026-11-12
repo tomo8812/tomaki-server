@@ -21,6 +21,6 @@ public final class MakiChunksmithChunkCache {
             CacheManager.stopped(event.getServer());
         });
         NeoForge.EVENT_BUS.addListener((RegisterCommandsEvent event) -> CacheCommands.register(event.getDispatcher()));
-        NeoForge.EVENT_BUS.addListener((ServerTickEvent.Post event) -> { PregenBorrowLedger.handoffPlayers(event.getServer()); CacheManager.maintenanceTick(event.getServer()); });
+        NeoForge.EVENT_BUS.addListener((ServerTickEvent.Post event) -> { PregenBorrowLedger.handoffPlayers(event.getServer()); CacheManager.retryFullSaves(event.getServer()); CacheManager.maintenanceTick(event.getServer()); });
     }
 }

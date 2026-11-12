@@ -74,3 +74,5 @@ Millénaire 9.1.0 の村は、プレイヤーが周辺へ来て実FULLチャン�
 再現可能なJAR取得とハッシュ検証は `scripts/sync-upstream-481-910.sh` を使用します。
 
 現構成のController・FULL cache・Millénaire互換MODは必須依存として直接連携します。村候補の再投入はnativeキューの空きと再試行待ちだけを扱い、Chunksmithの並列数・LODキュー・独自MSPT/GC判定には依存しません。
+
+旧Controllerから更新する既存サーバーは、初回起動前に[Controller設定移行手順](docs/pr91-controller-config-upgrade.md)を実行してください。新設定ファイルが同梱されていても、旧設定の追従対象・有効無効・並列数を引き継ぎます。

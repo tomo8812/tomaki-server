@@ -55,7 +55,7 @@ public final class CacheManager {
    private static final ConcurrentHashMap<String, CompletableFuture<Boolean>> ROTATION_RESULTS = new ConcurrentHashMap<>();
    private static final Map<String,Long> ROTATION_RETRY = new ConcurrentHashMap<>();
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
-   private static final ConcurrentHashMap<CaptureKey,Long> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
+   private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_NEW_TARGETS = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<CaptureKey,GenerationTask> PREGEN_REQUEST_TARGETS = new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<Path,ConcurrentHashMap<String,Long>> NEXT_LOCAL_RECOVERY_WARNING = new ConcurrentHashMap<>();
    private static final Map<MinecraftServer, Long> NEXT_MAINTENANCE = new WeakHashMap<>();
@@ -88,51 +88,101 @@ public final class CacheManager {
       CaptureKey key=captureKey(level,pos);
       String token=FullTelemetryBridge.token(level,pos,sourceTask);
       if(PREGEN_REQUEST_TARGETS.get(key)!=sourceTask) { FullTelemetryBridge.failed(token); return; }
-      boolean generatedTarget=PREGEN_NEW_TARGETS.remove(key)!=null;
+      boolean generatedTarget=PREGEN_NEW_TARGETS.get(key)==sourceTask;
       if(PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.BORROWED || !generatedTarget) {
          FullTelemetryBridge.reused(token);
          return;
       }
       if(!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(sourceTask)
-         || PregenBorrowLedger.kind(level,pos)!=PregenBorrowLedger.Kind.GENERATED
-         || PregenBorrowLedger.isHandedOff(level,pos)) {
+         || PregenBorrowLedger.kind(level,pos)!=PregenBorrowLedger.Kind.GENERATED) {
          FullTelemetryBridge.failed(token);
          return;
       }
-      PregenBorrowLedger.attachCapture(level,pos,capture(level,chunk,token));
+      RequestKey request=new RequestKey(level,pos.toLong(),sourceTask);
+      PendingFull work=new PendingFull(request,chunk,token);
+      FULL_RETRIES.put(request,work);
+      PregenBorrowLedger.attachCapture(level,pos,FULL_COMPLETIONS.get(request).thenApply(ignored->true));
+      savePending(work);
 
    }
 
-   /** FULL ownership at the actual native load boundary. */
-   public static CompletableFuture<Void> request(com.kishku7.chunksmith.platform.World world,
-      int x,int z,GenerationTask task,java.util.function.Supplier<CompletableFuture<Void>> nativeRequest) {
-      ServerLevel level=((com.kishku7.chunksmith.platform.NeoForgeWorld)world).getWorld();
-      ChunkPos pos=new ChunkPos(x,z);
+   private record RequestKey(ServerLevel level,long pos,GenerationTask owner){}
+   private static final ConcurrentHashMap<RequestKey,CompletableFuture<Void>> FULL_COMPLETIONS=new ConcurrentHashMap<>();
+   private static final ConcurrentHashMap<RequestKey,PendingFull> FULL_RETRIES=new ConcurrentHashMap<>();
+   private static final class PendingFull {
+      final RequestKey key;final LevelChunk chunk;final String token;
+      boolean busy;long retryTick;
+      PendingFull(RequestKey key,LevelChunk chunk,String token){this.key=key;this.chunk=chunk;this.token=token;}
+   }
+
+   public static CompletableFuture<Void> prepareRequest(com.kishku7.chunksmith.platform.World world,
+      int x,int z,GenerationTask task){
+      ServerLevel level=((com.kishku7.chunksmith.platform.NeoForgeWorld)world).getWorld();ChunkPos pos=new ChunkPos(x,z);
       String token=FullTelemetryBridge.token(level,pos,task);
-      CompletableFuture<Boolean> classified=NormalChunkStorage.inspectAsync(level,pos).thenCompose(normal->{
-         if(normal==NormalChunkStorage.State.FULL){
-            PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
-            return CompletableFuture.completedFuture(true);
-         }
-         if(normal==NormalChunkStorage.State.UNKNOWN)
-            return CompletableFuture.failedFuture(new IOException("FULL storage ownership unavailable at "+pos));
-         // Reading/borrowing the actual cache protects FULL data without changing
-         // Chunksmith's generated-state or LOD decisions.
-         return loadForPregen(level,pos).thenApply(Optional::isPresent);
-      });
-      return classified.thenCompose(existingFull->{
+      return NormalChunkStorage.inspectAsync(level,pos).thenCompose(normal->{
+         if(normal==NormalChunkStorage.State.UNKNOWN)return CompletableFuture.failedFuture(new IOException("FULL ownership unknown before dispatch"));
+         return normal==NormalChunkStorage.State.FULL?CompletableFuture.completedFuture(true)
+             :loadForPregen(level,pos,false).thenApply(Optional::isPresent);
+      }).thenAccept(existing->{
+         if(!FollowCaptureOwnership.active(level,task))throw new IllegalStateException("Preparation stopped");
          CaptureKey key=captureKey(level,pos);
-         if(!existingFull&&ResourceBudgetApi.fullCaptureExpected(token))PREGEN_NEW_TARGETS.put(key,System.currentTimeMillis());
-         else PREGEN_NEW_TARGETS.remove(key);
-         // FULL ownership is storage policy, independent of resource admission.
-         if(!preparePregenRequest(level,pos,task)) {
-            pregenRequestFailed(level,pos,task);
-            return CompletableFuture.failedFuture(new IllegalStateException("FULL cache ownership unavailable at "+pos));
-         }
-         try {
-            return nativeRequest.get().whenComplete((value,error)->pregenRequestFinished(level,pos,task,error==null));
-         } catch(Throwable error) { pregenRequestFailed(level,pos,task); throw error; }
+         if(PREGEN_REQUEST_TARGETS.putIfAbsent(key,task)!=null)throw new IllegalStateException("FULL request already owned");
+         try{
+            if(!existing&&ResourceBudgetApi.fullCaptureExpected(token)){
+               Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+               if(snapshot==null||!PregenBorrowLedger.beginGenerated(level,pos,path(level,pos,snapshot.fingerprint()),task))
+                  throw new IllegalStateException("FULL ownership unavailable before dispatch");
+               PREGEN_NEW_TARGETS.put(key,task);
+               FULL_COMPLETIONS.put(new RequestKey(level,pos.toLong(),task),new CompletableFuture<>());
+               ResourceBudgetApi.fullPending(token);
+            }
+         }catch(RuntimeException error){pregenRequestFailed(level,pos,task);throw error;}
       });
+   }
+
+   /** Already accepted native work drains even after admission closes. */
+   public static CompletableFuture<Void> request(com.kishku7.chunksmith.platform.World world,
+      int x,int z,GenerationTask task,java.util.function.Supplier<CompletableFuture<Void>> nativeRequest){
+      ServerLevel level=((com.kishku7.chunksmith.platform.NeoForgeWorld)world).getWorld();ChunkPos pos=new ChunkPos(x,z);
+      CompletableFuture<Void> saved=FULL_COMPLETIONS.get(new RequestKey(level,pos.toLong(),task));
+      try{return nativeRequest.get().thenCompose(ignored->saved==null?CompletableFuture.completedFuture(null):saved)
+          .whenComplete((value,error)->pregenRequestFinished(level,pos,task,error==null));}
+      catch(Throwable error){pregenRequestFailed(level,pos,task);throw error;}
+   }
+
+   public static void releaseUnusedPreparation(ServerLevel level,ChunkPos pos,GenerationTask owner){
+      if(!FULL_RETRIES.containsKey(new RequestKey(level,pos.toLong(),owner)))pregenRequestFinished(level,pos,owner,true);
+   }
+
+   public static void retryFullSaves(MinecraftServer server){
+      for(PendingFull work:FULL_RETRIES.values())if(work.key.level().getServer()==server)savePending(work);
+   }
+   private static void savePending(PendingFull work){
+      ServerLevel level=work.key.level();ChunkPos pos=work.chunk.getPos();
+      if(work.busy||level.getGameTime()<work.retryTick||STOPPING.contains(level.getServer()))return;
+      if(PregenBorrowLedger.isHandedOff(level,pos)){finishFull(work,false);return;}
+      if(!ResourceBudgetApi.reserveFullRetry(work.token))return;
+      work.busy=true;
+      capture(level,work.chunk,work.token).whenComplete((ok,error)->level.getServer().execute(()->{
+         work.busy=false;
+         if(error==null&&Boolean.TRUE.equals(ok))finishFull(work,true);
+         else work.retryTick=level.getGameTime()+20L;
+      }));
+   }
+   private static void finishFull(PendingFull work,boolean cached){
+      FULL_RETRIES.remove(work.key,work);
+      ResourceBudgetApi.fullSettled(work.token);
+      if(!cached)FullTelemetryBridge.failed(work.token);
+      CompletableFuture<Void> done=FULL_COMPLETIONS.get(work.key);if(done!=null)done.complete(null);
+   }
+   public static void releaseTicketWhenSaved(net.minecraft.server.level.ServerChunkCache source,ChunkPos pos,Runnable release){
+      for(var entry:FULL_COMPLETIONS.entrySet()){
+         RequestKey key=entry.getKey();
+         if(key.level().getChunkSource()==source&&key.pos()==pos.toLong()){
+            entry.getValue().whenComplete((ok,error)->key.level().getServer().execute(release));return;
+         }
+      }
+      release.run();
    }
 
    public static boolean fullWorkPending(MinecraftServer server, int centerX, int centerZ, int radiusBlocks) {
@@ -141,38 +191,6 @@ public final class CacheManager {
       long radiusSquared=radius*radius;
       if(anyInRange(server,PREGEN_NEW_TARGETS.keySet(),centerX,centerZ,radiusSquared))return true;
       return anyInRange(server,CAPTURE_PENDING.keySet(),centerX,centerZ,radiusSquared);
-   }
-
-   public static boolean preparePregenRequest(ServerLevel level,ChunkPos pos,GenerationTask sourceTask) {
-      if(level==null||pos==null)return false;
-      if(STOPPING.contains(level.getServer()))return false;
-      // Classify the actual task that owns this asynchronous request. Looking up
-      // only the current world task loses identity after GenerationTask's 60s drain
-      // timeout and can let a stopped follow task generate without persistence guards.
-      if(!FollowCaptureOwnership.owns(sourceTask))return true;
-      if(!FollowCaptureOwnership.active(level,sourceTask)) {
-         PipelineMetrics.count("pregen-stale-follow-request-blocked");
-         return false;
-      }
-      CaptureKey key=captureKey(level,pos);
-      GenerationTask admitted=PREGEN_REQUEST_TARGETS.compute(key,(ignored,existing) ->
-         existing==null || existing==sourceTask || !FollowCaptureOwnership.active(level,existing)
-            ? sourceTask : existing);
-      if(admitted!=sourceTask) {
-         PipelineMetrics.count("pregen-request-owner-conflict");
-         return false;
-      }
-      if(!PREGEN_NEW_TARGETS.containsKey(key))return true;
-      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
-      if(snapshot==null) {
-         return false;
-      }
-      Path file=path(level,pos,snapshot.fingerprint());
-      PregenBorrowLedger.Kind kind=PregenBorrowLedger.kind(level,pos);
-      if(kind!=null && kind!=PregenBorrowLedger.Kind.GENERATED)return false;
-      // A guard from a stopped task cannot be reused by this request.
-      if(PregenBorrowLedger.beginGenerated(level,pos,file,sourceTask))return true;
-      return false;
    }
 
    /** Track FULL availability before a detached task's result is failed closed. */
@@ -211,17 +229,29 @@ public final class CacheManager {
       if(!PREGEN_REQUEST_TARGETS.remove(key,sourceTask)) {
          // The task may have been replaced while its request was still in flight.
          // Only its own failed guard may be cancelled; never mutate the new task's state.
+         PREGEN_NEW_TARGETS.remove(key,sourceTask);
          if(!success)PregenBorrowLedger.cancel(level,pos,sourceTask);
          return;
       }
       if(STOPPING.contains(level.getServer())) {
-         PREGEN_NEW_TARGETS.remove(key);
+         PREGEN_NEW_TARGETS.remove(key,sourceTask);
          return;
       }
-      if(success)return;
-      PREGEN_NEW_TARGETS.remove(key);
+      PREGEN_NEW_TARGETS.remove(key,sourceTask);
+      RequestKey request=new RequestKey(level,pos.toLong(),sourceTask);
+      CompletableFuture<Void> completion=FULL_COMPLETIONS.remove(request);
+      if(success){
+         if(completion!=null&&!completion.isDone()){
+            FullTelemetryBridge.failed(FullTelemetryBridge.token(level,pos,sourceTask));
+            ResourceBudgetApi.fullSettled(FullTelemetryBridge.token(level,pos,sourceTask));
+            completion.complete(null);
+         }
+         PregenBorrowLedger.cancel(level,pos,sourceTask);return;
+      }
       // Cancel only when no FULL was observed. A stopped task may already have
       // a live FULL in vanilla's chunk manager, which still needs the save veto.
+      if(completion!=null)completion.completeExceptionally(new IOException("FULL request failed"));
+      ResourceBudgetApi.fullSettled(FullTelemetryBridge.token(level,pos,sourceTask));
       PregenBorrowLedger.requestFailed(level,pos,sourceTask);
       PregenBorrowLedger.cancel(level,pos,sourceTask);
    }
@@ -507,7 +537,8 @@ public final class CacheManager {
          && PREGEN_REQUEST_TARGETS.containsKey(captureKey(level,pos));
    }
 
-   private static CompletableFuture<Optional<CompoundTag>> loadForPregen(ServerLevel level, ChunkPos pos) {
+   private static CompletableFuture<Optional<CompoundTag>> loadForPregen(ServerLevel level,ChunkPos pos){return loadForPregen(level,pos,true);}
+   private static CompletableFuture<Optional<CompoundTag>> loadForPregen(ServerLevel level, ChunkPos pos,boolean borrow) {
       // A GENERATED guard is armed before getChunkAtAsync precisely so the target
       // can reach FULL without entering normal persistence. Do not wait on its own
       // future FULL publication or try to load a cache that does not exist yet.
@@ -515,7 +546,7 @@ public final class CacheManager {
          return CompletableFuture.completedFuture(Optional.empty());
 
       CompletableFuture<Boolean> active=PregenBorrowLedger.pending(level,pos);
-      if(active!=null) return active.handle((ignored,error)->null).thenCompose(ignored -> loadForPregen(level,pos));
+      if(active!=null) return active.handle((ignored,error)->null).thenCompose(ignored -> loadForPregen(level,pos,borrow));
 
       Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
       if(snapshot==null)return CompletableFuture.completedFuture(Optional.empty());
@@ -523,7 +554,7 @@ public final class CacheManager {
       CompletableFuture<Boolean> rotation=rotateGenerations(level,snapshot,"pregen-read");
       if(!rotation.isDone()) {
          return rotation.thenCompose(ok -> Boolean.TRUE.equals(ok)
-            ? loadForPregen(level,pos)
+            ? loadForPregen(level,pos,borrow)
             : reconciliationUnavailable(level,pos,"pregen-read"));
       }
       if(!Boolean.TRUE.equals(rotation.getNow(false)))
@@ -568,7 +599,7 @@ public final class CacheManager {
                      return Optional.<CompoundTag>empty();
                   }
                   if(STOPPING.contains(level.getServer()))return Optional.<CompoundTag>empty();
-                  if(!PregenBorrowLedger.beginBorrowed(level,pos,file)) {
+                  if(borrow&&!PregenBorrowLedger.beginBorrowed(level,pos,file,PREGEN_REQUEST_TARGETS.get(captureKey(level,pos)))) {
                      return Optional.<CompoundTag>empty();
                   }
                   PipelineMetrics.count("pregen-full-borrowed");
@@ -1086,6 +1117,11 @@ public final class CacheManager {
 
    /** Final cleanup only after vanilla/NeoForge have finished the shutdown save/close path. */
    public static void stopped(MinecraftServer server) {
+      FULL_RETRIES.keySet().removeIf(key->key.level().getServer()==server);
+      FULL_COMPLETIONS.forEach((key,future)->{if(key.level().getServer()==server){
+         FULL_COMPLETIONS.remove(key,future);future.completeExceptionally(new IOException("Server stopped before FULL publication"));
+      }});
+
       // Crash shutdown can reach ServerStoppedEvent without ServerStoppingEvent.
       // Keep this weak stop marker after cleanup so detached callbacks cannot
       // resurrect retry state or publish new cache data for a dead server.

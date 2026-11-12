@@ -98,6 +98,29 @@ class PregenCompletionTest {
         finish("forced",PregenFlowController.Stage.FULL,true);
         assertEquals(1,pairs());assertEquals(0L,field(FLOW,"pairNew"));assertEquals(0L,field(FLOW,"pairRepair"));
     }
+    @Test void failedFullSaveRemainsPendingUntilRetryPublishes()throws Exception{
+        attempt("retry");PregenFlowController.fullPending("retry");
+        finish("retry",PregenFlowController.Stage.LOD,true);
+        PregenFlowController.physicalStart("retry",PregenFlowController.Stage.VALIDATE);
+        PregenFlowController.logicalCaptureFailed("retry");
+        assertFalse(PregenFlowController.reserveFullRetry("retry"),"real validation is still outstanding");
+        PregenFlowController.physicalTerminal("retry",PregenFlowController.Stage.VALIDATE,1000,false);
+        assertTrue(((Map<?,?>)field(FLOW,"BY_TOKEN")).containsKey("retry"));
+        assertEquals(0,pairs());assertTrue(PregenFlowController.reserveFullRetry("retry"));
+        finish("retry",PregenFlowController.Stage.VALIDATE,true);
+        finish("retry",PregenFlowController.Stage.FULL,true);
+        PregenFlowController.fullSettled("retry");
+        assertEquals(1,pairs());assertFalse(((Map<?,?>)field(FLOW,"BY_TOKEN")).containsKey("retry"));
+    }
+    @Test void playerHandoffSettlesPendingSaveWithoutClaimingNewFull()throws Exception{
+        attempt("handoff");PregenFlowController.fullPending("handoff");
+        finish("handoff",PregenFlowController.Stage.LOD,true);
+        PregenFlowController.fullSettled("handoff");
+        PregenFlowController.logicalCaptureFailed("handoff");
+        assertEquals(0,pairs());assertEquals(1L,field(FLOW,"uncertain"));
+        assertFalse(((Map<?,?>)field(FLOW,"BY_TOKEN")).containsKey("handoff"));
+        assertEquals(0,outstanding(PregenFlowController.Stage.FULL));
+    }
     @Test void nativeAckBelongsToExactRecord()throws Exception{
         attempt("record");
         Class<?> offerType=Class.forName(NativeLodTelemetry.class.getName()+"$Offer");

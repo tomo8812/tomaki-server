@@ -17,7 +17,7 @@ Minecraft 1.21.1 / NeoForge 21.1.262 / Chunksmith 4.8.1 / Millénaire 9.1.0。�
 
 ControllerはChunksmithの同心円iteratorから座標を一つ受け取ったところで、LOD・VALIDATE・FULLの候補WIPを予約します。枠が足りなければその座標を保持して待ちます。下流へ投入してから資源不足を理由に失敗Futureへ変えることはしません。
 
-`isChunkGenerated`はnativeの結果をそのまま観測します。`getChunkAtAsync`の実行時はcacheにFULL保存先の所有権を確認させ、native要求を実行します。cacheの確認は保存・読込経路の処理であり、nativeの生成済み判定には反映しません。
+`isChunkGenerated`はnativeの結果をそのまま観測します。nativeの仮LODマークより前に、cacheのFULL所有権確認と生成受付を完了させます。確認I/Oが未確定ならその要求を保持して再試行し、停止時はマーク前に取り消します。cacheの確認は保存・読込経路の処理であり、nativeの生成済み判定には反映しません。
 
 要求ownerはticket safe pointにも引き継ぎます。停止epoch、プレイヤー優先、手動停止、外部タスクの所有権を維持します。
 
@@ -68,3 +68,9 @@ Millénaire互換MODはロード済みFULLとcacheの引渡し状態を読み取
 生成投入、工程別通知、重複Mixinの整理、配布JARの更新は実装済みです。Gradle検査、上流ABI、Mixin注釈、MOD依存、配布ソース一致を検証します。
 
 実NeoForgeサーバーでのMixin変換、プレイヤー移動、村建築、Entity/POI保存、再起動復元、A1上の性能比較は未実施です。
+
+## 保存失敗と移行
+
+一時FULLの保存ACKまではnativeチケットと要求の完了を保持します。容量不足・タイムアウトで保存が失敗しても、その座標のFULLを保持して保存を再試行し、Controllerの未完了試行を閉じません。cacheは保存の再試行だけを行い、新しいチャンクを生成しません。既に受け付けた要求はプレイヤー参加による新規受付停止と区別してdrainします。未ロードの借用ガードはプレイヤーへ引き渡しません。
+
+通常の旧世代cacheは採用する保存元IDを先に原子的に記録し、ファイル単位の原子的renameで移します。旧データ全量の複製領域は要求せず、異なる正常FULLが衝突した場合は元を保持します。環境fingerprint監視は導入しません。

@@ -89,6 +89,7 @@ def main():
         ('run()', 'LodHorizon.arm:', 1),
         ('lambda$run$1(', 'CsLodPresenceIndex.hasLod:', 1),
         ('lambda$run$1(', 'World.getChunkAtAsync:', 2),
+        ('lambda$run$1(', 'CsLodPresenceIndex.markLod:', 2),
     ]:
         check(task, name, target, count)
 
@@ -97,6 +98,8 @@ def main():
         ('getChunkAtAsync(int, int)', 'ticketSafePoint:', 2),
         ('getChunkAtAsync(int, int)', 'ServerChunkCacheMixin.invokeGetChunkFutureMainThread:', 1),
         ('lambda$getChunkAtAsync$8(', 'LodSupport.offer:', 1),
+        ('lambda$getChunkAtAsync$10(', 'ServerChunkCache.removeRegionTicket:', 1),
+        ('lambda$getChunkAtAsync$9(', 'ServerChunkCache.removeRegionTicket:', 1),
     ]:
         check(world, name, target, count)
 

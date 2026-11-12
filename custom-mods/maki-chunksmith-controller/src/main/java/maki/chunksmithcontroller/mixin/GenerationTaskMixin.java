@@ -2,6 +2,10 @@ package maki.chunksmithcontroller.mixin;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import com.kishku7.chunksmith.lod.CsLodPresenceIndex;
+import org.spongepowered.asm.mixin.gen.Invoker;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import com.kishku7.chunksmith.platform.World;
 import maki.chunksmithcontroller.PregenControlHooks;
 import maki.chunksmithcache.CacheManager;
@@ -91,11 +95,43 @@ public abstract class GenerationTaskMixin {
         });
     }
 
+    @Unique private final ThreadLocal<Boolean> maki$nativeDispatch=new ThreadLocal<>();
+
+    @Invoker("lambda$run$1")
+    protected abstract CompletionStage<Void> maki$dispatch(CsLodPresenceIndex index,ChunkCoordinate coordinate,
+        boolean lodOnly,boolean horizon,boolean[] persisted,Boolean generated);
+
+    @Inject(method="lambda$run$1",at=@At("HEAD"),cancellable=true,require=1)
+    private void maki$prepareDispatch(CsLodPresenceIndex index,ChunkCoordinate coordinate,
+        boolean lodOnly,boolean horizon,boolean[] persisted,Boolean generated,
+        CallbackInfoReturnable<CompletionStage<Void>> ci){
+        if(!maki$owned()||Boolean.TRUE.equals(maki$nativeDispatch.get()))return;
+        GenerationTask owner=(GenerationTask)(Object)this;
+        String dim=selection.world().getName();int x=coordinate.x(),z=coordinate.z();
+        if(!PregenControlHooks.beginActual(dim,x,z,owner)){
+            ci.setReturnValue(CompletableFuture.failedFuture(new IllegalStateException("Dispatch admission closed")));
+            return;
+        }
+        ci.setReturnValue(PregenControlHooks.prepareDispatch(selection.world(),x,z,owner).thenCompose(ignored->{
+            if(!PlayerCenter.admissionOpen(owner)||owner.isStopping())
+                return CompletableFuture.failedFuture(new IllegalStateException("Dispatch stopped before native LOD mark"));
+            maki$nativeDispatch.set(true);
+            try{return maki$dispatch(index,coordinate,lodOnly,horizon,persisted,generated);}
+            finally{maki$nativeDispatch.remove();}
+        }).whenComplete((ignored,error)->{
+            if(error!=null){
+                CacheManager.pregenRequestFailed(((com.kishku7.chunksmith.platform.NeoForgeWorld)selection.world()).getWorld(),
+                    new net.minecraft.world.level.ChunkPos(x,z),owner);
+                PregenControlHooks.requestFailed(dim,x,z,owner);
+            }
+        }));
+    }
+
     /**
      * Never refuse the native request here. Chunksmith 4.8.1 marks its LOD
      * presence index before this callsite, and a fabricated failed Future would
-     * leave a false "LOD exists" bit. New dispatch is limited at iterator.next.
-     * Already dispatched work retains the native stop/cleanup behavior.
+     * leave a false "LOD exists" bit. Admission and FULL ownership preparation
+     * have already completed before the native dispatch body and LOD mark.
      */
     @Redirect(method="lambda$run$1",at=@At(value="INVOKE",
         target="Lcom/kishku7/chunksmith/platform/World;getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;"),require=2)
@@ -103,13 +139,13 @@ public abstract class GenerationTaskMixin {
         GenerationTask owner=(GenerationTask)(Object)this;
         if(!maki$owned())return world.getChunkAtAsync(x,z);
         String dimension=selection.world().getName();
-        boolean tracked=PregenControlHooks.beginActual(dimension,x,z,owner);
+        PregenControlHooks.requestInvoked(dimension,x,z,owner);
         try{
             return CacheManager.request(world,x,z,owner,()->RequestContext.with(owner,()->world.getChunkAtAsync(x,z))).whenComplete((value,error)->{
-                if(tracked&&error!=null)PregenControlHooks.requestFailed(dimension,x,z,owner);
+                if(error!=null)PregenControlHooks.requestFailed(dimension,x,z,owner);
             });
         }catch(Throwable error){
-            if(tracked)PregenControlHooks.requestFailed(dimension,x,z,owner);
+            PregenControlHooks.requestFailed(dimension,x,z,owner);
             throw error;
         }
     }
@@ -119,8 +155,10 @@ public abstract class GenerationTaskMixin {
     @Inject(method="update(IIZZ)V",at=@At("HEAD"),require=1)
     private void maki$coordinateCompleted(int x,int z,boolean loaded,boolean persisted,CallbackInfo ci){
         GenerationTask owner=(GenerationTask)(Object)this;
-        if(maki$owned())PregenControlHooks.nativeCoordinateFinished(
-            selection.world().getName(),x,z,owner);
+        if(maki$owned()){
+            CacheManager.releaseUnusedPreparation(((com.kishku7.chunksmith.platform.NeoForgeWorld)selection.world()).getWorld(),new net.minecraft.world.level.ChunkPos(x,z),owner);
+            PregenControlHooks.nativeCoordinateFinished(selection.world().getName(),x,z,owner);
+        }
     }
 
     @Unique

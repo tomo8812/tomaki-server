@@ -31,8 +31,8 @@ final class PregenBorrowLedger {
         return sourceTask != null && begin(level,pos,file,Kind.GENERATED,sourceTask);
     }
 
-    static boolean beginBorrowed(ServerLevel level, ChunkPos pos, Path file) {
-        return begin(level,pos,file,Kind.BORROWED,null);
+    static boolean beginBorrowed(ServerLevel level, ChunkPos pos, Path file,GenerationTask owner) {
+        return begin(level,pos,file,Kind.BORROWED,owner);
     }
 
     private static boolean begin(ServerLevel level, ChunkPos pos, Path file, Kind kind, GenerationTask owner) {
@@ -56,7 +56,7 @@ final class PregenBorrowLedger {
     static boolean generatedFullLoaded(ServerLevel level, ChunkPos pos, GenerationTask sourceTask) {
         if(sourceTask==null)return false;
         Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
-        if(borrow==null || borrow.kind()!=Kind.GENERATED || borrow.owner()!=sourceTask
+        if(borrow==null || borrow.owner()!=sourceTask
             || borrow.handedOff().get())return false;
         borrow.fullLoaded().set(true);
         return true;
@@ -93,7 +93,7 @@ final class PregenBorrowLedger {
 
     static Path handoffCandidate(ServerLevel level, ChunkPos pos) {
         Borrow borrow=ACTIVE.get(new Key(level,pos.toLong()));
-        return borrow==null||borrow.handedOff().get()||!playerNear(level,pos)?null:borrow.file();
+        return borrow==null||!borrow.fullLoaded().get()||level.getChunkSource().getChunkNow(pos.x,pos.z)==null||borrow.handedOff().get()||!playerNear(level,pos)?null:borrow.file();
     }
 
     static void handedOff(ServerLevel level, ChunkPos pos) {
@@ -123,9 +123,9 @@ final class PregenBorrowLedger {
         if(sourceTask==null)return false;
         Key key=new Key(level,pos.toLong());
         Borrow borrow=ACTIVE.get(key);
-        // Cancellation belongs only to the generated request that armed this guard.
-        // A late callback must not remove a newer task's guard or a read-only FULL borrow.
-        if(borrow==null || borrow.kind()!=Kind.GENERATED || borrow.owner()!=sourceTask)return false;
+        // Cancellation belongs to the exact request that armed this guard.
+        // A late callback must not remove a newer task's guard.
+        if(borrow==null || borrow.owner()!=sourceTask)return false;
         return releaseOnServerThread(level,key,borrow,true);
     }
 

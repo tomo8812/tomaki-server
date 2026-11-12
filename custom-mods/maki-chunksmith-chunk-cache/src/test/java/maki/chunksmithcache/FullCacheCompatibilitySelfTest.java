@@ -17,6 +17,7 @@ public final class FullCacheCompatibilitySelfTest {
     private FullCacheCompatibilitySelfTest() {}
 
     public static void main(String[] args) throws Exception {
+        inPlaceAdoption();
         require(Fingerprint.CACHE_ID.matches("[0-9a-f]{24}"),
             "FULL storage id must remain a stable cache-format namespace");
         require(!Fingerprint.CACHE_ID.equals(OLD_ID),
@@ -25,6 +26,29 @@ public final class FullCacheCompatibilitySelfTest {
         testPerFileFormatAndSelectiveMigration(
             new FingerprintManifest.Manifest(OLD_ID, 1L, Set.of(OLD_ID)));
         System.out.println("FULL cache: stable identity, legacy manifest parsing, NBT validation and selective migration PASS");
+    }
+
+    private static void inPlaceAdoption()throws Exception{
+        Path root=Files.createTempDirectory("cache-inplace");
+        Path source=Files.createDirectories(root.resolve("old")),target=Files.createDirectories(root.resolve("current"));
+        Path config=root.resolveSibling(root.getFileName()+".properties");
+        try{
+            Files.write(source.resolve("a.nbt.gz"),new byte[100]);
+            Files.write(source.resolve("b.nbt.gz"),new byte[100]);
+            Files.writeString(config,"cache.max-active-bytes=300\ncache.minimum-free-bytes=1\n");
+            CacheDiskBudget budget=CacheDiskBudget.at(root);budget.refresh(config);
+            require(budget.tryAcquire(200)==null,"duplicate-copy migration would exceed the quota");
+            var result=CacheDirectoryMerge.adoptValidatedInPlace(source,target,Files::isRegularFile,Files::isRegularFile);
+            require(result.adoptedEntries()==2&&Files.size(target.resolve("a.nbt.gz"))==100,
+                "adoption succeeds without two FULL copies under the same quota");
+            // Retrying a partially completed adoption preserves conflicting valid FULLs.
+            Files.createDirectories(source);Files.write(source.resolve("a.nbt.gz"),new byte[]{1});
+            var retried=CacheDirectoryMerge.adoptValidatedInPlace(source,target,Files::isRegularFile,Files::isRegularFile);
+            require(retried.rejectedEntries()==1&&Files.exists(source.resolve("a.nbt.gz")),"valid conflicting source remains preserved");
+        }finally{
+            try(var walk=Files.walk(root)){for(Path file:walk.sorted(java.util.Comparator.reverseOrder()).toList())Files.delete(file);}
+            Files.deleteIfExists(config);
+        }
     }
 
     private static void testLegacyManifestRead() throws Exception {

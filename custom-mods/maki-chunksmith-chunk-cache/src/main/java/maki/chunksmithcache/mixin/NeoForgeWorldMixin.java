@@ -34,11 +34,6 @@ public abstract class NeoForgeWorldMixin {
       ChunkPos pos=new ChunkPos(x,z);
       GenerationTask sourceTask=CacheManager.currentChunksmithRequestTask();
       boolean unified=CacheManager.unifiedPregenRequestAdmitted(this.world,pos,sourceTask);
-      if(unified&&!CacheManager.unifiedPregenRequestActive(this.world,pos,sourceTask)) {
-         PipelineMetrics.count("full-request-owner-stale");
-         return CompletableFuture.failedFuture(
-            new IllegalStateException("Unified pregen request owner is no longer active at "+pos));
-      }
       long started = System.nanoTime();
       CompletableFuture<ChunkResult<ChunkAccess>> future = source.invokeGetChunkFutureMainThread(x,z,status,create);
       future.whenComplete((value,error) -> PipelineMetrics.time("full-future",System.nanoTime()-started));
@@ -49,16 +44,18 @@ public abstract class NeoForgeWorldMixin {
          // Mark the FULL before checking task liveness: failure completion may
          // otherwise cancel the normal-persistence guard of a loaded FULL.
          if(full.get())CacheManager.notePregenFullLoaded(this.world,pos,sourceTask);
-         if(!CacheManager.unifiedPregenRequestActive(this.world,pos,sourceTask)) {
-            PipelineMetrics.count("full-request-owner-stale");
-            return CompletableFuture.failedFuture(
-               new IllegalStateException("Unified pregen request owner detached before FULL completion at "+pos));
-         }
          if(full.get())return CompletableFuture.completedFuture(result);
          PipelineMetrics.count("full-result-failed");
          return CompletableFuture.failedFuture(
             new IllegalStateException("Unified pregen FULL request returned no LevelChunk at "+pos));
       });
+   }
+
+   @Redirect(method={"lambda$getChunkAtAsync$10","lambda$getChunkAtAsync$9"},at=@At(value="INVOKE",
+      target="Lnet/minecraft/server/level/ServerChunkCache;removeRegionTicket(Lnet/minecraft/server/level/TicketType;Lnet/minecraft/world/level/ChunkPos;ILjava/lang/Object;)V"),require=2)
+   private static <T> void maki$holdFullTicket(net.minecraft.server.level.ServerChunkCache source,
+      net.minecraft.server.level.TicketType<T> type,ChunkPos pos,int distance,T value){
+      CacheManager.releaseTicketWhenSaved(source,pos,()->source.removeRegionTicket(type,pos,distance,value));
    }
 
 }

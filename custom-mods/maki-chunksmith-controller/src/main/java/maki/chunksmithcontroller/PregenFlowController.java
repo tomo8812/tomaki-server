@@ -57,7 +57,7 @@ final class PregenFlowController {
     }
     static synchronized void nativeCoordinateFinished(String dimension,int x,int z,GenerationTask owner){
         Attempt attempt=attempt(dimension,x,z,owner);
-        if(attempt!=null&&!attempt.actualStarted)skipped(dimension,x,z,owner);
+        if(attempt!=null&&!attempt.requestInvoked)skipped(dimension,x,z,owner);
     }
 
     private static final Map<String,java.util.concurrent.atomic.LongAdder> COUNTERS=new HashMap<>();
@@ -90,6 +90,7 @@ final class PregenFlowController {
         final EnumSet<Stage> started=EnumSet.noneOf(Stage.class);
         WorkClass workClass=WorkClass.UNKNOWN;
         boolean actualStarted;
+        boolean requestInvoked,persistencePending;
         boolean lodReady;
         boolean fullReady;
         boolean fullPublished;
@@ -204,6 +205,23 @@ final class PregenFlowController {
         return true;
     }
 
+    static synchronized void requestInvoked(String dim,int x,int z,GenerationTask owner){
+        Attempt attempt=attempt(dim,x,z,owner);if(attempt!=null)attempt.requestInvoked=true;
+    }
+    static synchronized void fullPending(String token){
+        Attempt attempt=BY_TOKEN.get(token);if(attempt!=null)attempt.persistencePending=true;
+    }
+    static synchronized void fullSettled(String token){
+        Attempt attempt=BY_TOKEN.get(token);if(attempt!=null){attempt.persistencePending=false;finishIfDone(attempt);}
+    }
+    static synchronized boolean reserveFullRetry(String token){
+        Attempt attempt=BY_TOKEN.get(token);if(attempt==null)return false;
+        if(attempt.started.contains(Stage.VALIDATE)||attempt.started.contains(Stage.FULL))return false;
+        EnumSet<Stage> needed=EnumSet.of(Stage.VALIDATE,Stage.FULL);
+        needed.removeAll(attempt.held);
+        if(!canReserve(needed))return false;
+        reserve(attempt,needed);return true;
+    }
     static synchronized String token(String dimension,int x,int z,GenerationTask owner) {
         Attempt attempt=attempt(dimension,x,z,owner);
         return attempt==null||!attempt.actualStarted?null:attempt.token;
@@ -242,8 +260,9 @@ final class PregenFlowController {
     static synchronized void logicalCaptureFailed(String token) {
         Attempt attempt=BY_TOKEN.get(token);
         if(attempt==null)return;
-        failAttempt(attempt);
-        releaseAllUnstarted(attempt);
+        if(attempt.persistencePending){
+            releaseIfUnstarted(attempt,Stage.VALIDATE);releaseIfUnstarted(attempt,Stage.FULL);
+        }else{failAttempt(attempt);releaseAllUnstarted(attempt);}
         finishIfDone(attempt);
     }
 
@@ -272,7 +291,7 @@ final class PregenFlowController {
             metric(stageMetric(stage,success?"success":"failure"));
         }
         attempt.started.remove(stage);
-        if(!success)failAttempt(attempt);
+        if(!success&&(!attempt.persistencePending||stage==Stage.LOD))failAttempt(attempt);
         else if(stage==Stage.LOD)attempt.lodReady=true;
         // FULL physical success and FULL publication are distinct notifications.
         tryConfirmRuntimePair(attempt);
@@ -450,7 +469,7 @@ final class PregenFlowController {
     }
 
     private static void finishIfDone(Attempt attempt) {
-        if(!attempt.held.isEmpty()||(attempt.actualStarted&&!attempt.pairResolved))return;
+        if(attempt.persistencePending||!attempt.held.isEmpty()||(attempt.actualStarted&&!attempt.pairResolved))return;
         ACTIVE.remove(attempt.key,attempt);
         BY_TOKEN.remove(attempt.token,attempt);
         releaseTaskGenerationIfUnused(attempt.owner);

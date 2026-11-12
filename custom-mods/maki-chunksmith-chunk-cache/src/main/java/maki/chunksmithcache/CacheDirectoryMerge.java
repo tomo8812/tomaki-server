@@ -125,6 +125,36 @@ final class CacheDirectoryMerge {
         return new MergeStats(files.size(), adopted, duplicates, rejected);
     }
 
+    /** Same-filesystem adoption has no second FULL-sized allocation. The caller
+     * must durably accept the historical identity before moving any payload. */
+    static MergeStats adoptValidatedInPlace(Path source,Path target,Predicate<Path> sourceVerified,
+        Predicate<Path> targetVerified)throws IOException{
+        Files.createDirectories(target);
+        List<Path> files;
+        try(var walk=Files.walk(source)){files=walk.filter(Files::isRegularFile).sorted().toList();}
+        if(files.stream().anyMatch(path->path.getFileName().toString().endsWith(".in-use")))
+            throw new IOException("Recover promotion ownership before adoption: "+source);
+        long checked=0,adopted=0,duplicates=0,rejected=0;
+        for(Path file:files){
+            if(!file.getFileName().toString().endsWith(".nbt.gz"))continue;
+            checked++;
+            if(!sourceVerified.test(file)){rejected++;continue;}
+            Path destination=target.resolve(source.relativize(file));
+            Files.createDirectories(destination.getParent());
+            if(Files.isRegularFile(destination)&&targetVerified.test(destination)){
+                if(Files.mismatch(file,destination)==-1){Files.delete(file);duplicates++;}
+                else rejected++; // A different valid FULL remains preserved at its source.
+                continue;
+            }
+            // Atomic rename either preserves the source or installs the complete payload.
+            // Never fall back to a full-size copy that can deadlock the active quota.
+            Files.move(file,destination,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
+            adopted++;
+        }
+        deleteEmptyDirectories(source);
+        return new MergeStats(checked,adopted,duplicates,rejected);
+    }
+
     static long cleanupCopiedSources(
         Path source,
         Path target,

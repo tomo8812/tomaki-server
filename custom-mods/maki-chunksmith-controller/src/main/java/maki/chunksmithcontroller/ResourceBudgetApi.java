@@ -25,6 +25,9 @@ public final class ResourceBudgetApi {
         return PregenFlowController.token(dimension,x,z,owner);
     }
 
+    public static void fullPending(String token){PregenFlowController.fullPending(token);}
+    public static void fullSettled(String token){PregenFlowController.fullSettled(token);}
+    public static boolean reserveFullRetry(String token){return PregenFlowController.reserveFullRetry(token);}
     public static void captureFailed(String token) {PregenFlowController.logicalCaptureFailed(token);}
     public static void stageUnavailable(String token,String stage) {
         PregenFlowController.stageUnavailable(token,PregenFlowController.Stage.valueOf(stage));
