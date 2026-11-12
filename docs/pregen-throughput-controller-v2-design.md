@@ -1,14 +1,14 @@
-# A1.Flex向け先行生成スループット制御 — 設計仕様
+# A1.Flex向けE-lite先行生成スループット制御 — 責務分離仕様
 
-Minecraft 1.21.1 / NeoForge 21.1.262 / Chunksmith 4.6.0 / maki-lod-cpu 1.4.2 / maki-chunksmith-chunk-cache
+Minecraft 1.21.1 / NeoForge 21.1.262。PR #89はChunksmith 4.6.0を基点とし、PR #90の4.8.1／cache 1.4.7へ統合する。
 
 | 項目 | 内容 |
 | --- | --- |
 | 目的 | 無人時に、安全なFULL＋LOD完成座標をできるだけ速く増やす |
 | 対象環境 | Oracle VM.Standard.A1.Flex、Ampere Altra ARM64、2 OCPU、12GB RAM、最大2Gbps |
 | 制御方式 | **E-lite：ACK補充型の工程別WIP窓＋低頻度の生成並列数探索** |
-| 実装状況 | **設計段階**。制御MOD本体とPAIR計測APIは未実装、A1実測も未実施 |
-| 関連資料 | [Issue #83](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/issues/83) / [レビュー判断記録（67件＋先行レビュー）](pregen-throughput-review-decisions.md) / [起動前計測](../scripts/a1-pregen-preflight.py) |
+| 実装状況 | **E-liteの制御部をlod-cpuへ移管済み**。PR #90のFULL通知・Mixin統合・配布JAR更新・実機検証は未完了 |
+| 関連資料 | [PR #90のcache連携契約](e-lite-pr90-cache-integration.md) / [Issue #83](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/issues/83) / [レビュー判断記録（67件＋先行レビュー）](pregen-throughput-review-decisions.md) / [起動前計測](../scripts/a1-pregen-preflight.py) |
 
 ## 1. 目的・守るべき条件
 
@@ -40,83 +40,63 @@ python3 scripts/a1-pregen-preflight.py \
 
 暫定の起点は生成上限`c=2`、JVM最大heap約8GiB、OS等の空き約1.5GiB以上。これらは確定した最適値ではなく、実測・GC・ネイティブメモリ・ディスク状況で安全側へ調整する。CPU使用率が高いだけで生産性が悪いとは判断しない。
 
-## 3. 処理パイプラインと観測する資源
+## 3. 処理パイプラインと情報源
 
-FULL生成と既存FULLのLOD修復では必要な工程が異なる。各仕事は入場時の`UNKNOWN / NEW / REPAIR`と、解決後の実際の作業クラスを分けて追跡する。
+- **Chunksmith**はチャンク要求・LOD保存・LODの既存再利用を判断する。E-liteはその判定結果、native幅／inFlight、LOD物理保存完了・失敗・queueを観測する。
+- **chunk-cache**はFULLキャッシュの検証、再利用、snapshot、所有権、Entity・POI、保存、promotionを判断する。E-liteへFULL固有の検証／物理書込／公開結果を通知する。
+- **maki-lod-cpu（E-lite）**は両者の通知を試行tokenで対応付け、独立したLOD/VALIDATE/FULL WIP窓、投入制御、PAIR/s計測、cの自律探索を保持する。
 
 ```text
-Follow所有権・中心からの座標選択
-  ├─ 既存FULL/LODのskip判定・READ_IO
-  └─ native安全確認 → async isChunkGenerated
-        ├─ skip / guard拒否 / handoff
-        └─ getChunkAtAsync → ネイティブ生成・ticket・LevelChunk
-              ├─ LOD抽出 → LOD offer → 共有store/writer → 実write ACK
-              └─ NEWのみ: サーバーthread snapshot
-                    → VALIDATE_IO → 非同期Minecraft scanner/owner確認
-                    → FULL WRITE_IO圧縮・公開 → FULL publish receipt
-              └─ 同一source・所有権・確定線の確認 → PAIR確定
+Chunksmith（既存LOD判定・native生成・LOD書込）
+           ├─ LOD物理ACK ─────────┐
+           └─ LevelChunk ─→ chunk-cache（FULLの検証・保存・再利用）
+                                      └─ FULL確定 ─┐
+maki-lod-cpu（投入許可・工程別WIP・PAIR/s・c±1）←──────┘
 ```
 
-LOD ACKとvalidationは一部並行に進み、FULL公開は通常その両方の成功後に進む。したがってNEWの残りcritical pathは概念的に`max(LOD残待ち, validation残待ち) + FULL公開待ち/実行`となる。各工程のp95の単純合計や最大値だけを期限予測へ流用しない。
+NEW/REPAIRはE-liteの性能比較用の仕事の種類。旧データの有効性判定を変更しない。新しい永続PAIR証明の有無は、既存FULLや既存LODを再利用できるかどうかと無関係である。
 
-資源別に以下を区別する。
-
-| 資源 | 観測する量 | 誤診しやすい点 |
-| --- | --- | --- |
-| native生成 | 指令cap、native dispatchLimit、実inFlight、候補数、skip、slow理由 | cap増加が実dispatchへ反映されない |
-| main-thread snapshot | 1tickの処理回数と時間、MSPT、ticket/LevelChunk滞留 | 圧縮後bytesではヒープ負荷が分からない |
-| LOD store | queue/最古age、write ACK、同期fallback、offer壁時計 | queue満杯で呼出元が同期writeする |
-| VALIDATE_IO | executor待ち、RecoveryClaims初回回復、scanner投入 | scanner Futureと64 permitは別資源 |
-| Minecraft scanner | inFlight、permit拒否、完了時間、UNKNOWN理由 | permit枯渇をwriter律速と誤認する |
-| FULL WRITE_IO | publish圧縮/rename、reconcile、prune、claim保守の各占有 | メンテナンス中の低ACKは圧縮性能を示さない |
-| READ_IO | 事前キャッシュ検証と通常ロードの待ち時間 | player復帰時にFIFO先行処理が残る |
-| 正本・容量 | source照合、物理WIP、所有権、hard lease、FileStore | 論理timeout後に実writerが残る |
-
-新たな全ファイル走査やchunk ticketを計測のために追加しない。非同期の段階境界に定数時間相当の有界カウンタを置き、60秒程度で診断を集約する。PipelineMetricsのログ整形・出力は集計ロック外へ移す方式を比較し、計測そのものがwriterやserver threadを待たせないようにする。
-
-## 4. FULL＋LOD完成の正本契約
-
-**attemptId** はFollow所有taskのepoch・世代・要求番号に基づく試行識別子であり、再試行ごとに異なる。**completionIdentity** はdimension・座標・fingerprint・正本の新たな完成遷移の識別子である。再試行や旧callback、再起動後の再確認で同じ完成を二重計上しない。NEW/REPAIR分類の成功分布だけで評価母集団を組み替えない。
-
-段階の保証水準は次のとおり。
-
-| イベント | 保証内容 |
+| 資源 | E-liteが観測する量 |
 | --- | --- |
-| `LOD_WRITE_ACK` | 当該LOD recordの物理書込呼出しが成功終了した。永続fsyncや後続上書き不在は含意しない |
-| `FULL_PUBLISHED` | 所有権と確定線を検証し、要件を満たすFULL公開が成立した |
-| `PAIR_CONFIRMED_RUNTIME` | 同一生成sourceのLOD・FULL、完了の新規遷移、所有権が実行時に証明された |
-| `PAIR_REVALIDATED_AFTER_RESTART` | 再起動後の内容・世代・通常FULL優先を再検証した。新規runtime成果数には再加算しない |
-| `UNCERTAIN` | 上記を証明できない。完成として計上しない |
+| Chunksmith | native幅、inFlight、生成要求・完了、LOD writer queue・実物理terminal、ネイティブ停止理由 |
+| FULL cache | 検証・書込待ち、実処理時間、正常公開、FULL自身の容量／メモリ安全圧力 |
+| サーバー | CPU affinity/quota/使用率、MSPT、heap、GC、PSI、プレイヤー参加 |
+| E-lite | stage WIP／窓／最古age、試行token、完成PAIR/s、NEW/REPAIR混合率、再試行座標 |
 
-CaptureFlightで同座標のFutureへ後続呼出しが合流したときは、最初のcaptureId・source・LOD offer/recordとの対応だけが正本receiptを発行する。後着のJOINED_EXISTING/SUPERSEDEDを新しい成功としない。
+監視は読み取り専用・低負荷とし、専用の全ファイル走査や追加chunk ticketを発生させない。
 
-LOD writerのqueueと同期fallbackは同座標の古いrecord/new recordの**物理書込追越し**が起きる可能性がある。書込時に順序・世代を保証できることを確認し、保証がなければ古い物理LOD仕事が完了するまで新しいPAIR確定を保留し、競合座標だけ再検証する。プレイ中のLOD更新との競合も含め、証明不能ならUNCERTAINにする。
+## 4. FULL＋LODの完成計測契約
 
-FULLの公開は、timeoutと同座標別世代の公開が競合しても一つの確定線で処理する。`PREPARED → COMMITTING → PUBLISHED/ABORTED`の状態遷移または同等のCAS/ロックで、timeout先行時の旧公開禁止、公開先行時のreceipt、通常FULLの勝利を整合させる。ATOMIC_MOVE非対応の非atomic fallbackは原子性を満たさないため、先行PAIR公開では第一候補としてfail-closedとし、対応環境が必要な場合はjournal/marker方式を別途評価する。
+**既存データを使えるかどうかの判定と、今回新たに完成させた仕事を計測する判定を分離する。**
 
-論理Futureの30秒timeoutは物理workerの終了を意味しない。FULLのphysicalFlightとLOD record-identity physical handleを論理結果から独立して追跡する。timeout後のlate ACKも実物理仕事の終端へ対応させ、古い世代が新しい正本を公開で上書きしないようgeneration fenceを掛ける。LodCommitTrackerのpending除去だけを物理完了としない。
+- LODが使えるかどうかはChunksmithが決める。E-liteはその判定を覆さない。
+- FULLキャッシュが使えるかどうかはchunk-cacheが決める。新旧形式の互換性・証明書・通常worldへの引渡しはcacheが担当する。
+- E-liteは生成試行ごとにtokenを作り、Chunksmith由来のLOD書込完了とcache／通常ワールド由来のFULL確定を照合する。
+- 両方が今回の試行で新たにそろい、まだ同じ試行で計上していない場合だけ`PAIR_CONFIRMED_RUNTIME`を増やす。
+- 既存LODとFULLのスキップや、再起動後の再確認は新規完成PAIRとして数えない。
+- 部分的なセンサー欠損・source不明・競合は`UNCERTAIN`として性能比較から除外する。既存データが有効という所有MODの判定は変更しない。
 
-再起動後に「同じ生成結果」を証明するため、小さい永続的な完成receiptを設計比較する。dimension/pos/fingerprint、source世代、FULL内容識別、LOD record/版識別、公開状態を含め、実ファイルを検証する。sidecarの存在のみでは確定しない。rename成功と電源断時の耐久性は別の保証であり、fsync・ディレクトリ同期と回復経路を実機で検証する。永続の証明が実装できるまで、再起動後の互換性・完成判定を楽観視しない。
+FULL保存に必要な証明書を導入する場合はchunk-cache内部で管理し、過去の正常なschema3キャッシュを新証明書不在だけで拒絶しない。**E-lite自身は永続的なFULL＋LOD再利用証明書を管理しない。**
 
-PregenBorrowLedgerのguard開始と実LOD offer開始は異なるため、30秒の論理期限もそれぞれの実起点から追跡する。offer前のguard timeoutをwriter完了とみなさず、停止・復帰・旧task callbackとの競合を保護する。
+実LOD書込とFULL書込の論理Futureがタイムアウトしても、物理仕事が終了したことにはならない。制御枠の返却は物理terminalまたは確実な中止・不要確定時だけ行う。raceした結果は計測上不明として扱う。
 
-## 5. 入場制御：非同期skipを含む二段階契約
+通知の具体的なAPI、起点、責任分担は[PR #90 cache連携契約](e-lite-pr90-cache-integration.md)を参照する。
 
-Chunksmithでは同期skipとnative safetyを通過した後にも、`inFlight++`・`dispatchTime`の後で非同期`isChunkGenerated`がskipする。最終の`preparePregenRequest`もgetChunkを拒否し得る。すべてのskip後でnative計時前という単一フックは存在しない。
+## 5. 入場制御：lod-cpuでの候補・実リクエスト管理
 
-| 時点 | 行うこと |
+E-liteの対象はFollow-owned Chunksmithタスクである。手動・外部タスクを取得して生成制御を上書きしない。
+
+| 時点 | E-liteの動作 |
 | --- | --- |
-| 同期skipとnative safety通過 | Follow-owned候補に限り、有界の`CANDIDATE_RESERVED`仮WIP permitを確保 |
-| 非同期isChunkGeneratedでskip | 必要のなくなった将来stage creditをexactly-once返却 |
-| 最終guardで拒否 | 同様に返却し、理由別retryを記録 |
-| 実getChunkAtAsync開始 | `ACTUAL_REQUEST_STARTED`を一度記録し、必要なstageの予約へ転換 |
-| 物理stage終了 | 対象工程のACK/確実なcancel/不要確定でcreditを一度だけ解放 |
+| iteratorで次座標を消費する前 | 既存のネイティブ安全境界・Follow owner・WIP窓を確認し、必要なら待機 |
+| `isChunkGenerated`直前 | 有界の`CANDIDATE_RESERVED`を取得する。Chunksmith自身の生成済み判定結果を変更しない |
+| 非同期skip・失敗 | 未開始stageのcreditを返す。E-liteの一時拒否座標は進捗確定せず再試行台帳へ保持する |
+| `getChunkAtAsync`直前 | `ACTUAL_REQUEST_STARTED`へ転換し、stop epoch／ownerを再確認する |
+| 物理stage終了 | 対応する工程のACK／確実な中止でcreditを一度だけ返す |
 
-既存`GenerationRequestMixin.maki$measureRequest`のgetChunkAtAsync Redirect二箇所を計測入口として利用し、同じinvokeへの二重Redirectを避ける。`ChunkIterator.next()`で働く既存Backfill barrierは保持する。非同期callback内でparkしてcreditを待つとnativeのslow-chunk計測を汚染するため、仮予約はnative安全ループと協調した非ブロッキング経路に置く。安全な注入点とABIの整合が証明できなければaゲートを無効化しcap-onlyへ戻す。
+これらのフックは**maki-lod-cpu自身**が持つ。PR #90統合時にchunk-cache側の重複`GenerationRequestMixin`の生成投入Redirectを除去・統合する。キャッシュ自身のFULL所有権・保存安全ガードは残す。
 
-候補WIP permitは返却可能な同時仕掛枠である。必要になった場合の時間当たりrate tokenは別会計とし、skipの返却によって過去の流量tokenを無限に再発行しない。UNKNOWNは保守的な需要を持つが、FULLのsoft creditだけが詰まり、hard条件が正常なときに限り、極小の有界分類probeを許可する。別の座標探索器は作らない。
-
-プレイヤーjoin、手動pause、recenter、stop、AutoPauseからのタスク復元ではFollow-owned admissionのatomicなepoch/closedを更新・再検証する。native taskの非volatileなstoppedだけに安全を依存させない。復元されたFollow taskの最初の要求前にはplayers・owner・center・manual pauseを確認する。外部Chunksmithや別dimension taskを誤って取得しない。
+手動pause、player join、recenter、native AutoPause、task stop/detach時はadmission epochを更新して古い要求の新規投入を禁止する。workerが動いている段階のcreditは論理timeoutだけで戻さない。
 
 ## 6. FAST制御：工程別ACK補充WIP窓
 
@@ -139,15 +119,17 @@ writerの実行中に重いFULL gzipが残る場合、成功済みの軽い仕�
 
 既存のLatencyHistogramは16秒から60秒へ大きく飛ぶため、30秒deadlineの安全判定は各attemptの単調時計`timeLeft`、queue age、必要なら期限近傍だけ細かい有界bucketを使う。LOD offer、capture、guardの異なる期限起点を混同しない。
 
-## 7. 容量・メモリと安全余裕
+## 7. 容量・メモリの責任分担
 
-**容量判定には二つの独立した上限がある。** FULLキャッシュ＋LODの合計15GiBと、実際のファイルシステムで必要な空き2GiBである。FULL/LODのrealPathとFileStoreを照合し、別デバイスの場合は各FSの空き予約を独立に評価する。symlink・mount変更で実体と消費量を把握できなければFollowの新規投入を止め、通常ワールド保存を優先する。
+**容量・メモリのhard guardを所有するのは実際にデータを保存する側である。**
 
-CacheDiskBudgetの容量refreshが始まった後にFULL publishが発生しても、古い`usableBytes`スナップショットでその減算を巻き戻さない。publish世代と差分の保守的反映、または同等の整合性契約を設ける。正本のhard leaseに加えて、writer queue、進行中チャンク、LODの将来物理増分、FULL一時ファイルを投入前の余力予測に含める。予測値は保証ではないため、hard guardは最後まで残す。
+- chunk-cacheはFULLキャッシュ、FULL一時ファイル、Entity/POI関連の保持メモリ・空き容量・公開・復元を保護する。
+- ChunksmithはLODファイルとnative writerの安全を管理する。LOD regionの容量や再利用条件をcache由来のPAIR計測で変更しない。
+- E-liteは両方の読取専用圧力指標、共有ファイルシステムの空き、MSPT/heap/GC/PSIを受け取り、**新規投入を抑制**する。
+- 既存の15GiB容量運用、必要なFileStoreの2GiB空き予約などは統合側の条件として保持する。実測値不明のときに余力を推定値で水増ししない。
+- cache内部のrefresh、hard lease、atomic publish、promotionなどをE-liteへ移植しない。
 
-ChunksmithのLOD regionは既存座標更新でも末尾へappendし得る。物理ファイル増分と有効レコードbytesを区別し、同一regionのsigned 32-bit offset（約2GiB）限界を合計15GiBとは別に検査する。危険regionへの先行LOD更新は安全側に制限する。通常LODまで含む根本対策やcompactionにはnative writer・readerのopen handle、同期、原子置換、fileStamp失効、必要な一時容量、電源断回復の保証が必要であり、性能測定後に独立評価する。
-
-メモリには圧縮前NBTの論理bytes、実ヒープ上のsnapshot/オブジェクト/圧縮buffer、保持LevelChunk/ticketを別々に考慮する。CaptureBudgetの64MiB（論理NBT）を実heap最大値とは見なさない。必要な場合のみ低頻度のretained/allocated/GCサンプルから保守係数を調整し、ホットパスでJFRやオブジェクト全走査を実行しない。
+共有I/Oの輻輳や外部プレイヤー処理を押しのけない。異常時はE-liteの投入を止め、各MOD自身の保存・復旧処理に委ねる。
 
 ## 8. SLOW制御：生成並列数の自律探索
 
@@ -183,34 +165,30 @@ physical stageの通知が欠損・台帳上限超過した場合は`PHYSICAL_UN
 
 診断は`G_total / G_new / G_repair`、source証明成功率とUNCERTAIN/欠損、各stage arrival/physical terminal/success、writer busy/idle、deadline risk、candidate/actual request、native制限理由、stage WIP、retry原因、CPU/GC/MSPT/PSIを低頻度に集約する。
 
-## 11. 計測で判断する構造的な改善
+## 11. E-liteの範囲外にある改善
 
-次の案は、律速が確認された工程にだけ適用する。E-liteの設計と独立に単体の効果を比較する。
+E-liteの対象は生成投入と性能計測である。以下は必要性が別途証明された場合に各所有MODのPRで扱う。
 
-| 対象 | 比較候補 | 採用時の確認 |
+| 所有者 | 独立して検討できるもの |
+| --- | --- |
+| Chunksmith | LOD writer並列化、region容量、LOD compaction、LOD存在判定の高速化 |
+| chunk-cache | FULL writer/VALIDATE_IO、FULL atomic publish、scanner permit、reconcile/prune、FULL容量計測、promotion |
+| 通常ワールド・互換MOD | Entity・POI・Millénaire・VS2の永続化とハンドオフ |
+
+E-liteのためだけにこれらの保存形式や有効性ルールを変更しない。
+
+## 12. 実装・受入
+
+| 段階 | 内容 | 状態 |
 | --- | --- | --- |
-| `LodCommitTracker` | O(P)の`containsValue/removeIf`からrecord identityごとの有界handleへ | 同期fallback、late ACK、複数offer、cleanupの整合 |
-| FULL writer | gzip・temp I/O・publishを測定し、必要ならLOD ACK待ちと有界`TEMP_PREPARE`を並走 | 一時容量、2コアCPU競合、失敗時破棄、最終publishの所有権 |
-| メンテナンス | FULL reconcile/pruneとpublishの占有を分類、必要ならアイドル期に小分け | 世代入替/削除と公開の排他を維持 |
-| 容量走査 | `Files.walk`の時間を測り、保守的増分計数＋定期reconcileを比較 | stale scan、並行publish、15GiB/2GiB条件 |
-| skip判定 | region fileStamp再読込・LOD presence index全失効の頻度を測定 | 外部writer変更時の座標単位再検証 |
-| POIと所有権 | POI ACTIVE全走査、反射owner判定の実コストを確認 | manager identity、ワールド寿命、handoffを維持 |
-| scanner | 64 permit枯渇・UNKNOWN、cold-start RecoveryClaimsを独立計測 | 通常FULL優先とfail-closed |
-| retry queue | timeoutした未開始Runnableだけを安全にremoveする候補 | dequeue競合、inspection permit、二重lease返却 |
+| E-lite本体 | Follow投入・stop epoch・候補/実要求admission、工程別WIP、SLOW c±1・プロフィール・保留座標の再試行 | PR #89のlod-cpuへ移管済み |
+| cache復元 | PR #89にあったchunk-cacheの全差分と配布JARをmainと同一に戻す | 完了 |
+| PR #90統合 | cacheのFULL固有の計測通知を追加し、重複Mixinを一本化。ChunksmithのLOD物理ACKをlod-cpuへ連携 | 未完了 |
+| ビルド/実機 | 4.8.1実物ABI、Gradle/JAR監査、複製ワールドの旧FULL・LOD再利用、競合・失敗・player join、A1性能比較 | 未完了 |
 
-大幅なwriter並列化、LOD region compaction、保存形式変更、通常ワールドへのFULL先行保存は、独立した安全設計と実機検証が必要な構造変更として扱う。
+PR #89単体での一時的不整合は、PR #90に統合するまで許容する。ソース更新後の配布JARが未ビルドの状態を完成扱いしない。
 
-## 12. 実装順・受入試験
+性能比較では同一ワールド条件で、実壁時計の新規完成PAIR/s、CPU/GC/MSPT、失敗・retry・writer tailを観測し、native-only/cap-only/E-liteで比較する。旧データの再利用条件やゲーム内の地形状態に影響しないことを優先する。
 
-| 段階 | 実装内容 | 完了条件 |
-| --- | --- | --- |
-| P0 | 正本PAIR/source証明、physical handle、stage/pressure・native/IO計測、preflight | timeout後の物理仕事・観測欠損を正しく表現。計測負荷を評価 |
-| P1 | 確定線・世代fence・LOD追越し対策、二段階admission安全点、stop epoch | 所有権・通常FULL・同一sourceに回帰なし。安全点が不明ならcap-only |
-| P2 | ACK補充WIP窓、cの近傍学習、STABLE/安全退避 | 全期間PAIR goodputとCPU/GC/timeout/tailがnative-only/cap-onlyに対して非劣化以上 |
-| P3 | 実際に律速だった構造改善だけを個別適用 | 改善が計測可能で、安全性と保守負荷に見合う |
+[PR #90 cache連携契約](e-lite-pr90-cache-integration.md) と [レビュー履歴](pregen-throughput-review-decisions.md)を参照する。
 
-受入試験には、同期/非同期skipと最終guard拒否、AUTO PAUSE後のplayer join、capture重複と旧source、LOD旧queueの後書き、timeoutとatomic/non-atomic publish競合、再起動と永続receipt検証、late ACK、scanner permit不足、LOD同期fallback・低頻度ACK、FULL prune/reconcile、2GiB FileStore reserveとLOD region offset境界、soft＋hard圧力、先行READ_IOと通常ロード、村/VS2/POI/Entity、retry台帳overflowと中心移動を含める。Mixinの実バイトコードとNeoForge/ChunksmithのABIを確認する。
-
-成果比較は固定seed・未生成状態・MOD/config・quota・同じ座標集合とキャッシュ/LOD初期状態の複製ワールドで行う。全壁時計時間に探索・停止・writer tail・native backoff・retryを含め、成功済みだけを採用評価の分母にしない。A1本番では長時間の強制A/B/Aを常時実行せず、自然生成中の短い観測と必要な局所探索に留める。
-
-[設計判断の67件のレビュー追跡と先行レビュー](pregen-throughput-review-decisions.md)を参照。
