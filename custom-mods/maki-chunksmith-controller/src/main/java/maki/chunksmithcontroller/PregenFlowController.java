@@ -33,57 +33,23 @@ final class PregenFlowController {
     private static final long SERVICE_SAMPLE_STALE_NANOS=30_000_000_000L;
     private static long pairConfirmedRuntime,pairNew,pairRepair,uncertain;
     private static boolean proofFeedConnected;
-    private static final int MAX_DEFERRED=4096;
-    private static final IdentityHashMap<GenerationTask,java.util.Set<Key>> REJECTED_UPDATES=new IdentityHashMap<>();
-    private static final Map<Key,Deferred> DEFERRED=new HashMap<>();
-    private static boolean deferredOverflow;
-    private static long nextOverflowRetryNanos;
-    private record Deferred(GenerationTask owner,int failures,long readyNanos){}
-
-    static synchronized void defer(String dimension,int x,int z,GenerationTask owner){
-        if(dimension==null||owner==null)return;
-        Key key=new Key(dimension,packed(x,z));
-        REJECTED_UPDATES.computeIfAbsent(owner,ignored->new java.util.HashSet<>()).add(key);
-        Deferred old=DEFERRED.get(key);
-        int failures=old==null?1:Math.min(16,old.failures()+1);
-        if(old!=null||DEFERRED.size()<MAX_DEFERRED){
-            long delay=java.util.concurrent.TimeUnit.SECONDS.toNanos(Math.min(300,5L<<(Math.min(6,failures-1))));
-            DEFERRED.put(key,new Deferred(owner,failures,System.nanoTime()+delay));
-        }else {
-            deferredOverflow=true;
-            if(nextOverflowRetryNanos==0L)nextOverflowRetryNanos=System.nanoTime();
-        }
-        candidateFailed(dimension,x,z,owner);
-        metric("pregen-admission-deferred");
-    }
-    static synchronized boolean consumeRejected(String dimension,int x,int z,GenerationTask owner){
-        java.util.Set<Key> set=REJECTED_UPDATES.get(owner);
-        if(set==null)return false;
-        boolean rejected=set.remove(new Key(dimension,packed(x,z)));
-        if(set.isEmpty())REJECTED_UPDATES.remove(owner);
-        return rejected;
-    }
-    static synchronized int deferredFor(GenerationTask owner){
-        int count=0;
-        for(Deferred item:DEFERRED.values())if(item.owner()==owner)count++;
-        return count+(deferredOverflow?1:0);
-    }
-    static synchronized boolean retryDue(){
-        long now=System.nanoTime();
-        if(deferredOverflow&&now>=nextOverflowRetryNanos){
-            nextOverflowRetryNanos=now+java.util.concurrent.TimeUnit.MINUTES.toNanos(1);
+    /**
+     * Native LOD/force-load paths bypass isChunkGenerated. Reserve candidates
+     * at ChunkIterator.next and wait instead of forging failed native Futures.
+     */
+    static synchronized boolean beginClassified(String dimension,int x,int z,GenerationTask owner){
+        Attempt attempt=attempt(dimension,x,z,owner);
+        if(attempt==null)return false;
+        if(attempt.workClass==WorkClass.UNKNOWN) {
+            // No generated-state evidence: keep stage credits and avoid
+            // inventing NEW/REPAIR evidence for performance comparisons.
+            if(!active(owner)||!PlayerCenter.admissionOpen(owner)
+                ||attempt.epoch!=PlayerCenter.admissionEpoch(owner))return false;
+            attempt.actualStarted=true;
+            metric("pregen-actual-request-unclassified");
             return true;
         }
-        for(Deferred item:DEFERRED.values())if(now>=item.readyNanos())return true;
-        return false;
-    }
-    private static void fulfilled(Attempt attempt){
-        DEFERRED.remove(attempt.key);
-    }
-    static synchronized boolean beginClassified(String dimension,int x,int z,GenerationTask owner){
-        Attempt existing=attempt(dimension,x,z,owner);
-        if(existing==null)return false;
-        return beginActual(dimension,x,z,owner,existing.workClass!=WorkClass.REPAIR);
+        return beginActual(dimension,x,z,owner,attempt.workClass==WorkClass.NEW);
     }
     static synchronized void nativeCoordinateFinished(String dimension,int x,int z,GenerationTask owner){
         Attempt attempt=attempt(dimension,x,z,owner);
@@ -248,7 +214,6 @@ final class PregenFlowController {
         Attempt attempt=attempt(dimension,x,z,owner);
         if(attempt==null)return;
         attempt.pairResolved=true;
-        fulfilled(attempt);
         releaseAllUnstarted(attempt);
         finishIfDone(attempt);
         metric("pregen-candidate-skipped");
@@ -331,7 +296,6 @@ final class PregenFlowController {
             ||!attempt.actualStarted||!attempt.lodReady||!attempt.fullReady)return;
         attempt.pairReported=true;
         attempt.pairResolved=true;
-        fulfilled(attempt);
         pairConfirmedRuntime++;
         if(attempt.workClass==WorkClass.NEW)pairNew++;else pairRepair++;
         metric(attempt.workClass==WorkClass.NEW?"pair-confirmed-new":"pair-confirmed-repair");
@@ -410,7 +374,6 @@ final class PregenFlowController {
             state.lastServiceSampleNanos=0;
         }
         proofFeedConnected=false;
-        DEFERRED.clear();REJECTED_UPDATES.clear();deferredOverflow=false;nextOverflowRetryNanos=0L;
     }
 
     private static String attemptToken(GenerationTask owner,long epoch) {
