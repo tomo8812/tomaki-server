@@ -118,6 +118,18 @@ jobs:
           gradle-version: '8.10.2'
           cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
 
+      - name: Fetch Chunksmith 4.8.1 ABI for Controller-only compatibility checks
+        env:
+          PROJECTS: ${{ needs.jar-audit.outputs.projects }}
+        run: |
+          if echo "$PROJECTS" | grep -q 'maki-chunksmith-controller'; then
+            curl --fail --location --retry 3 --silent --show-error \
+              'https://raw.githubusercontent.com/tomo8812/tomaki-server/4b7d69209415d0509abab25bcc71a8e27181996f/mods/chunksmith-4.8.1%2B1.21.1-neoforge.jar' \
+              -o 'mods/chunksmith-4.8.1+1.21.1-neoforge.jar'
+            test -s 'mods/chunksmith-4.8.1+1.21.1-neoforge.jar'
+            echo 'Controller ABI verified against PR #90 Chunksmith 4.8.1 binary'
+          fi
+
       - name: Build selected projects in dependency order
         env:
           PROJECTS: ${{ needs.jar-audit.outputs.projects }}
