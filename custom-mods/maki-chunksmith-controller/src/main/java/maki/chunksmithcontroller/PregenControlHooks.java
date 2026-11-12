@@ -23,12 +23,6 @@ public final class PregenControlHooks {
     public static void nativeCoordinateFinished(String dim,int x,int z,GenerationTask task){
         PregenFlowController.nativeCoordinateFinished(dim,x,z,task);
     }
-    public static void defer(String dim,int x,int z,GenerationTask task){
-        PregenFlowController.defer(dim,x,z,task);
-    }
-    public static boolean consumeRejected(String dim,int x,int z,GenerationTask task){
-        return PregenFlowController.consumeRejected(dim,x,z,task);
-    }
     /** Native Chunksmith writer notification, independent from FULL-cache policy. */
     public static void lodWriteStarted(String token){
         PregenFlowController.physicalStart(token,PregenFlowController.Stage.LOD);
