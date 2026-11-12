@@ -29,4 +29,16 @@ public final class PregenControlHooks {
     public static boolean consumeRejected(String dim,int x,int z,GenerationTask task){
         return PregenFlowController.consumeRejected(dim,x,z,task);
     }
+    /** Native Chunksmith writer notification, independent from FULL-cache policy. */
+    public static void lodWriteStarted(String token){
+        PregenFlowController.physicalStart(token,PregenFlowController.Stage.LOD);
+    }
+    public static void lodWriteFinished(String token,long serviceNanos,boolean success){
+        PregenFlowController.physicalTerminal(token,PregenFlowController.Stage.LOD,serviceNanos,success);
+    }
+    /** Valid when a native LOD completion is independently proven for this attempt. */
+    public static void lodCommitted(String token){
+        PregenFlowController.lodCommitted(token);
+    }
+
 }
