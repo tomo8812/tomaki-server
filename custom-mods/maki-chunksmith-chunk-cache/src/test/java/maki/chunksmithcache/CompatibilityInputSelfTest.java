@@ -128,8 +128,8 @@ public final class CompatibilityInputSelfTest {
             "802908edb8bb4c295a71796823e68320dc0e0b56f52f4d8db482eacc31bc6d3c",
             FingerprintManifest.Impact.RELEVANT, "legacy zfastnoise"
         ));
-        old.add(rawJarEntry("mods/maki-chunksmith-controller-1.3.4.jar",
-            AuditedModCompatibility.trustedRawSha("maki_chunksmith_controller", "load-control-only-v1", 0)));
+        old.add(rawJarEntry("mods/maki-lod-cpu-1.3.4.jar",
+            AuditedModCompatibility.trustedRawSha("maki_lod_cpu", "load-control-only-v1", 0)));
         old.add(rawJarEntry("mods/maki-diorama-share-1.0.0.jar",
             AuditedModCompatibility.trustedRawSha("maki_diorama_share", "waypoint-sharing-only-v1", 0)));
         old.add(entry("mods/worldgen.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
@@ -137,7 +137,6 @@ public final class CompatibilityInputSelfTest {
         List<FingerprintManifest.Entry> current = new ArrayList<>();
         current.add(entry("policy:compatibility", "new-policy", FingerprintManifest.Impact.RELEVANT));
         current.add(CompatibilityInput.zfastnoiseCanonicalEntry(true, true));
-        current.add(contractEntry("maki_chunksmith_controller", "load-control-only-v1"));
         current.add(contractEntry("maki_diorama_share", "waypoint-sharing-only-v1"));
         current.add(entry("mods/worldgen.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
 
