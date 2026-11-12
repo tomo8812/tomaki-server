@@ -31,8 +31,7 @@ final class PregenFlowController {
     private static final EnumMap<Stage,StageState> STAGES=new EnumMap<>(Stage.class);
     private static final int MIN_SERVICE_SAMPLES=3;
     private static final long SERVICE_SAMPLE_STALE_NANOS=30_000_000_000L;
-    private static long pairConfirmedRuntime,pairNew,pairRepair,pairRevalidated,uncertain;
-    private static boolean tuningFrozen;
+    private static long pairConfirmedRuntime,pairNew,pairRepair,uncertain;
     private static boolean proofFeedConnected;
     private static final int MAX_DEFERRED=4096;
     private static final IdentityHashMap<GenerationTask,java.util.Set<Key>> REJECTED_UPDATES=new IdentityHashMap<>();
@@ -172,9 +171,9 @@ final class PregenFlowController {
     }
 
     record Snapshot(
-        int candidates,int actual,long pairConfirmedRuntime,long pairNew,long pairRepair,long pairRevalidated,long uncertain,
+        int candidates,int actual,long pairConfirmedRuntime,long pairNew,long pairRepair,long uncertain,
         int lodOutstanding,int lodWindow,int validateOutstanding,int validateWindow,int fullOutstanding,int fullWindow,
-        long oldestMillis,boolean blocked,boolean sensorUnknown,long fastSignature,boolean tuningFrozen
+        long oldestMillis,boolean blocked,boolean sensorUnknown,long fastSignature
     ) {}
 
     private PregenFlowController() {}
@@ -339,21 +338,6 @@ final class PregenFlowController {
         finishIfDone(attempt);
     }
 
-    static synchronized void pairExisting(String token) {
-        Attempt attempt=BY_TOKEN.get(token);
-        if(attempt==null||attempt.pairResolved)return;
-        attempt.pairResolved=true;
-        attempt.pairReported=true;
-        fulfilled(attempt);
-        metric("pair-confirmed-existing");
-        finishIfDone(attempt);
-    }
-
-    static synchronized void pairRevalidated() {
-        pairRevalidated++;
-        metric("pair-revalidated-after-restart");
-    }
-
     static synchronized void uncertain(String token,String reason) {
         uncertain++;
         Attempt attempt=token==null?null:BY_TOKEN.get(token);
@@ -386,13 +370,12 @@ final class PregenFlowController {
             // of whether its start callback was observed.
             if(now-attempt.reservedNanos>60_000_000_000L&&!attempt.held.isEmpty())unknown=true;
         }
-        return new Snapshot(candidates,actual,pairConfirmedRuntime,pairNew,pairRepair,pairRevalidated,uncertain,
+        return new Snapshot(candidates,actual,pairConfirmedRuntime,pairNew,pairRepair,uncertain,
             lod.outstanding,effectiveWindow(Stage.LOD),validate.outstanding,effectiveWindow(Stage.VALIDATE),
             full.outstanding,effectiveWindow(Stage.FULL),TimeUnit.NANOSECONDS.toMillis(oldest),admissionBlockedNoPrune(),unknown,
-            fastSignature(),tuningFrozen);
+            fastSignature());
     }
 
-    static synchronized void setTuningFrozen(boolean frozen){tuningFrozen=frozen;}
 
     static synchronized void generationCapChanged(int cap) {
         for(StageState state:STAGES.values()){
