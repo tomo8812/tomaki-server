@@ -4,6 +4,14 @@
 PR #90の確認時点のHEAD：`4b7d69209415d0509abab25bcc71a8e27181996f`。
 この文書は**実装先の要求仕様**。PR #89だけでは旧cacheとのイベント接続・Mixin統合が完了しないことを許容する。
 
+## PR #89の追加整理
+
+- MODの表示名は**Maki Chunksmith Controller**。内部MOD ID `maki_lod_cpu`、`maki.lodcpu` パッケージ、`maki-lod-cpu` JAR・設定名・既存コマンドはPR #90との連携互換性のため変更しない。
+- 未使用の旧並列数アルゴリズム`Decision.java`と関連設定を削除。E-liteの`AdaptivePolicy`を唯一の並列数調整器にする。
+- 初回起動時にLOD／FULLキャッシュを削除する`UnifiedPregenReset`を削除。PR #90の旧FULL移行・旧LOD再利用を妨げない。
+- 到達不能だったオンライン負荷回復処理と、既に使用していないPAIR再検証・FAST凍結の状態を削除。
+- バックフィルとの共有時間予算`SharedWorkBudget`、プレイヤー優先、所有権・タスク移行、Chunksmithネイティブ圧力監視は現役のため維持する。
+
 ## 1. 決める主体
 
 | 項目 | 決定権と実装責務 |
