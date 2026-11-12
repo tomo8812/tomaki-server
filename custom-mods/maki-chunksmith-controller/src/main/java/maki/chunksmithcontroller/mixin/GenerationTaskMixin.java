@@ -13,6 +13,7 @@ import maki.chunksmithcontroller.WorkTelemetry;
 import com.kishku7.chunksmith.GenerationTask;
 import com.kishku7.chunksmith.Selection;
 import com.kishku7.chunksmith.iterator.ChunkIterator;
+import com.kishku7.chunksmith.util.ChunkCoordinate;
 import com.kishku7.chunksmith.util.ChunkResidency;
 import org.spongepowered.asm.mixin.*;
 import org.spongepowered.asm.mixin.injection.*;
@@ -43,25 +44,32 @@ public abstract class GenerationTaskMixin {
     }
 
     /**
-     * Establishes a safe boundary without calling GenerationTask.stop().
-     * One iterator coordinate may already have been selected before the
-     * reservation; waiting here until inFlight reaches zero drains that work.
-     * The selected coordinate is retained and dispatch continues unchanged
-     * after the backfill slice releases the shared budget.
+     * Chunksmith 4.8.1 can dispatch a LOD repair or force-load without calling
+     * World.isChunkGenerated. Reserve at the one native iterator boundary, so
+     * every dispatched coordinate has the same WIP protection and skip paths
+     * return their predictive credits through update().
+     *
+     * The selected coordinate is retained while waiting; an E-lite WIP limit
+     * never converts Chunksmith's own generated/LOD decision into a failure.
      */
-    @Redirect(
-        method="run()V",
+    @Redirect(method="run()V",
         at=@At(value="INVOKE",target="Lcom/kishku7/chunksmith/iterator/ChunkIterator;next()Ljava/lang/Object;"),
-        require=1
-    )
+        require=1)
     private Object maki$sharedBackfillBarrier(ChunkIterator iterator) {
-        if(maki$owned()) {
-            while(!stopped&&ResourceBudgetApi.blockFollowAdmission((GenerationTask)(Object)this))
+        GenerationTask task=(GenerationTask)(Object)this;
+        if(maki$owned()){
+            while(!stopped&&ResourceBudgetApi.blockFollowAdmission(task))
                 LockSupport.parkNanos(1_000_000L);
         }
         Object next=iterator.next();
         if(!maki$owned())return next;
-        while(!stopped&&ResourceBudgetApi.blockFollowDispatch()) {
+        if(next instanceof ChunkCoordinate coordinate){
+            String dimension=selection.world().getName();
+            while(!stopped&&!PregenControlHooks.reserveCandidate(
+                dimension,coordinate.x(),coordinate.z(),task))
+                LockSupport.parkNanos(1_000_000L);
+        }
+        while(!stopped&&ResourceBudgetApi.blockFollowDispatch()){
             ResourceBudgetApi.noteFollowInFlight(inFlight.get());
             LockSupport.parkNanos(1_000_000L);
         }
@@ -69,50 +77,41 @@ public abstract class GenerationTaskMixin {
     }
 
     /**
-     * Observe Chunksmith's own generated-state result. The native generated/LOD
-     * reuse decision remains authoritative: E-lite only reserves scheduling WIP.
+     * Observe the native decision; never substitute an artificial "generated"
+     * result and never fail a native isChunkGenerated() Future for WIP pressure.
      */
     @Redirect(method="run()V",at=@At(value="INVOKE",
         target="Lcom/kishku7/chunksmith/platform/World;isChunkGenerated(II)Ljava/util/concurrent/CompletableFuture;"),require=1)
-    private CompletableFuture<Boolean> maki$admitNativeCandidate(World world,int x,int z){
+    private CompletableFuture<Boolean> maki$observeNativeCandidate(World world,int x,int z){
+        CompletableFuture<Boolean> result=world.isChunkGenerated(x,z);
+        if(!maki$owned())return result;
         GenerationTask owner=(GenerationTask)(Object)this;
-        if(!maki$owned())return world.isChunkGenerated(x,z);
-        String dim=selection.world().getName();
-        if(!PregenControlHooks.reserveCandidate(dim,x,z,owner)){
-            PregenControlHooks.defer(dim,x,z,owner);
-            return CompletableFuture.failedFuture(new IllegalStateException("E-lite candidate WIP full"));
-        }
-        try{
-            return world.isChunkGenerated(x,z).whenComplete((generated,error)->{
-                if(error!=null)PregenControlHooks.candidateFailed(dim,x,z,owner);
-                else PregenControlHooks.classify(dim,x,z,owner,Boolean.TRUE.equals(generated));
-            });
-        }catch(Throwable error){
-            PregenControlHooks.candidateFailed(dim,x,z,owner);
-            throw error;
-        }
+        String dimension=selection.world().getName();
+        return result.whenComplete((generated,error)->{
+            if(error!=null)PregenControlHooks.candidateFailed(dimension,x,z,owner);
+            else PregenControlHooks.classify(dimension,x,z,owner,Boolean.TRUE.equals(generated));
+        });
     }
 
     /**
-     * Exactly one admission at the actual Chunksmith getChunkAtAsync call.
-     * FULL persistence ownership and validity remain with chunk-cache.
+     * Never refuse the native request here. Chunksmith 4.8.1 marks its LOD
+     * presence index before this callsite, and a fabricated failed Future would
+     * leave a false "LOD exists" bit. New dispatch is limited at iterator.next.
+     * Already dispatched work retains the native stop/cleanup behavior.
      */
     @Redirect(method="lambda$run$1",at=@At(value="INVOKE",
         target="Lcom/kishku7/chunksmith/platform/World;getChunkAtAsync(II)Ljava/util/concurrent/CompletableFuture;"),require=2)
-    private CompletableFuture<Void> maki$admitNativeRequest(World world,int x,int z){
+    private CompletableFuture<Void> maki$observeNativeRequest(World world,int x,int z){
         GenerationTask owner=(GenerationTask)(Object)this;
         if(!maki$owned())return world.getChunkAtAsync(x,z);
-        String dim=selection.world().getName();
-        if(!PregenControlHooks.beginActual(dim,x,z,owner)){
-            PregenControlHooks.defer(dim,x,z,owner);
-            return CompletableFuture.failedFuture(new IllegalStateException("E-lite actual WIP admission rejected"));
-        }
+        String dimension=selection.world().getName();
+        boolean tracked=PregenControlHooks.beginActual(dimension,x,z,owner);
         try{
             return world.getChunkAtAsync(x,z).whenComplete((value,error)->{
-                if(error!=null)PregenControlHooks.requestFailed(dim,x,z,owner);
+                if(tracked&&error!=null)PregenControlHooks.requestFailed(dimension,x,z,owner);
             });
         }catch(Throwable error){
-            PregenControlHooks.requestFailed(dim,x,z,owner);
+            if(tracked)PregenControlHooks.requestFailed(dimension,x,z,owner);
             throw error;
         }
     }
