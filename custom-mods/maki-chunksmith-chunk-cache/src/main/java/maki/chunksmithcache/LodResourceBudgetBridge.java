@@ -4,7 +4,7 @@ import java.lang.reflect.Method;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Fail-closed bridge to the required maki-lod-cpu shared resource budget API. */
+/** Fail-closed bridge to the required maki-chunksmith-controller shared resource budget API. */
 final class LodResourceBudgetBridge {
     private static final Logger LOG=LoggerFactory.getLogger("MakiChunkCache");
     private static Method reserve;
@@ -67,7 +67,7 @@ final class LodResourceBudgetBridge {
 
     private static synchronized void initialize() throws ReflectiveOperationException {
         if(initialized)return;
-        Class<?> api=Class.forName("maki.lodcpu.ResourceBudgetApi",true,LodResourceBudgetBridge.class.getClassLoader());
+        Class<?> api=Class.forName("maki.chunksmithcontroller.ResourceBudgetApi",true,LodResourceBudgetBridge.class.getClassLoader());
         reserve=api.getMethod("reserveBackfill");
         held=api.getMethod("backfillReservationHeld");
         started=api.getMethod("backfillStarted");

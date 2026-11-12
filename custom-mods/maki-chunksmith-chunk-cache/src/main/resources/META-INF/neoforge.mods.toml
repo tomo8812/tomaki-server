@@ -36,7 +36,7 @@ ordering="AFTER"
 side="SERVER"
 
 [[dependencies.maki_chunksmith_chunk_cache]]
-modId="maki_lod_cpu"
+modId="maki_chunksmith_controller"
 type="required"
 versionRange="[1.4.1,)"
 ordering="AFTER"

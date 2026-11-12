@@ -63,15 +63,15 @@ public final class CompatibilityInputSelfTest {
     }
 
     private static void testAuditedModContracts(Path temp) throws Exception {
-        Path unknownLod = temp.resolve("maki-lod-cpu-9.9.9.jar");
-        writeModJar(unknownLod, "maki_lod_cpu", "9.9.9", "future-code");
-        List<FingerprintManifest.Entry> unknown = jarEntries("mods/maki-lod-cpu-9.9.9.jar", unknownLod);
+        Path unknownLod = temp.resolve("maki-chunksmith-controller-9.9.9.jar");
+        writeModJar(unknownLod, "maki_chunksmith_controller", "9.9.9", "future-code");
+        List<FingerprintManifest.Entry> unknown = jarEntries("mods/maki-chunksmith-controller-9.9.9.jar", unknownLod);
         require(unknown.size() == 1 && unknown.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
             "future scheduling-only MOD bytes must not rotate generated-result compatibility without generation evidence");
 
-        Path overrideLod = temp.resolve("maki-lod-cpu-10.0.0.jar");
-        writeOverrideModJar(overrideLod, "maki_lod_cpu", "10.0.0", "future-worldgen-hook");
-        require(jarEntries("mods/maki-lod-cpu-10.0.0.jar", overrideLod).getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
+        Path overrideLod = temp.resolve("maki-chunksmith-controller-10.0.0.jar");
+        writeOverrideModJar(overrideLod, "maki_chunksmith_controller", "10.0.0", "future-worldgen-hook");
+        require(jarEntries("mods/maki-chunksmith-controller-10.0.0.jar", overrideLod).getFirst().impact() == FingerprintManifest.Impact.RELEVANT,
             "an indirect generation override must remain fail-closed even for a normally neutral MOD role");
 
         Path unknownWorldgen = temp.resolve("worldgen.jar");
@@ -85,7 +85,7 @@ public final class CompatibilityInputSelfTest {
         if (configured == null || configured.isBlank()) return;
         Path mods = Path.of(configured);
 
-        assertAudited(mods.resolve("maki-lod-cpu-1.4.2.jar"), "maki_lod_cpu");
+        assertAudited(mods.resolve("maki-chunksmith-controller-1.4.2.jar"), "maki_chunksmith_controller");
         assertAudited(mods.resolve("maki-diorama-share-1.0.1.jar"), "maki_diorama_share");
         assertAudited(mods.resolve("maki-mods-observer-1.0.0.jar"), "maki_mods_observer");
         Path jade = mods.resolve("Jade-1.21.1-NeoForge-15.10.6.jar");
@@ -128,8 +128,8 @@ public final class CompatibilityInputSelfTest {
             "802908edb8bb4c295a71796823e68320dc0e0b56f52f4d8db482eacc31bc6d3c",
             FingerprintManifest.Impact.RELEVANT, "legacy zfastnoise"
         ));
-        old.add(rawJarEntry("mods/maki-lod-cpu-1.3.4.jar",
-            AuditedModCompatibility.trustedRawSha("maki_lod_cpu", "load-control-only-v1", 0)));
+        old.add(rawJarEntry("mods/maki-chunksmith-controller-1.3.4.jar",
+            AuditedModCompatibility.trustedRawSha("maki_chunksmith_controller", "load-control-only-v1", 0)));
         old.add(rawJarEntry("mods/maki-diorama-share-1.0.0.jar",
             AuditedModCompatibility.trustedRawSha("maki_diorama_share", "waypoint-sharing-only-v1", 0)));
         old.add(entry("mods/worldgen.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
@@ -137,7 +137,7 @@ public final class CompatibilityInputSelfTest {
         List<FingerprintManifest.Entry> current = new ArrayList<>();
         current.add(entry("policy:compatibility", "new-policy", FingerprintManifest.Impact.RELEVANT));
         current.add(CompatibilityInput.zfastnoiseCanonicalEntry(true, true));
-        current.add(contractEntry("maki_lod_cpu", "load-control-only-v1"));
+        current.add(contractEntry("maki_chunksmith_controller", "load-control-only-v1"));
         current.add(contractEntry("maki_diorama_share", "waypoint-sharing-only-v1"));
         current.add(entry("mods/worldgen.jar", "same-worldgen", FingerprintManifest.Impact.RELEVANT));
 
@@ -182,7 +182,7 @@ public final class CompatibilityInputSelfTest {
     private static void assertAudited(Path jar, String modId) throws Exception {
         require(Files.isRegularFile(jar), "missing installed test JAR " + jar);
         List<FingerprintManifest.Entry> entries = jarEntries("mods/" + jar.getFileName(), jar);
-        if (Set.of("maki_lod_cpu", "maki_diorama_share", "maki_mods_observer").contains(modId)) {
+        if (Set.of("maki_chunksmith_controller", "maki_diorama_share", "maki_mods_observer").contains(modId)) {
             require(entries.size() == 1 && entries.getFirst().impact() == FingerprintManifest.Impact.IGNORED,
                 jar.getFileName() + " owned scheduling/UI/diagnostic role must remain generation-neutral across updates");
             return;

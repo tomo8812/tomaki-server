@@ -10,7 +10,7 @@ Minecraft 1.21.1 / NeoForge 21.1.262。PR #89はChunksmith 4.6.0を基点とし�
 | 実装状況 | **E-liteの制御部をlod-cpuへ移管済み**。PR #90のFULL通知・Mixin統合・配布JAR更新・実機検証は未完了 |
 | 関連資料 | [PR #90のcache連携契約](e-lite-pr90-cache-integration.md) / [Issue #83](https://github.com/tomo8812/Minecraft-1.21.1-neoforge-server/issues/83) / [レビュー判断記録（67件＋先行レビュー）](pregen-throughput-review-decisions.md) / [起動前計測](../scripts/a1-pregen-preflight.py) |
 
-**名称と後方互換性:** MODの表示名は「Maki Chunksmith Controller」。他MODが参照する内部MOD ID `maki_lod_cpu`、Javaパッケージ `maki.lodcpu`、設定 `config/maki-lod-cpu.properties`、現行JAR名は変更しない。E-liteが本体であり、旧CPU閾値ベースの`Decision`制御は削除した。
+**名称と後方互換性:** MODの表示名は「Maki Chunksmith Controller」。内部MOD ID `maki_chunksmith_controller`、Javaパッケージ `maki.chunksmithcontroller`、設定 `config/maki-chunksmith-controller.properties`、配布JAR名を統一した。既存ワールドの所有者記録は維持する。E-liteが本体であり、旧CPU閾値ベースの`Decision`制御は削除した。
 
 **運用データ:** 初回起動時に旧LODやFULLキャッシュを削除する`UnifiedPregenReset`を撤去。既存LODの利用はChunksmith、FULLの利用はcacheの判断に従う。生成制御は旧データの消去・隔離を要求しない。
 
@@ -48,14 +48,14 @@ python3 scripts/a1-pregen-preflight.py \
 
 - **Chunksmith**はチャンク要求・LOD保存・LODの既存再利用を判断する。E-liteはその判定結果、native幅／inFlight、LOD物理保存完了・失敗・queueを観測する。
 - **chunk-cache**はFULLキャッシュの検証、再利用、snapshot、所有権、Entity・POI、保存、promotionを判断する。E-liteへFULL固有の検証／物理書込／公開結果を通知する。
-- **maki-lod-cpu（E-lite）**は両者の通知を試行tokenで対応付け、独立したLOD/VALIDATE/FULL WIP窓、投入制御、PAIR/s計測、cの自律探索を保持する。
+- **maki-chunksmith-controller（E-lite）**は両者の通知を試行tokenで対応付け、独立したLOD/VALIDATE/FULL WIP窓、投入制御、PAIR/s計測、cの自律探索を保持する。
 
 ```text
 Chunksmith（既存LOD判定・native生成・LOD書込）
            ├─ LOD物理ACK ─────────┐
            └─ LevelChunk ─→ chunk-cache（FULLの検証・保存・再利用）
                                       └─ FULL確定 ─┐
-maki-lod-cpu（投入許可・工程別WIP・PAIR/s・c±1）←──────┘
+maki-chunksmith-controller（投入許可・工程別WIP・PAIR/s・c±1）←──────┘
 ```
 
 NEW/REPAIRはE-liteの性能比較用の仕事の種類。旧データの有効性判定を変更しない。新しい永続PAIR証明の有無は、既存FULLや既存LODを再利用できるかどうかと無関係である。
@@ -98,7 +98,7 @@ E-liteの対象はFollow-owned Chunksmithタスクである。手動・外部タ
 | `getChunkAtAsync`直前 | `ACTUAL_REQUEST_STARTED`へ転換し、stop epoch／ownerを再確認する |
 | 物理stage終了 | 対応する工程のACK／確実な中止でcreditを一度だけ返す |
 
-これらのフックは**maki-lod-cpu自身**が持つ。PR #90統合時にchunk-cache側の重複`GenerationRequestMixin`の生成投入Redirectを除去・統合する。キャッシュ自身のFULL所有権・保存安全ガードは残す。
+これらのフックは**maki-chunksmith-controller自身**が持つ。PR #90統合時にchunk-cache側の重複`GenerationRequestMixin`の生成投入Redirectを除去・統合する。キャッシュ自身のFULL所有権・保存安全ガードは残す。
 
 手動pause、player join、recenter、native AutoPause、task stop/detach時はadmission epochを更新して古い要求の新規投入を禁止する。workerが動いている段階のcreditは論理timeoutだけで戻さない。
 

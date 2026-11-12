@@ -6,7 +6,7 @@ PR #90の確認時点のHEAD：`4b7d69209415d0509abab25bcc71a8e27181996f`。
 
 ## PR #89の追加整理
 
-- MODの表示名は**Maki Chunksmith Controller**。内部MOD ID `maki_lod_cpu`、`maki.lodcpu` パッケージ、`maki-lod-cpu` JAR・設定名・既存コマンドはPR #90との連携互換性のため変更しない。
+- MOD名を**Maki Chunksmith Controller**、MOD IDを`maki_chunksmith_controller`、パッケージを`maki.chunksmithcontroller`、JARを`maki-chunksmith-controller-1.4.2.jar`、設定を`config/maki-chunksmith-controller.properties`へ改名。既存のワールド状態・Chunksmithタスク所有者の保存キーは引き継ぐ。
 - 未使用の旧並列数アルゴリズム`Decision.java`と関連設定を削除。E-liteの`AdaptivePolicy`を唯一の並列数調整器にする。
 - 初回起動時にLOD／FULLキャッシュを削除する`UnifiedPregenReset`を削除。PR #90の旧FULL移行・旧LOD再利用を妨げない。
 - 到達不能だったオンライン負荷回復処理と、既に使用していないPAIR再検証・FAST凍結の状態を削除。
@@ -18,7 +18,7 @@ PR #90の確認時点のHEAD：`4b7d69209415d0509abab25bcc71a8e27181996f`。
 | --- | --- |
 | Chunksmith | チャンク要求、LOD生成・保存・既存LODの再利用判断、ネイティブ安全制御 |
 | maki-chunksmith-chunk-cache | FULLキャッシュの生成・保存・読込・完全性・再利用・復元・通常ワールドへの引渡し・自己保護 |
-| maki-lod-cpu / E-lite | 生成タスクの投入許可、`c`の自律探索、LOD/VALIDATE/FULL処理量のWIP窓、完成ペア数の性能計測、投入保留の再試行 |
+| maki-chunksmith-controller / E-lite | 生成タスクの投入許可、`c`の自律探索、LOD/VALIDATE/FULL処理量のWIP窓、完成ペア数の性能計測、投入保留の再試行 |
 
 E-liteはFULLやLODの**既存データの使用可否を決めない**。不足している計測証明を理由に、正常な旧FULLや旧LODを検疫・無効化・再生成しない。
 
@@ -103,3 +103,10 @@ PR #90のchunk-cacheには既存の`GenerationRequestMixin`（`GenerationTask.ru
 5. cacheの書込が詰まればE-liteの投入が減り、解消すれば回復する。外部タスクはE-lite制御の対象外。
 6. プレイヤー参加、外部Chunksmithタスク、再起動、promotion・Entity・POI・Millénaire・VS2の既存保存経路を維持する。
 7. Chunksmith 4.8.1 / Millénaire 9.1.0の実物JAR、Mixin適用、静的検査、Gradle check、実サーバーでの複製ワールド検証を実施する。
+
+### 参照MODと移行の詳細
+
+- `maki-chunksmith-chunk-cache` は `[[dependencies.maki_chunksmith_chunk_cache]]` の必須依存を新MOD IDに変更し、共有予算の反射先を `maki.chunksmithcontroller.ResourceBudgetApi` に変更する。
+- FULLキャッシュの `FingerprintPolicy` は新MOD IDと設定パスを生成結果に無関係として扱う。ただし署名に含まれる旧ID・旧設定パスの履歴定数は維持して、改名だけで既存FULL世代のfingerprintが変わらないようにする。
+- `AuditedModCompatibility` の旧 `maki_lod_cpu` のハッシュ付き監査証跡は、実在した過去JARを指すため書き換えない。
+- 旧 `config/maki-lod-cpu.properties` が残っていて新設定がないときのみ、一度だけ新設定名へ移動する。既存ワールドの `maki_lod_follow.json` とタスク所有者キーは改名せず引き継ぐ。

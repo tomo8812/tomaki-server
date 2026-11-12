@@ -158,7 +158,7 @@ tasks.register('verifyIssue66SharedBudget') {
         }
         ['reserveBackfill', 'backfillReservationHeld', 'backfillStarted', 'releaseBackfill'].each { token ->
             if (!bridge.contains(token)) {
-                throw new GradleException('Issue #66 regression: maki-lod-cpu budget bridge is missing ' + token)
+                throw new GradleException('Issue #66 regression: maki-chunksmith-controller budget bridge is missing ' + token)
             }
         }
     }

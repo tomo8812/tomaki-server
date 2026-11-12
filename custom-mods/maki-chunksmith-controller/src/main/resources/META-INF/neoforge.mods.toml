@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="maki_chunksmith_controller"
+version="1.4.2"
+displayName="Maki Chunksmith Controller"
+description="Server-only E-lite Chunksmith generation controller. Optimizes native generation concurrency and bounded storage work while preserving Chunksmith LOD and FULL-cache ownership, named-player follow, player priority, and existing task migration."
+[[dependencies.maki_chunksmith_controller]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.262,21.2)"
+side="SERVER"
+[[dependencies.maki_chunksmith_controller]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+side="SERVER"
+[[dependencies.maki_chunksmith_controller]]
+modId="chunksmith"
+type="required"
+versionRange="[4.6.0]"
+ordering="AFTER"
+side="SERVER"
+[[mixins]]
+config="maki-chunksmith-controller.mixins.json"
