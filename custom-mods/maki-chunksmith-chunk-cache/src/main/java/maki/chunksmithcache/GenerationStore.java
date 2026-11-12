@@ -151,55 +151,47 @@ final class GenerationStore {
         }
     }
 
+    /**
+     * Adopt every previously saved FULL-cache directory into the stable
+     * schema-3 namespace. Worldgen versions and settings are not inspected.
+     * Every individual FULL must pass the envelope and coordinate checks.
+     */
     private static void adoptPriorCacheDirectories(
-        ServerLevel level, Path root, Fingerprint.Snapshot snapshot, String trigger,
-        CacheDiskBudget migrationBudget
+        ServerLevel level, Path root, Fingerprint.Snapshot snapshot,
+        String trigger, CacheDiskBudget budget
     ) throws IOException {
-        FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
         List<Path> candidates;
         try (Stream<Path> stream = Files.list(root)) {
             candidates = stream.filter(Files::isDirectory)
                 .filter(path -> path.getFileName().toString().matches("[0-9a-f]{24}"))
                 .filter(path -> !path.getFileName().toString().equals(snapshot.fingerprint()))
-                .toList();
+                .sorted().toList();
         }
-        for (Path candidate : candidates) {
-            FingerprintManifest.Manifest old = FingerprintManifest.readIfValid(candidate.resolve(FingerprintManifest.FILE_NAME));
-            if (old == null || !FingerprintManifest.sameCompatibilityInputsExcept(
-                old, current, Set.of("policy:compatibility"), candidate
-            )) continue;
-
-            String oldFingerprint = candidate.getFileName().toString();
-            Stats before = stats(candidate);
-            Path active = root.resolve(snapshot.fingerprint());
-            FingerprintManifest.Manifest existing = FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
-            List<String> proofDetails = FingerprintManifest.compatibilityProofs(
-                old, current, Set.of("policy:compatibility"), 12, candidate
-            );
-            CacheDirectoryMerge.MergeStats merge = mergeForCompatibility(
-                level, old, current, candidate, active, false, migrationBudget);
-
-            Set<String> accepted = new LinkedHashSet<>();
-            accepted.add(snapshot.fingerprint());
-            accepted.add(oldFingerprint);
-            accepted.addAll(old.storedFingerprints());
-            if (existing != null) accepted.addAll(existing.storedFingerprints());
-            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME), snapshot.manifest(accepted));
-            // Commit the accepted fingerprints before removing any source.
-            // Keep rejected or conflicting files for the normal quarantine pass.
-            CacheDirectoryMerge.cleanupCopiedSources(
-                candidate, active, cacheValidator(level, old),
-                cacheValidator(level, validationManifest(current, active, old)));
-            if (Files.isDirectory(candidate) && stats(candidate).entries() == 0L) {
-                deleteTree(candidate);
-                migrationBudget.deleted(before.bytes());
+        Path active = root.resolve(snapshot.fingerprint());
+        FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
+        for (Path source : candidates) {
+            FingerprintManifest.Manifest old = historicalIdentity(source);
+            if (old == null) {
+                LOG.warn("Keeping historical cache with invalid owner metadata {}; recovery will preserve it", source);
+                continue;
             }
-            long activeEntries = stats(active).entries();
-            LOG.info(
-                "Adopted compatibility-equivalent chunk-cache generation {} as {} for {}; sourceEntries={} adoptedEntries={} duplicateEntries={} activeEntriesAfter={} bytes={} proofDetails={} trigger={}",
-                oldFingerprint, snapshot.fingerprint(), root.getFileName(), merge.sourceEntries(),
-                merge.adoptedEntries(), merge.duplicateEntries(), activeEntries, before.bytes(), proofDetails, trigger
-            );
+            Stats before = stats(source);
+            FingerprintManifest.Manifest existing =
+                FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
+            CacheDirectoryMerge.MergeStats copied =
+                copyValidFulls(level, old, current, source, active, budget);
+            FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME),
+                snapshot.manifest(acceptedIdentities(snapshot, old, existing)));
+            CacheDirectoryMerge.cleanupCopiedSources(
+                source, active, cacheValidator(level, old),
+                cacheValidator(level, validationManifest(current, active, old)));
+            if (stats(source).entries() == 0) {
+                deleteTree(source);
+                budget.deleted(before.bytes());
+            }
+            LOG.info("Adopted historical FULL cache {} -> {}; checked={} adopted={} duplicates={} rejected={} trigger={}",
+                old.fingerprint(), snapshot.fingerprint(), copied.sourceEntries(),
+                copied.adoptedEntries(), copied.duplicateEntries(), copied.rejectedEntries(), trigger);
         }
     }
 
