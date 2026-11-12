@@ -257,17 +257,10 @@ public final class PlayerCenter {
         }
         TaskOwnership.noteOwnedOrAbsent();
         if(current==null&&!requested&&lastTask!=null&&lastTask.getCount()<lastTask.getChunkIterator().total()){
-            long missing=Math.max(0L,lastTask.getChunkIterator().total()-lastTask.getCount());
-            int deferred=CpuGovernor.pregenDeferredCoordinates(lastTask);
-            if(deferred>0&&missing<=deferred){
-                if(CpuGovernor.pregenRetryPending(server,saved.x,saved.z,settings().followRadius)){
-                    requested=true;reason="retrying-admission-deferred";
-                }else{
-                    reason="waiting-admission-retry";report(server,chunky,now);return;
-                }
-            }else{
-                manualPause=true;reason="native-safety-pause";report(server,chunky,now);return;
-            }
+            // E-lite parks before native dispatch, so it never advances the
+            // Chunksmith progress for work merely waiting on admission.
+            // An interrupted native run is a native pause, not retry debt.
+            manualPause=true;reason="native-safety-pause";report(server,chunky,now);return;
         }
         if(current==null&&!requested&&lastTask!=null&&lastTask.getCount()>=lastTask.getChunkIterator().total()&&CpuGovernor.pregenRetryPending(server,saved.x,saved.z,settings().followRadius)){
             requested=true;reason="retrying-incomplete-pairs";
