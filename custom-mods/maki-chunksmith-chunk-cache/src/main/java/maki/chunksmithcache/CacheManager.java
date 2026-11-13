@@ -52,6 +52,7 @@ public final class CacheManager {
    private static volatile List<Path> activeRoots = List.of();
    private static final Map<MinecraftServer, Long> NEXT_DISK_REFRESH = new WeakHashMap<>();
    private static final Set<MinecraftServer> DISK_REFRESHING = ConcurrentHashMap.newKeySet();
+   private static final Set<ServerLevel> LOADED_CLEANUP_RUNNING = ConcurrentHashMap.newKeySet();
    private static final ConcurrentHashMap<String, CompletableFuture<Boolean>> ROTATION_RESULTS = new ConcurrentHashMap<>();
    private static final Map<String,Long> ROTATION_RETRY = new ConcurrentHashMap<>();
    private static final Map<CaptureKey, CaptureFlight> CAPTURE_PENDING = new ConcurrentHashMap<>();
@@ -1095,6 +1096,30 @@ public final class CacheManager {
       }
    }
 
+   private static void cleanupLoadedCache(ServerLevel level){
+      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+      if(snapshot==null||!LOADED_CLEANUP_RUNNING.add(level))return;
+      // Snapshot the live map on the server thread. Never request a chunk load,
+      // serialize FULL, or touch temporary pregen/player-handoff ownership.
+      var loaded=new java.util.HashMap<Path,ChunkPos>();
+      var chunks=(maki.chunksmithcache.mixin.ChunkMapLifecycleAccessor)level.getChunkSource().chunkMap;
+      for(var holder:chunks.maki$getVisibleChunkMap().values()){
+         ChunkPos pos=holder.getPos();
+         if(level.getChunkSource().getChunkNow(pos.x,pos.z)!=null
+             &&!PregenBorrowLedger.suppressPersistence(level,pos)&&!PromotionLedger.owns(level,pos))
+            loaded.put(path(level,pos,snapshot.fingerprint()),pos);
+      }
+      try{
+         READ_IO.execute(()->LoadedCacheCleanup.sweep(loaded,
+             pos->NormalChunkStorage.inspectAsync(level,pos).thenApply(state->state==NormalChunkStorage.State.FULL),
+             pos->{if(!STOPPING.contains(level.getServer()))discardRedundantCache(level,pos);},READ_IO)
+             .whenComplete((ignored,error)->{
+                LOADED_CLEANUP_RUNNING.remove(level);
+                if(error!=null)LOG.debug("Loaded FULL cache cleanup will retry for {}",dimensionKey(level),error);
+             }));
+      }catch(RejectedExecutionException busy){LOADED_CLEANUP_RUNNING.remove(level);}
+   }
+
    static void maintenanceTick(MinecraftServer server) {
       long now = System.currentTimeMillis();
       if (STOPPING.contains(server)) return;
@@ -1110,6 +1135,7 @@ public final class CacheManager {
       synchronized (NEXT_DISK_REFRESH) {
          if (now >= NEXT_DISK_REFRESH.getOrDefault(server,0L) && DISK_REFRESHING.add(server)) {
             NEXT_DISK_REFRESH.put(server,now+10_000L);
+            for(ServerLevel level:server.getAllLevels())cleanupLoadedCache(level);
             ArrayList<Path> roots=new ArrayList<>();
             roots.add(server.getWorldPath(LevelResource.ROOT).resolve("chunksmith_chunk_cache"));
             currentServer=server;
@@ -1170,6 +1196,7 @@ public final class CacheManager {
 
    /** Final cleanup only after vanilla/NeoForge have finished the shutdown save/close path. */
    public static void stopped(MinecraftServer server) {
+      LOADED_CLEANUP_RUNNING.removeIf(level->level.getServer()==server);
       FULL_RETRIES.keySet().removeIf(key->key.level().getServer()==server);
       FULL_COMPLETIONS.forEach((key,future)->{if(key.level().getServer()==server){
          FULL_COMPLETIONS.remove(key,future);future.aborted(new IOException("Server stopped before FULL publication"));

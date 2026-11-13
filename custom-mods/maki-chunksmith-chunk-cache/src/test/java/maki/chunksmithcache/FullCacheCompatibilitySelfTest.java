@@ -19,6 +19,7 @@ public final class FullCacheCompatibilitySelfTest {
     public static void main(String[] args) throws Exception {
         inPlaceAdoption();
         adoptionHonorsHandoffClaim();
+        cleanupAlreadyLoadedWithoutReadOrSave();
         deferredRecoveryRetriesAfterCapacityReturns();
         require(Fingerprint.CACHE_ID.matches("[0-9a-f]{24}"),
             "FULL storage id must remain a stable cache-format namespace");
@@ -58,6 +59,29 @@ public final class FullCacheCompatibilitySelfTest {
             try(var walk=Files.walk(root)){for(Path file:walk.sorted(java.util.Comparator.reverseOrder()).toList())Files.delete(file);}
             Files.deleteIfExists(config);
         }
+    }
+
+    private static void cleanupAlreadyLoadedWithoutReadOrSave()throws Exception{
+        Path root=Files.createTempDirectory("already-loaded-cache");
+        try{
+            Path active=root.resolve("current/r.0.0");Files.createDirectories(active);
+            Path ready=active.resolve("c.1.1.nbt.gz"),unsaved=active.resolve("c.2.2.nbt.gz"),cold=active.resolve("c.3.3.nbt.gz");
+            Files.write(ready,new byte[]{1});Files.write(unsaved,new byte[]{2});Files.write(cold,new byte[]{3});
+            var readyPos=new net.minecraft.world.level.ChunkPos(1,1);var unsavedPos=new net.minecraft.world.level.ChunkPos(2,2);
+            var inspected=new java.util.concurrent.CompletableFuture<Boolean>();
+            var loaded=new java.util.LinkedHashMap<Path,net.minecraft.world.level.ChunkPos>();
+            loaded.put(ready,readyPos);loaded.put(unsaved,unsavedPos);
+            var probes=new java.util.concurrent.atomic.AtomicInteger();
+            var sweep=LoadedCacheCleanup.sweep(loaded,
+                pos->{probes.incrementAndGet();return pos.equals(readyPos)?inspected:java.util.concurrent.CompletableFuture.completedFuture(false);},
+                pos->{try{PromotionClaim.discardAvailable(active.resolve("c."+pos.x+"."+pos.z+".nbt.gz"));}
+                    catch(java.io.IOException failure){throw new java.io.UncheckedIOException(failure);}},Runnable::run);
+            require(probes.get()==1,"cleanup keeps at most one native header inspection in flight");
+            require(!sweep.isDone()&&Files.exists(ready),"loaded is not proof of durable normal FULL");
+            inspected.complete(true);sweep.join();
+            require(!Files.exists(ready),"already loaded FULL cleans its duplicate without another chunk load or new save");
+            require(Files.exists(unsaved)&&Files.exists(cold),"unsaved or non-loaded chunks retain their cache");
+        }finally{try(var walk=Files.walk(root)){for(Path file:walk.sorted(java.util.Comparator.reverseOrder()).toList())Files.delete(file);}}
     }
 
     private static void adoptionHonorsHandoffClaim()throws Exception{
