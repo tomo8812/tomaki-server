@@ -60,10 +60,10 @@
       "output": "mods/emi-1.1.24+1.21.1+neoforge",
       "sha256": "b68691f94f0727fc517cac2ab55bd6658d1179cc8cc715fe610b60c37469bc4c"
     },
-    "mods/epicterrain-0.3.0-1.21.1.jar": {
-      "blob_oid": "9299f811088d87ae3de583fc23a82f9c5adc42bd",
-      "output": "mods/epicterrain-0.3.0-1.21.1",
-      "sha256": "373eae086a23f04a12f36b8f747d1450f6d348c2a2a5c89828e3517af866ed2b"
+    "mods/epicterrain-0.3.0-1.21.1-tomaki.1.jar": {
+      "blob_oid": "aafff4eaee2453dbdcb16c1bc97766ccc9027fba",
+      "output": "mods/epicterrain-0.3.0-1.21.1-tomaki.1",
+      "sha256": "ddb773a312e8d4d7ac81b4e763018eb0601aca7c357102f5bcb9edf8ba3b8cb1"
     },
     "mods/ferritecore-7.0.3-neoforge.jar": {
       "blob_oid": "a2d53841440dc5d7b86a683087fb06aad5b5482a",
