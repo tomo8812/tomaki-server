@@ -3,7 +3,7 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_millenaire_lod"
-version="1.0.9"
+version="1.0.10"
 displayName="Maki Millenaire Chunksmith Compatibility"
 description="Defers Millenaire village generation during Chunksmith pregeneration until player-loaded FULL chunks are ready."
 [[dependencies.maki_millenaire_lod]]

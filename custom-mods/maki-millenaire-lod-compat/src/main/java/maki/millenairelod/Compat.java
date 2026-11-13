@@ -23,6 +23,9 @@ public final class Compat {
       DeferredData data = DeferredData.get(level);
       long key = pos.toLong();
       if ((natural || data.pending.contains(key)) && !data.queued.contains(key)) {
+         // Typed lone retries are restored only by ReplayController into the
+         // native lone queue; this load callback must never turn them into villages.
+         if(data.lone.containsKey(key))return;
          BlockPos sample = pos.getMiddleBlockPosition(level.getMaxBuildHeight() - 1);
          Holder<Biome> biome = level.getBiome(sample);
          if (!VillageSpawnQueue.couldHostAnyVillage(ModCultures.getAllVillageTypes().values(), biome::is)) {
@@ -39,6 +42,11 @@ public final class Compat {
       DeferredData data = DeferredData.get(level);
       long key = pos.toLong();
       if (!data.queued.contains(key)) {
+         var access=(maki.millenairelod.mixin.VillageQueueAccessor)queue;
+         if(ReplayBudget.mainCandidates(access.maki$candidates().size(),
+             ((maki.millenairelod.mixin.SiteHunterWorkAccessor)(Object)queue.hunter()).maki$work().size())==0){
+            data.remember(key,false);return;
+         }
          data.remember(key, true);
          queue.enqueue(pos.getMiddleBlockPosition(64));
       }
@@ -53,9 +61,12 @@ public final class Compat {
       return ReplayController.beginCandidate(level, pos);
    }
 
-   public static void waitingLone(ServerLevel level,Object candidate){
+   public static void enqueueLone(ServerLevel level,java.util.Deque<Object> queue,Object candidate){
       var lone=(maki.millenairelod.mixin.LoneCandidateAccessor)candidate;
-      DeferredData.get(level).rememberLone(lone.compat$pos(),lone.compat$distance(),lone.compat$enqueuedTick(),lone.compat$retryAfterTick());
+      DeferredData data=DeferredData.get(level);
+      data.rememberLone(lone.compat$pos(),lone.compat$distance(),lone.compat$enqueuedTick(),lone.compat$retryAfterTick());
+      if(ReplayBudget.lone(queue.size())>0)queue.addLast(candidate);
+      else data.release(new ChunkPos(lone.compat$pos()).toLong());
    }
 
    public static void expiredLone(ServerLevel level, BlockPos pos) {

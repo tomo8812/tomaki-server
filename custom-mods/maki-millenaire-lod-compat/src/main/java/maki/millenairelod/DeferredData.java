@@ -11,6 +11,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.saveddata.SavedData;
 
 public final class DeferredData extends SavedData {
+    static final int FORMAT_VERSION=3;
     public final LongOpenHashSet pending = new LongOpenHashSet();
     public record Lone(BlockPos pos,double distance,long enqueuedTick,long retryAfterTick) {}
     public final Long2ObjectOpenHashMap<Lone> lone = new Long2ObjectOpenHashMap<>();
@@ -25,14 +26,31 @@ public final class DeferredData extends SavedData {
 
     public static DeferredData load(CompoundTag tag) {
         DeferredData data = new DeferredData();
-        data.pending.addAll(LongOpenHashSet.of(tag.getLongArray("pending")));
-        ListTag list=tag.getList("lone",10);
+        int version=tag.getInt("version");
+        if(version==FORMAT_VERSION)data.pending.addAll(LongOpenHashSet.of(tag.getLongArray("mainCandidates")));
+        // Versions 1/2 used an untyped pending array. Version 2 may itself have
+        // imported version-1 lone candidates as main candidates, so it cannot
+        // prove that its untyped entries are villages. Discard those entries.
+        int ambiguous=0;
+        ListTag list=tag.getList(version==FORMAT_VERSION?"loneRetries":"lone",10);
+        int invalidLone=0;
         for(int i=0;i<list.size();i++){
             CompoundTag entry=list.getCompound(i);
+            if(!entry.contains("pos",4)||!entry.contains("distance",6)
+                ||!entry.contains("enqueued",4)||!entry.contains("retryAfter",4)){
+                invalidLone++;continue;
+            }
             BlockPos pos=BlockPos.of(entry.getLong("pos"));
             long key=new ChunkPos(pos).toLong();
             data.lone.put(key,new Lone(pos,entry.getDouble("distance"),entry.getLong("enqueued"),entry.getLong("retryAfter")));
             data.pending.add(key);
+        }
+        if(version<FORMAT_VERSION)for(long key:tag.getLongArray("pending"))if(!data.lone.containsKey(key))ambiguous++;
+        if(version!=FORMAT_VERSION||invalidLone>0){
+            data.setDirty(); // Persist the cleanup even if no player revisits these coordinates.
+            org.slf4j.LoggerFactory.getLogger("MakiMillenaireLOD").info(
+                "Deferred candidates upgraded from format {} to {}: discarded untyped={} invalidLone={} retainedLone={}",
+                version,FORMAT_VERSION,ambiguous,invalidLone,data.lone.size());
         }
         return data;
     }
@@ -59,8 +77,13 @@ public final class DeferredData extends SavedData {
     }
 
     @Override public CompoundTag save(CompoundTag tag, HolderLookup.Provider lookup) {
-        tag.putInt("version", 2);
-        tag.putLongArray("pending", pending.toLongArray());
+        tag.putInt("version", FORMAT_VERSION);
+        tag.remove("pending");
+        tag.remove("lone");
+        long[] candidates=new long[pending.size()-lone.size()];
+        int count=0;
+        for(long key:pending)if(!lone.containsKey(key))candidates[count++]=key;
+        tag.putLongArray("mainCandidates", candidates);
         ListTag list=new ListTag();
         for(Lone value:lone.values()){
             CompoundTag entry=new CompoundTag();
@@ -68,7 +91,7 @@ public final class DeferredData extends SavedData {
             entry.putLong("enqueued",value.enqueuedTick());entry.putLong("retryAfter",value.retryAfterTick());
             list.add(entry);
         }
-        tag.put("lone",list);
+        tag.put("loneRetries",list);
         return tag;
     }
 }

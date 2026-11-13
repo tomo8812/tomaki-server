@@ -49,7 +49,7 @@ maki-chunksmith-chunk-cache-1.5.0.jar
 maki-diorama-share-1.0.1.jar
 maki-idle-pregen-1.1.2.jar
 maki-chunksmith-controller-1.4.2.jar
-maki-millenaire-lod-compat-1.0.9.jar
+maki-millenaire-lod-compat-1.0.10.jar
 maki-mods-observer-1.0.0.jar
 maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar

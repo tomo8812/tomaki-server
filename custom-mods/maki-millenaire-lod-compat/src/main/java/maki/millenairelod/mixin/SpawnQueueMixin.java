@@ -114,8 +114,7 @@ public abstract class SpawnQueueMixin {
                 return candidate;
             }
             if (Compat.beginCandidate(level, pos)) return candidate;
-            Compat.waitingLone(level, candidate);
-            queue.addLast(candidate);
+            Compat.enqueueLone(level, queue, candidate);
         }
         return null;
     }
@@ -124,8 +123,7 @@ public abstract class SpawnQueueMixin {
         at = @At(value = "INVOKE", target = "Ljava/util/Deque;addLast(Ljava/lang/Object;)V"),require=1)
     private void compat$deferHunterLone(Deque<Object> queue,Object candidate,ServerLevel level,
         BlockPos pos,double distance,VillageManager manager,VillageSavedData saved){
-        Compat.waitingLone(level,candidate);
-        queue.addLast(candidate);
+        Compat.enqueueLone(level,queue,candidate);
     }
 
     @Redirect(method = "processMainQueue",
@@ -133,16 +131,14 @@ public abstract class SpawnQueueMixin {
     private void compat$addLoneFromMain(Deque<Object> queue, Object candidate, ServerLevel level,
                                        VillageSavedData saved, VillageManager manager,
                                        boolean villages, boolean lone, boolean log, long tick) {
-        Compat.waitingLone(level, candidate);
-        queue.addLast(candidate);
+        Compat.enqueueLone(level, queue, candidate);
     }
 
     @Redirect(method = "processLBQueue",
         at = @At(value = "INVOKE", target = "Ljava/util/Deque;addLast(Ljava/lang/Object;)V"))
     private void compat$addLone(Deque<Object> queue, Object candidate, ServerLevel level,
                                VillageSavedData saved, VillageManager manager, boolean log, long tick) {
-        Compat.waitingLone(level, candidate);
-        queue.addLast(candidate);
+        Compat.enqueueLone(level, queue, candidate);
     }
 
     // 9.1.0 moved lone-building coverage into processLBQueue.isCoverageComplete.

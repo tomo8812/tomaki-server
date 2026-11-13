@@ -24,9 +24,10 @@ public final class ReplayController {
         var config=MillenaireServerConfig.SERVER;
         if(!config.generateVillages.get()&&!config.generateLoneBuildings.get())return;
         VillageQueueAccessor access=(VillageQueueAccessor)queue;
-        int budget=ReplayBudget.limit(access.maki$candidates().size(),access.maki$loneBuildings().size(),
+        int mainBudget=ReplayBudget.mainCandidates(access.maki$candidates().size(),
             ((SiteHunterWorkAccessor)(Object)queue.hunter()).maki$work().size());
-        if(budget==0)return;
+        int loneBudget=config.generateLoneBuildings.get()?ReplayBudget.lone(access.maki$loneBuildings().size()):0;
+        if(mainBudget==0&&loneBudget==0)return;
         DeferredData data=DeferredData.get(level);
         int radius=level.getServer().getPlayerList().getViewDistance()+1;
         for(ServerPlayer player:level.players()){
@@ -37,12 +38,16 @@ public final class ReplayController {
                 if(!data.pending.contains(key)||data.queued.contains(key)||!retryReady(level,key,tick))continue;
                 if(!VillagePlacementReadiness.candidateReady(level,pos))continue;
                 DeferredData.Lone lone=data.lone.get(key);
-                if(lone!=null&&access.maki$loneBuildings().size()>=64)continue;
+                if(lone==null){
+                    if(mainBudget==0)continue;
+                    queue.enqueue(pos.getMiddleBlockPosition(64));mainBudget--;
+                }else{
+                    if(loneBudget==0)continue;
+                    access.maki$loneBuildings().addLast(NativeLoneCandidate.restore(
+                        lone.pos(),lone.distance(),lone.enqueuedTick(),lone.retryAfterTick()));loneBudget--;
+                }
                 data.remember(key,true);
-                if(lone==null)queue.enqueue(pos.getMiddleBlockPosition(64));
-                else access.maki$loneBuildings().addLast(NativeLoneCandidate.restore(
-                    lone.pos(),lone.distance(),lone.enqueuedTick(),lone.retryAfterTick()));
-                if(--budget==0)return;
+                if(mainBudget==0&&loneBudget==0)return;
             }
         }
     }
