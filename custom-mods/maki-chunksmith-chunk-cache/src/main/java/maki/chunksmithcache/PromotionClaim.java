@@ -54,6 +54,16 @@ final class PromotionClaim {
         }
     }
 
+    /** Delete only an unclaimed snapshot superseded by successfully persisted normal FULL. */
+    static long discardAvailable(Path available) throws IOException {
+        try(var ignored=CachePathLocks.lock(claimedPath(available))) {
+            if(RecoveryClaims.claimExists(claimedPath(available)))return 0L;
+            long bytes=Files.isRegularFile(available)?Files.size(available):0L;
+            Files.deleteIfExists(available);
+            return bytes;
+        }
+    }
+
     static PromotionClaim adoptLive(Path available, boolean capturePending) throws IOException {
         try(var ignored=CachePathLocks.lock(claimedPath(available))) {
         if (RecoveryClaims.claimExists(claimedPath(available))) return null;

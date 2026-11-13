@@ -146,6 +146,7 @@ public abstract class GenerationTaskMixin {
         try{
             return CacheManager.request(world,x,z,owner,()->RequestContext.with(owner,()->world.getChunkAtAsync(x,z))).whenComplete((value,error)->{
                 if(error!=null)PregenControlHooks.requestFailed(dimension,x,z,owner);
+                else PregenControlHooks.requestSucceeded(dimension,x,z,owner);
             });
         }catch(Throwable error){
             PregenControlHooks.requestFailed(dimension,x,z,owner);

@@ -53,8 +53,9 @@ public final class Compat {
       return ReplayController.beginCandidate(level, pos);
    }
 
-   public static void waiting(ServerLevel level, BlockPos pos, boolean queued) {
-      DeferredData.get(level).remember(new ChunkPos(pos).toLong(), queued);
+   public static void waitingLone(ServerLevel level,Object candidate){
+      var lone=(maki.millenairelod.mixin.LoneCandidateAccessor)candidate;
+      DeferredData.get(level).rememberLone(lone.compat$pos(),lone.compat$distance(),lone.compat$enqueuedTick(),lone.compat$retryAfterTick());
    }
 
    public static void expiredLone(ServerLevel level, BlockPos pos) {

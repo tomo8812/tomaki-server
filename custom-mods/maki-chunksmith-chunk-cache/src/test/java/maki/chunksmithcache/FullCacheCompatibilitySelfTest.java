@@ -18,6 +18,7 @@ public final class FullCacheCompatibilitySelfTest {
 
     public static void main(String[] args) throws Exception {
         inPlaceAdoption();
+        adoptionHonorsHandoffClaim();
         deferredRecoveryRetriesAfterCapacityReturns();
         require(Fingerprint.CACHE_ID.matches("[0-9a-f]{24}"),
             "FULL storage id must remain a stable cache-format namespace");
@@ -57,6 +58,27 @@ public final class FullCacheCompatibilitySelfTest {
             try(var walk=Files.walk(root)){for(Path file:walk.sorted(java.util.Comparator.reverseOrder()).toList())Files.delete(file);}
             Files.deleteIfExists(config);
         }
+    }
+
+    private static void adoptionHonorsHandoffClaim()throws Exception{
+        Path root=Files.createTempDirectory("adoption-handoff");
+        try{
+            Path source=root.resolve("old"),active=root.resolve("current");
+            Path old=source.resolve("r.0.0/c.1.2.nbt.gz"),target=active.resolve("r.0.0/c.1.2.nbt.gz");
+            Files.createDirectories(old.getParent());Files.createDirectories(target.getParent());
+            Files.write(old,new byte[]{1,2});Files.write(target,new byte[]{7,8});
+            PromotionClaim claim=PromotionClaim.take(target,false);
+            var deferred=CacheDirectoryMerge.adoptValidatedInPlace(source,active,p->true,p->true);
+            require(deferred.rejectedEntries()==1&&Files.exists(old)&&!Files.exists(target),"adoption cannot republish a handed-off coordinate");
+            require(Files.readAllBytes(claim.path())[0]==7,"handoff payload survives adoption");
+            Files.write(target,new byte[]{9});
+            require(PromotionClaim.discardAvailable(target)==0&&Files.exists(target),"redundant cleanup cannot delete claimed payloads");
+            Files.delete(claim.path());
+            require(PromotionClaim.discardAvailable(target)==1&&!Files.exists(target),"unclaimed redundant cache is deleted");
+            var adopted=CacheDirectoryMerge.adoptValidatedInPlace(source,active,p->true,p->true);
+            require(adopted.adoptedEntries()==1&&!Files.exists(old),"safe adoption removes the source");
+            require(CacheDirectoryMerge.cleanupCopiedSources(source,active,p->true,p->true)==0,"empty source cleanup is idempotent");
+        }finally{try(var walk=Files.walk(root)){for(Path file:walk.sorted(java.util.Comparator.reverseOrder()).toList())Files.delete(file);}}
     }
 
     private static void deferredRecoveryRetriesAfterCapacityReturns() throws Exception {
@@ -100,6 +122,9 @@ public final class FullCacheCompatibilitySelfTest {
             var recovered=CacheDirectoryMerge.tryRecoverValidated(source,active,p->true,p->true,budget);
             require(recovered!=null&&recovered.adoptedEntries()==1&&Files.size(active.resolve("r.0.0/c.0.0.nbt.gz"))==2,
                 "deferred FULL is adopted during the same run after capacity returns");
+            require(CacheDirectoryMerge.cleanupCopiedSources(source,active,p->true,p->true)==1,
+                "complete validated recovery removes its identical quarantine source");
+            require(!Files.exists(file),"successfully recovered FULL does not remain duplicated in quarantine");
             retry.recovered(source);retry.finished(2*QuarantineRecoveryRetry.INTERVAL_NANOS);
             require(!retry.protects(source)&&!retry.claim(3*QuarantineRecoveryRetry.INTERVAL_NANOS),
                 "completed recovery leaves neither retry work nor special retention protection");

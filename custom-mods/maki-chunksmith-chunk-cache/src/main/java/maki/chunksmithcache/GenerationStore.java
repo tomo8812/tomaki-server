@@ -233,7 +233,12 @@ final class GenerationStore {
             if (old == null) {retry.recovered(source);continue;}
             FingerprintManifest.Manifest existing =
                 FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
-            if (alreadyRecovered(source, snapshot.fingerprint(), old.fingerprint(), existing)) {retry.recovered(source);continue;}
+            if (alreadyRecovered(source, snapshot.fingerprint(), old.fingerprint(), existing)) {
+                CacheDirectoryMerge.cleanupCopiedSources(source,active,cacheValidator(level,old),
+                    cacheValidator(level,validationManifest(current,active,old)));
+                if(stats(source).entries()==0)deleteTree(source);
+                retry.recovered(source);continue;
+            }
             // Acceptance must precede partial copies: a capacity deferral can
             // leave valid, already copied FULLs in the active directory.
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME),
@@ -241,7 +246,12 @@ final class GenerationStore {
             CacheDirectoryMerge.MergeStats copied = CacheDirectoryMerge.tryRecoverValidated(
                 source,active,cacheValidator(level,old),cacheValidator(level,validationManifest(current,active,old)),budget);
             if(copied==null){retry.deferred(source,System.nanoTime());continue;}
-            writeRecoveryReceipt(source, old.fingerprint(), snapshot.fingerprint(), copied, trigger);
+            // The accepting manifest and complete target are durable. Remove only
+            // byte-identical, validated originals; retain rejected/conflicting payloads.
+            CacheDirectoryMerge.cleanupCopiedSources(source,active,cacheValidator(level,old),
+                cacheValidator(level,validationManifest(current,active,old)));
+            if(stats(source).entries()==0)deleteTree(source);
+            else writeRecoveryReceipt(source, old.fingerprint(), snapshot.fingerprint(), copied, trigger);
             retry.recovered(source);
             LOG.info("Recovered valid quarantined FULLs {} -> {}; checked={} adopted={} rejected={} trigger={}",
                 old.fingerprint(), snapshot.fingerprint(), copied.sourceEntries(),

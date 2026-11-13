@@ -41,6 +41,14 @@ class PregenCompletionTest {
         ((Map)field(FLOW,"ACTIVE")).put(key,attempt);((Map)field(FLOW,"BY_TOKEN")).put(token,attempt);
         return attempt;
     }
+    private com.kishku7.chunksmith.GenerationTask owner(Object attempt)throws Exception{
+        // These lifecycle tests need native task identity, not a running scheduler/world.
+        var field=Class.forName("sun.misc.Unsafe").getDeclaredField("theUnsafe");field.setAccessible(true);
+        Object unsafe=field.get(null);
+        var owner=(com.kishku7.chunksmith.GenerationTask)unsafe.getClass().getMethod("allocateInstance",Class.class)
+            .invoke(unsafe,com.kishku7.chunksmith.GenerationTask.class);
+        set(attempt,"owner",owner);return owner;
+    }
     private long pairs()throws Exception{return (long)field(FLOW,"pairConfirmedRuntime");}
     private int outstanding(PregenFlowController.Stage stage)throws Exception{
         return (int)field(((Map<?,?>)field(FLOW,"STAGES")).get(stage),"outstanding");
@@ -53,11 +61,40 @@ class PregenCompletionTest {
     @Test void isolatedPreparationDebtDoesNotConsumeStageCredits()throws Exception{
         PregenFlowController.preparationFailed("minecraft:overworld",1,2);
         assertEquals(1,PregenFlowController.incompleteInRange("minecraft:overworld",0,0,4096));
-        assertTrue(PregenFlowController.hasPreparationFailures("minecraft:overworld"));
+        assertTrue(PregenFlowController.hasScanFailures("minecraft:overworld"));
         for(var stage:PregenFlowController.Stage.values())assertEquals(0,outstanding(stage));
         PregenFlowController.preparationSucceeded("minecraft:overworld",1,2);
         assertEquals(0,PregenFlowController.incompleteInRange("minecraft:overworld",0,0,4096));
-        assertFalse(PregenFlowController.hasPreparationFailures("minecraft:overworld"));
+        assertFalse(PregenFlowController.hasScanFailures("minecraft:overworld"));
+    }
+    @Test void nativeCandidateFailureIsRetainedWithoutWipAndCanRecover()throws Exception{
+        Object attempt=attempt("candidate-fail");var owner=owner(attempt);
+        Object key=field(attempt,"key");
+        long pos=(long)field(key,"pos");int x=(int)(pos>>32),z=(int)pos;
+        PregenFlowController.candidateFailed("minecraft:overworld",x,z,owner);
+        assertEquals(1,((Map<?,?>)field(FLOW,"INCOMPLETE")).size());
+        assertTrue(PregenFlowController.hasScanFailures("minecraft:overworld"));
+        for(var stage:PregenFlowController.Stage.values())assertEquals(0,outstanding(stage));
+        Object retry=attempt("candidate-fail");set(retry,"owner",owner);
+        PregenFlowController.classify("minecraft:overworld",x,z,owner,false);
+        assertFalse(PregenFlowController.hasScanFailures("minecraft:overworld"));
+    }
+    @Test void nativeRequestFailureIsRetainedAndSuccessClearsOnlyThatDebt()throws Exception{
+        Object attempt=attempt("request-fail");var owner=owner(attempt);set(attempt,"requestInvoked",true);
+        Object key=field(attempt,"key");long pos=(long)field(key,"pos");int x=(int)(pos>>32),z=(int)pos;
+        PregenFlowController.requestFailed("minecraft:overworld",x,z,owner);
+        assertTrue(PregenFlowController.hasScanFailures("minecraft:overworld"));
+        for(var stage:PregenFlowController.Stage.values())assertEquals(0,outstanding(stage));
+        PregenFlowController.preparationFailed("minecraft:overworld",x,z);
+        PregenFlowController.requestSucceeded("minecraft:overworld",x,z,owner);
+        assertTrue(PregenFlowController.hasScanFailures("minecraft:overworld"),"request success does not clear preparation debt");
+        PregenFlowController.preparationSucceeded("minecraft:overworld",x,z);
+        assertFalse(PregenFlowController.hasScanFailures("minecraft:overworld"));
+    }
+    @Test void stopBeforeActualNativeRequestDoesNotInventFailureDebt()throws Exception{
+        Object attempt=attempt("stopped");var owner=owner(attempt);Object key=field(attempt,"key");long pos=(long)field(key,"pos");
+        PregenFlowController.requestFailed("minecraft:overworld",(int)(pos>>32),(int)pos,owner);
+        assertFalse(PregenFlowController.hasScanFailures("minecraft:overworld"));
     }
     @Test void oppositeOrdersAndDuplicatesCountOnce()throws Exception{
         attempt("one");finish("one",PregenFlowController.Stage.VALIDATE,true);

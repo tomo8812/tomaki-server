@@ -30,6 +30,7 @@ public final class PregenControlHooks {
     public static void requestFailed(String dim,int x,int z,GenerationTask task){
         PregenFlowController.requestFailed(dim,x,z,task);
     }
+    public static void requestSucceeded(String dim,int x,int z,GenerationTask task){PregenFlowController.requestSucceeded(dim,x,z,task);}
     public static void nativeCoordinateFinished(String dim,int x,int z,GenerationTask task){
         PregenFlowController.nativeCoordinateFinished(dim,x,z,task);
     }

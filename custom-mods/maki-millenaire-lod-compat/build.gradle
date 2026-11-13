@@ -91,3 +91,13 @@ tasks.register('replayBudgetTest', JavaExec) {
     mainClass = 'maki.millenairelod.ReplayBudgetSelfTest'
 }
 tasks.named('check') { dependsOn tasks.named('replayBudgetTest') }
+
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
+
+tasks.register('deferredDataTest', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'maki.millenairelod.DeferredDataSelfTest'
+}
+tasks.named('check') { dependsOn tasks.named('deferredDataTest') }

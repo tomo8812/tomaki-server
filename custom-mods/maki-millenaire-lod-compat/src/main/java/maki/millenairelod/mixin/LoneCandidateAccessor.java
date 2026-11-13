@@ -7,5 +7,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 @Mixin(targets = "org.millenaire.world.VillageSpawnQueue$LBCandidate", remap = false)
 public interface LoneCandidateAccessor {
     @Accessor("pos") BlockPos compat$pos();
+    @Accessor("distToSpawnSq") double compat$distance();
+    @Accessor("retryAfterTick") long compat$retryAfterTick();
     @Accessor("enqueuedTick") long compat$enqueuedTick();
 }

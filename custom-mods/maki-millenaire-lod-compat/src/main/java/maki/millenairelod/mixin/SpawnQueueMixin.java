@@ -114,10 +114,18 @@ public abstract class SpawnQueueMixin {
                 return candidate;
             }
             if (Compat.beginCandidate(level, pos)) return candidate;
-            Compat.waiting(level, pos, true);
+            Compat.waitingLone(level, candidate);
             queue.addLast(candidate);
         }
         return null;
+    }
+
+    @Redirect(method = "deferToLoneBuildings",
+        at = @At(value = "INVOKE", target = "Ljava/util/Deque;addLast(Ljava/lang/Object;)V"),require=1)
+    private void compat$deferHunterLone(Deque<Object> queue,Object candidate,ServerLevel level,
+        BlockPos pos,double distance,VillageManager manager,VillageSavedData saved){
+        Compat.waitingLone(level,candidate);
+        queue.addLast(candidate);
     }
 
     @Redirect(method = "processMainQueue",
@@ -125,7 +133,7 @@ public abstract class SpawnQueueMixin {
     private void compat$addLoneFromMain(Deque<Object> queue, Object candidate, ServerLevel level,
                                        VillageSavedData saved, VillageManager manager,
                                        boolean villages, boolean lone, boolean log, long tick) {
-        Compat.waiting(level, ((LoneCandidateAccessor)candidate).compat$pos(), true);
+        Compat.waitingLone(level, candidate);
         queue.addLast(candidate);
     }
 
@@ -133,7 +141,7 @@ public abstract class SpawnQueueMixin {
         at = @At(value = "INVOKE", target = "Ljava/util/Deque;addLast(Ljava/lang/Object;)V"))
     private void compat$addLone(Deque<Object> queue, Object candidate, ServerLevel level,
                                VillageSavedData saved, VillageManager manager, boolean log, long tick) {
-        Compat.waiting(level, ((LoneCandidateAccessor)candidate).compat$pos(), true);
+        Compat.waitingLone(level, candidate);
         queue.addLast(candidate);
     }
 

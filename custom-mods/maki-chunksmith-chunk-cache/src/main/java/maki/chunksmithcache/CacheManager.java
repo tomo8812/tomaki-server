@@ -124,8 +124,11 @@ public final class CacheManager {
       String token=FullTelemetryBridge.token(level,pos,task);
       return NormalChunkStorage.inspectAsync(level,pos).thenCompose(normal->{
          if(normal==NormalChunkStorage.State.UNKNOWN)return CompletableFuture.failedFuture(new IOException("FULL ownership unknown before dispatch"));
-         return normal==NormalChunkStorage.State.FULL?CompletableFuture.completedFuture(true)
-             :loadForPregen(level,pos,false).thenApply(ignored->false);
+         if(normal==NormalChunkStorage.State.FULL)discardRedundantCache(level,pos);
+         return level.getServer().submit(()->normal==NormalChunkStorage.State.FULL
+             ||level.getChunkSource().getChunkNow(x,z)!=null&&!PregenBorrowLedger.suppressPersistence(level,pos))
+             .thenCompose(normalFull->normalFull?CompletableFuture.completedFuture(true)
+                 :loadForPregen(level,pos,false).thenApply(ignored->false));
       }).thenAccept(normalFull->{
          if(!FollowCaptureOwnership.active(level,task))throw new IllegalStateException("Preparation stopped");
          CaptureKey key=captureKey(level,pos);
@@ -162,8 +165,9 @@ public final class CacheManager {
    }
    private static void savePending(PendingFull work){
       ServerLevel level=work.key.level();ChunkPos pos=work.chunk.getPos();
-      if(work.busy||level.getGameTime()<work.retryTick||STOPPING.contains(level.getServer()))return;
+      if(work.busy||STOPPING.contains(level.getServer()))return;
       if(PregenBorrowLedger.isHandedOff(level,pos)){finishFull(work,false);return;}
+      if(level.getGameTime()<work.retryTick)return;
       if(!ResourceBudgetApi.reserveFullRetry(work.token))return;
       work.busy=true;
       capture(level,work.chunk,work.token).whenComplete((ok,error)->level.getServer().execute(()->{
@@ -539,6 +543,7 @@ public final class CacheManager {
       if (CacheLoadPolicy.keepNormal(normal.orElse(null))) {
          PregenBorrowLedger.releaseGeneratedToNormal(level,pos);
          PromotionLedger.normalFullPresent(level,pos);
+         if(NormalChunkStorage.fromTag(normal.orElse(null))==NormalChunkStorage.State.FULL)discardRedundantCache(level,pos);
          return CompletableFuture.completedFuture(normal);
       }
 
@@ -546,6 +551,23 @@ public final class CacheManager {
          return loadForPregen(level,pos).thenApply(cached -> cached.isPresent() ? cached : normal);
       }
       return loadIfPresent(level, pos).thenApply(cached -> cached.isPresent() ? cached : normal);
+   }
+
+   private static void discardRedundantCache(ServerLevel level,ChunkPos pos){
+      Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
+      if(snapshot==null)return;
+      Path file=path(level,pos,snapshot.fingerprint());
+      if(!Files.isRegularFile(file)||PromotionLedger.owns(level,pos))return;
+      // A scanner/read may see pendingWrites. Await their actual disk ACK;
+      // cleanup needs no new FULL serialization or cache publication.
+      ((net.minecraft.world.level.chunk.storage.IOWorker)level.getChunkSource().chunkScanner()).synchronize(false)
+          .whenComplete((ignored,error)->{
+             if(error!=null){LOG.warn("Keeping redundant FULL cache after normal storage failure at {}",pos,error);return;}
+             submitMaintenance(()->{
+                try{long bytes=PromotionClaim.discardAvailable(file);CacheDiskBudget.at(cacheRoot(level)).deleted(bytes);}
+                catch(IOException failure){LOG.warn("Could not remove redundant FULL cache {}",file,failure);}
+             });
+          });
    }
 
    private static boolean pregenBorrowAllowed(ServerLevel level, ChunkPos pos) {

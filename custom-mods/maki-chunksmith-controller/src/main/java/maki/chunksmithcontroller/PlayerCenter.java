@@ -282,9 +282,9 @@ public final class PlayerCenter {
             if(world.isPresent()){
                 try{
                     GenerationTask task=null;
-                    // Explicit resume can revisit isolated pre-mark failures through
+                    // Explicit resume can revisit isolated preparation/native failures through
                     // an ordinary fresh Chunksmith scan, without an independent generator.
-                    if(!PregenFlowController.hasPreparationFailures(WORLD)
+                    if(!PregenFlowController.hasScanFailures(WORLD)
                         &&(persistedOwner==TaskOwnership.PersistedOwner.CURRENT_SESSION
                         ||persistedOwner==TaskOwnership.PersistedOwner.PREVIOUS_SESSION&&chunky.getConfig().getContinueOnRestart())){
                         var prior=chunky.getTaskLoader().loadTask(world.get());

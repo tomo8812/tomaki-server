@@ -28,7 +28,7 @@ final class PregenFlowController {
     private static final IdentityHashMap<GenerationTask,Long> TASK_GENERATIONS=new IdentityHashMap<>();
     private static final Map<Key,Attempt> ACTIVE=new HashMap<>();
     private static final Map<String,Attempt> BY_TOKEN=new HashMap<>();
-    private enum Failure { FULL_PREPARATION, FULL_SAVE, LOD_WRITE }
+    private enum Failure { FULL_PREPARATION, NATIVE_CANDIDATE, NATIVE_REQUEST, FULL_SAVE, LOD_WRITE }
     // Failed observations consume no physical WIP. Native generation owns repair.
     private static final Map<Key,EnumSet<Failure>> INCOMPLETE=new HashMap<>();
     static synchronized void preparationFailed(String dim,int x,int z){incomplete(new Key(dim,packed(x,z)),Failure.FULL_PREPARATION);}
@@ -36,14 +36,23 @@ final class PregenFlowController {
         Key key=new Key(dim,packed(x,z));var failures=INCOMPLETE.get(key);
         if(failures!=null){failures.remove(Failure.FULL_PREPARATION);if(failures.isEmpty())INCOMPLETE.remove(key);}
     }
+    private static void resolved(Key key,Failure failure){
+        var failures=INCOMPLETE.get(key);
+        if(failures!=null){failures.remove(failure);if(failures.isEmpty())INCOMPLETE.remove(key);}
+    }
+    static synchronized void requestSucceeded(String dim,int x,int z,GenerationTask owner){
+        // The native request can finish after FULL+LOD accounting retired its attempt.
+        resolved(new Key(dim,packed(x,z)),Failure.NATIVE_REQUEST);
+    }
     private static void incomplete(Key key,Failure failure){
         if(INCOMPLETE.computeIfAbsent(key,ignored->EnumSet.noneOf(Failure.class)).add(failure))
             org.slf4j.LoggerFactory.getLogger("MakiChunksmithController").warn(
                 "Pregen coordinate incomplete: dimension={} x={} z={} stage={}",key.dimension(),(int)(key.pos()>>32),(int)key.pos(),failure);
     }
-    static synchronized boolean hasPreparationFailures(String dim){
+    static synchronized boolean hasScanFailures(String dim){
         return INCOMPLETE.entrySet().stream().anyMatch(entry->entry.getKey().dimension().equals(dim)
-            &&entry.getValue().contains(Failure.FULL_PREPARATION));
+            &&(entry.getValue().contains(Failure.FULL_PREPARATION)
+                ||entry.getValue().contains(Failure.NATIVE_CANDIDATE)||entry.getValue().contains(Failure.NATIVE_REQUEST)));
     }
     static synchronized int incompleteInRange(String dim,int centerX,int centerZ,int radius){
         long distance=(long)radius+16L;int count=0;
@@ -192,6 +201,7 @@ final class PregenFlowController {
     static synchronized void classify(String dimension,int x,int z,GenerationTask owner,boolean generated) {
         Attempt attempt=attempt(dimension,x,z,owner);
         if(attempt==null)return;
+        resolved(attempt.key,Failure.NATIVE_CANDIDATE);
         if(generated) {
             attempt.workClass=WorkClass.REPAIR;
             releaseIfUnstarted(attempt,Stage.VALIDATE);
@@ -249,8 +259,7 @@ final class PregenFlowController {
     }
     static synchronized void fullSaveResolved(String token){
         Attempt attempt=BY_TOKEN.get(token);if(attempt==null)return;
-        var failures=INCOMPLETE.get(attempt.key);
-        if(failures!=null){failures.remove(Failure.FULL_SAVE);if(failures.isEmpty())INCOMPLETE.remove(attempt.key);}
+        resolved(attempt.key,Failure.FULL_SAVE);
     }
     static synchronized boolean reserveFullRetry(String token){
         Attempt attempt=BY_TOKEN.get(token);if(attempt==null)return false;
@@ -277,6 +286,7 @@ final class PregenFlowController {
     static synchronized void candidateFailed(String dimension,int x,int z,GenerationTask owner) {
         Attempt attempt=attempt(dimension,x,z,owner);
         if(attempt==null)return;
+        incomplete(attempt.key,Failure.NATIVE_CANDIDATE);
         attempt.pairResolved=true;
         releaseAllUnstarted(attempt);
         finishIfDone(attempt);
@@ -290,6 +300,7 @@ final class PregenFlowController {
     static synchronized void requestFailed(String dimension,int x,int z,GenerationTask owner) {
         Attempt attempt=attempt(dimension,x,z,owner);
         if(attempt==null)return;
+        if(attempt.requestInvoked)incomplete(attempt.key,Failure.NATIVE_REQUEST);
         failAttempt(attempt);
         releaseAllUnstarted(attempt);
         finishIfDone(attempt);

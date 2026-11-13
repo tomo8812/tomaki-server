@@ -147,15 +147,18 @@ final class CacheDirectoryMerge {
             if(!sourceVerified.test(file)){rejected++;continue;}
             Path destination=target.resolve(source.relativize(file));
             Files.createDirectories(destination.getParent());
-            if(Files.isRegularFile(destination)&&targetVerified.test(destination)){
-                if(Files.mismatch(file,destination)==-1){Files.delete(file);duplicates++;}
-                else rejected++; // A different valid FULL remains preserved at its source.
-                continue;
+            try(var ignored=CachePathLocks.lock(PromotionClaim.claimedPath(destination))){
+                if(RecoveryClaims.claimExists(PromotionClaim.claimedPath(destination))){rejected++;continue;}
+                if(Files.isRegularFile(destination)&&targetVerified.test(destination)){
+                    if(Files.mismatch(file,destination)==-1){Files.delete(file);duplicates++;}
+                    else rejected++; // A different valid FULL remains preserved at its source.
+                    continue;
+                }
+                // Atomic rename uses the same ownership lock as player handoff.
+                // Never allocate a second FULL-sized copy under the active quota.
+                Files.move(file,destination,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
+                adopted++;
             }
-            // Atomic rename either preserves the source or installs the complete payload.
-            // Never fall back to a full-size copy that can deadlock the active quota.
-            Files.move(file,destination,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);
-            adopted++;
         }
         deleteEmptyDirectories(source);
         return new MergeStats(checked,adopted,duplicates,rejected);

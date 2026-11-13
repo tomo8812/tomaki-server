@@ -10,5 +10,5 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 @Mixin(value=VillageSpawnQueue.class,remap=false)
 public interface VillageQueueAccessor {
     @Accessor("candidates") Queue<BlockPos> maki$candidates();
-    @Accessor("loneBuildingQueue") Deque<?> maki$loneBuildings();
+    @Accessor("loneBuildingQueue") Deque<Object> maki$loneBuildings();
 }

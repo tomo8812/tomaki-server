@@ -36,8 +36,12 @@ public final class ReplayController {
                 long key=pos.toLong();
                 if(!data.pending.contains(key)||data.queued.contains(key)||!retryReady(level,key,tick))continue;
                 if(!VillagePlacementReadiness.candidateReady(level,pos))continue;
+                DeferredData.Lone lone=data.lone.get(key);
+                if(lone!=null&&access.maki$loneBuildings().size()>=64)continue;
                 data.remember(key,true);
-                queue.enqueue(pos.getMiddleBlockPosition(64));
+                if(lone==null)queue.enqueue(pos.getMiddleBlockPosition(64));
+                else access.maki$loneBuildings().addLast(NativeLoneCandidate.restore(
+                    lone.pos(),lone.distance(),lone.enqueuedTick(),lone.retryAfterTick()));
                 if(--budget==0)return;
             }
         }
