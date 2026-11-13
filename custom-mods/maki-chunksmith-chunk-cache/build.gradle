@@ -88,7 +88,8 @@ tasks.register('verifyMixinAnnotationRetention') {
 sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
 sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
 
-['captureTelemetryTest':'CaptureTelemetrySelfTest',
+['fullSaveCompletionTest':'FullSaveCompletionSelfTest',
+ 'captureTelemetryTest':'CaptureTelemetrySelfTest',
  'cacheRetentionSettingsTest':'CacheRetentionPolicySelfTest',
  'cachePipelineTest':'CachePipelineSelfTest',
  'fullCacheCompatibilityTest':'FullCacheCompatibilitySelfTest'].each { taskName, className ->

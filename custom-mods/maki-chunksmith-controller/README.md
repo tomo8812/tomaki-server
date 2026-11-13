@@ -8,6 +8,8 @@ Minecraft 1.21.1 / NeoForge 21.1.262 / Chunksmith 4.8.1用の生成制御MODで�
 
 LODを書き始める前に、Chunk CacheでFULL保存先の所有権を確認します。事前検査が3回続けて失敗した座標はWIPを解放して未完了として記録し、他の座標の処理を継続します。`/makilod resume`でChunksmithの通常走査を再開し、準備に成功した座標の記録を解消します。
 
+FULL保存の連続失敗は未完了として記録し、実処理のない検証・保存WIPを解放します。Cacheによる同一FULLの保存成功またはプレイヤーへの引渡しで、この未完了記録を解消します。Chunksmithの要求待ちが終了しても、保存成功やPAIRとしては計上しません。
+
 同一試行のLOD書込成功とFULL公開・再利用の確認が揃ったものをPAIR成果として一度だけ計上します。新規FULLの公開、既存FULLの再利用、分類不能の成果を分けて記録します。物理処理のWIPは実終了時に返します。
 
 FULLキャッシュ使用量・保存待ちbytesとChunksmithのLOD保存量を合算し、`generation-max-storage-bytes`（既定15GiB）で生成受付を止めます。LODの容量はChunksmithの保存先を非同期で計測します。

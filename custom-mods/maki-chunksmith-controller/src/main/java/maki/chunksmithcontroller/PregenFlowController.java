@@ -28,7 +28,7 @@ final class PregenFlowController {
     private static final IdentityHashMap<GenerationTask,Long> TASK_GENERATIONS=new IdentityHashMap<>();
     private static final Map<Key,Attempt> ACTIVE=new HashMap<>();
     private static final Map<String,Attempt> BY_TOKEN=new HashMap<>();
-    private enum Failure { FULL_PREPARATION, LOD_WRITE }
+    private enum Failure { FULL_PREPARATION, FULL_SAVE, LOD_WRITE }
     // Failed observations consume no physical WIP. Native generation owns repair.
     private static final Map<Key,EnumSet<Failure>> INCOMPLETE=new HashMap<>();
     static synchronized void preparationFailed(String dim,int x,int z){incomplete(new Key(dim,packed(x,z)),Failure.FULL_PREPARATION);}
@@ -238,6 +238,19 @@ final class PregenFlowController {
     }
     static synchronized void fullSettled(String token){
         Attempt attempt=BY_TOKEN.get(token);if(attempt!=null){attempt.persistencePending=false;finishIfDone(attempt);}
+    }
+    static synchronized void fullSaveDeferred(String token){
+        Attempt attempt=BY_TOKEN.get(token);if(attempt==null)return;
+        incomplete(attempt.key,Failure.FULL_SAVE);
+        failAttempt(attempt);
+        releaseIfUnstarted(attempt,Stage.VALIDATE);
+        releaseIfUnstarted(attempt,Stage.FULL);
+        finishIfDone(attempt);
+    }
+    static synchronized void fullSaveResolved(String token){
+        Attempt attempt=BY_TOKEN.get(token);if(attempt==null)return;
+        var failures=INCOMPLETE.get(attempt.key);
+        if(failures!=null){failures.remove(Failure.FULL_SAVE);if(failures.isEmpty())INCOMPLETE.remove(attempt.key);}
     }
     static synchronized boolean reserveFullRetry(String token){
         Attempt attempt=BY_TOKEN.get(token);if(attempt==null)return false;

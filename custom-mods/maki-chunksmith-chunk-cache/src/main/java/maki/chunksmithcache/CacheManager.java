@@ -92,8 +92,8 @@ public final class CacheManager {
       if(PregenBorrowLedger.kind(level,pos)==PregenBorrowLedger.Kind.BORROWED || !generatedTarget) {
          FullTelemetryBridge.reused(token);
          ResourceBudgetApi.fullSettled(token);
-         CompletableFuture<Void> done=FULL_COMPLETIONS.get(new RequestKey(level,pos.toLong(),sourceTask));
-         if(done!=null)done.complete(null);
+         FullSaveCompletion done=FULL_COMPLETIONS.get(new RequestKey(level,pos.toLong(),sourceTask));
+         if(done!=null)done.finished(true);
          return;
       }
       if(!level.getServer().isSameThread() || !FollowCaptureOwnership.owns(sourceTask)
@@ -104,13 +104,13 @@ public final class CacheManager {
       RequestKey request=new RequestKey(level,pos.toLong(),sourceTask);
       PendingFull work=new PendingFull(request,chunk,token);
       FULL_RETRIES.put(request,work);
-      PregenBorrowLedger.attachCapture(level,pos,FULL_COMPLETIONS.get(request).thenApply(ignored->true));
+      PregenBorrowLedger.attachCapture(level,pos,FULL_COMPLETIONS.get(request).persisted);
       savePending(work);
 
    }
 
    private record RequestKey(ServerLevel level,long pos,GenerationTask owner){}
-   private static final ConcurrentHashMap<RequestKey,CompletableFuture<Void>> FULL_COMPLETIONS=new ConcurrentHashMap<>();
+   private static final ConcurrentHashMap<RequestKey,FullSaveCompletion> FULL_COMPLETIONS=new ConcurrentHashMap<>();
    private static final ConcurrentHashMap<RequestKey,PendingFull> FULL_RETRIES=new ConcurrentHashMap<>();
    private static final class PendingFull {
       final RequestKey key;final LevelChunk chunk;final String token;
@@ -136,7 +136,7 @@ public final class CacheManager {
                if(snapshot==null||!PregenBorrowLedger.beginGenerated(level,pos,path(level,pos,snapshot.fingerprint()),task))
                   throw new IllegalStateException("FULL ownership unavailable before dispatch");
                PREGEN_NEW_TARGETS.put(key,task);
-               FULL_COMPLETIONS.put(new RequestKey(level,pos.toLong(),task),new CompletableFuture<>());
+               FULL_COMPLETIONS.put(new RequestKey(level,pos.toLong(),task),new FullSaveCompletion());
                ResourceBudgetApi.fullPending(token);
             }
          }catch(RuntimeException error){pregenRequestFailed(level,pos,task);throw error;}
@@ -147,8 +147,8 @@ public final class CacheManager {
    public static CompletableFuture<Void> request(com.kishku7.chunksmith.platform.World world,
       int x,int z,GenerationTask task,java.util.function.Supplier<CompletableFuture<Void>> nativeRequest){
       ServerLevel level=((com.kishku7.chunksmith.platform.NeoForgeWorld)world).getWorld();ChunkPos pos=new ChunkPos(x,z);
-      CompletableFuture<Void> saved=FULL_COMPLETIONS.get(new RequestKey(level,pos.toLong(),task));
-      try{return nativeRequest.get().thenCompose(ignored->saved==null?CompletableFuture.completedFuture(null):saved)
+      FullSaveCompletion saved=FULL_COMPLETIONS.get(new RequestKey(level,pos.toLong(),task));
+      try{return nativeRequest.get().thenCompose(ignored->saved==null?CompletableFuture.completedFuture(null):saved.requestDone)
           .whenComplete((value,error)->pregenRequestFinished(level,pos,task,error==null));}
       catch(Throwable error){pregenRequestFailed(level,pos,task);throw error;}
    }
@@ -168,21 +168,33 @@ public final class CacheManager {
       work.busy=true;
       capture(level,work.chunk,work.token).whenComplete((ok,error)->level.getServer().execute(()->{
          work.busy=false;
+         if(FULL_RETRIES.get(work.key)!=work||STOPPING.contains(level.getServer()))return;
          if(error==null&&Boolean.TRUE.equals(ok))finishFull(work,true);
-         else work.retryTick=level.getGameTime()+20L;
+         else {
+            FullSaveCompletion completion=FULL_COMPLETIONS.get(work.key);
+            if(completion.failedAttempt()) {
+               ResourceBudgetApi.fullSaveDeferred(work.token);
+               LOG.warn("FULL save deferred after repeated failures at {}; retaining the live FULL and ticket",pos);
+               completion.deferRequest();
+            }
+            work.retryTick=level.getGameTime()+completion.retryDelayTicks();
+         }
       }));
    }
    private static void finishFull(PendingFull work,boolean cached){
       FULL_RETRIES.remove(work.key,work);
+      ResourceBudgetApi.fullSaveResolved(work.token);
       ResourceBudgetApi.fullSettled(work.token);
       if(!cached)FullTelemetryBridge.failed(work.token);
-      CompletableFuture<Void> done=FULL_COMPLETIONS.get(work.key);if(done!=null)done.complete(null);
+      FullSaveCompletion done=FULL_COMPLETIONS.get(work.key);if(done!=null)done.finished(cached);
+      // A deferred native request has already completed; retire its save ownership here.
+      pregenRequestFinished(work.key.level(),work.chunk.getPos(),work.key.owner(),true);
    }
    public static void releaseTicketWhenSaved(net.minecraft.server.level.ServerChunkCache source,ChunkPos pos,Runnable release){
       for(var entry:FULL_COMPLETIONS.entrySet()){
          RequestKey key=entry.getKey();
          if(key.level().getChunkSource()==source&&key.pos()==pos.toLong()){
-            entry.getValue().whenComplete((ok,error)->key.level().getServer().execute(release));return;
+            entry.getValue().persisted.whenComplete((ok,error)->key.level().getServer().execute(release));return;
          }
       }
       release.run();
@@ -225,6 +237,10 @@ public final class CacheManager {
 
    public static void pregenRequestFinished(ServerLevel level,ChunkPos pos,GenerationTask sourceTask,boolean success) {
       if(level==null||pos==null||sourceTask==null)return;
+      RequestKey request=new RequestKey(level,pos.toLong(),sourceTask);
+      // Native dispatch completion is not a save ACK. A deferred FULL retains its
+      // exact owner, normal-save veto and ticket until publication or player handoff.
+      if(FULL_RETRIES.containsKey(request))return;
       CaptureKey key=captureKey(level,pos);
       // Only the exact follow task admitted for this coordinate may mutate unified
       // request state. A detached task's late completion must not erase a newer
@@ -241,19 +257,18 @@ public final class CacheManager {
          return;
       }
       PREGEN_NEW_TARGETS.remove(key,sourceTask);
-      RequestKey request=new RequestKey(level,pos.toLong(),sourceTask);
-      CompletableFuture<Void> completion=FULL_COMPLETIONS.remove(request);
+      FullSaveCompletion completion=FULL_COMPLETIONS.remove(request);
       if(success){
-         if(completion!=null&&!completion.isDone()){
+         if(completion!=null&&!completion.persisted.isDone()){
             FullTelemetryBridge.failed(FullTelemetryBridge.token(level,pos,sourceTask));
             ResourceBudgetApi.fullSettled(FullTelemetryBridge.token(level,pos,sourceTask));
-            completion.complete(null);
+            completion.finished(false);
          }
          PregenBorrowLedger.cancel(level,pos,sourceTask);return;
       }
       // Cancel only when no FULL was observed. A stopped task may already have
       // a live FULL in vanilla's chunk manager, which still needs the save veto.
-      if(completion!=null)completion.completeExceptionally(new IOException("FULL request failed"));
+      if(completion!=null)completion.aborted(new IOException("FULL request failed"));
       ResourceBudgetApi.fullSettled(FullTelemetryBridge.token(level,pos,sourceTask));
       PregenBorrowLedger.requestFailed(level,pos,sourceTask);
       PregenBorrowLedger.cancel(level,pos,sourceTask);
@@ -1135,7 +1150,7 @@ public final class CacheManager {
    public static void stopped(MinecraftServer server) {
       FULL_RETRIES.keySet().removeIf(key->key.level().getServer()==server);
       FULL_COMPLETIONS.forEach((key,future)->{if(key.level().getServer()==server){
-         FULL_COMPLETIONS.remove(key,future);future.completeExceptionally(new IOException("Server stopped before FULL publication"));
+         FULL_COMPLETIONS.remove(key,future);future.aborted(new IOException("Server stopped before FULL publication"));
       }});
 
       // Crash shutdown can reach ServerStoppedEvent without ServerStoppingEvent.

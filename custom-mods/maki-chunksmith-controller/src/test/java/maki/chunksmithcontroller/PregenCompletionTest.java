@@ -122,6 +122,35 @@ class PregenCompletionTest {
         PregenFlowController.fullSettled("retry");
         assertEquals(1,pairs());assertFalse(((Map<?,?>)field(FLOW,"BY_TOKEN")).containsKey("retry"));
     }
+    @Test void deferredFullSaveReleasesIdleCreditsButKeepsDebtAndRetryOwnership()throws Exception{
+        attempt("deferred");PregenFlowController.fullPending("deferred");
+        finish("deferred",PregenFlowController.Stage.LOD,true);
+        PregenFlowController.fullSaveDeferred("deferred");
+        for(var stage:PregenFlowController.Stage.values())assertEquals(0,outstanding(stage));
+        assertEquals(1,((Map<?,?>)field(FLOW,"INCOMPLETE")).size());
+        assertTrue(((Map<?,?>)field(FLOW,"BY_TOKEN")).containsKey("deferred"));
+        assertTrue(PregenFlowController.reserveFullRetry("deferred"));
+        finish("deferred",PregenFlowController.Stage.VALIDATE,true);
+        finish("deferred",PregenFlowController.Stage.FULL,true);
+        PregenFlowController.fullSaveResolved("deferred");
+        PregenFlowController.fullSettled("deferred");
+        assertEquals(0,((Map<?,?>)field(FLOW,"INCOMPLETE")).size());
+        assertFalse(((Map<?,?>)field(FLOW,"BY_TOKEN")).containsKey("deferred"));
+        assertEquals(0,pairs(),"isolated failed attempts must not become PAIR later");
+    }
+    @Test void deferredFullKeepsActualLodCreditUntilNativeAck()throws Exception{
+        attempt("queued-lod");PregenFlowController.fullPending("queued-lod");
+        PregenFlowController.physicalStart("queued-lod",PregenFlowController.Stage.LOD);
+        PregenFlowController.fullSaveDeferred("queued-lod");
+        assertEquals(1,outstanding(PregenFlowController.Stage.LOD));
+        assertEquals(0,outstanding(PregenFlowController.Stage.FULL));
+        assertEquals(0,outstanding(PregenFlowController.Stage.VALIDATE));
+        finish("queued-lod",PregenFlowController.Stage.LOD,false);
+        PregenFlowController.fullSaveResolved("queued-lod");
+        PregenFlowController.fullSettled("queued-lod");
+        assertEquals(1,((Map<?,?>)field(FLOW,"INCOMPLETE")).size(),"FULL recovery retains native LOD failure");
+        assertEquals(0,outstanding(PregenFlowController.Stage.LOD));
+    }
     @Test void playerHandoffSettlesPendingSaveWithoutClaimingNewFull()throws Exception{
         attempt("handoff");PregenFlowController.fullPending("handoff");
         finish("handoff",PregenFlowController.Stage.LOD,true);
