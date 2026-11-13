@@ -67,7 +67,7 @@ Chunksmithのタスク・キャッシュ・カーソル、LOD、Diorama、ワー
 
 この組合せでは、サーバーとクライアント双方の Chunksmith / Millénaire を更新してください。サーバー上の自作MODは、上記の版へ **同時に** 更新します。古い同名MODのJARを残すと重複ロードになります。
 
-Controllerはリソースに基づくChunksmithの生成制御、cacheは一時FULLの退避とプレイヤーロード時の引渡し、Millénaire互換modは村候補の保留と再投入を担当します。LOD生成・保存・再利用はChunksmithに委ねます。cacheによるLOD走査・Backfill生成・環境監視、Millénaire互換modによるLOD更新・チャンク保存変更は撤去しています。既存のワールドとChunksmithのLOD/保存済みデータは削除しないでください。まずワールドをバックアップして、新規生成・村候補の保留と再投入・FULL/LOD保存・船舶保護を確認してください。
+Controllerはリソースに基づくChunksmithの生成制御、cacheは一時FULLの退避とプレイヤーロード時の引渡し、Millénaire互換modは村候補の保留と再投入を担当します。LOD生成・保存・再利用はChunksmithに委ねます。既存のワールドとChunksmithのLOD/保存済みデータは削除しないでください。まずワールドをバックアップして、新規生成・村候補の保留と再投入・FULL/LOD保存・船舶保護を確認してください。
 
 Millénaire 9.1.0 の村は、プレイヤーが周辺へ来て実FULLチャンクが読み込まれ、建築に必要な全領域で自作キャッシュMODから通常保存への引渡しが完了した後に建築します。事前生成時の地形調査は保持し、キャッシュ復元済み・通常生成済みのいずれもMinecraftがFULLを読み込んでから判定します。
 
@@ -76,3 +76,5 @@ Millénaire 9.1.0 の村は、プレイヤーが周辺へ来て実FULLチャン�
 現構成のController・FULL cache・Millénaire互換MODは必須依存として直接連携します。村候補の再投入はnativeキューの空きと再試行待ちだけを扱い、Chunksmithの並列数・LODキュー・独自MSPT/GC判定には依存しません。
 
 旧Controllerから更新する既存サーバーは、初回起動前に[Controller設定移行手順](docs/pr91-controller-config-upgrade.md)を実行してください。新設定ファイルが同梱されていても、旧設定の追従対象・有効無効・並列数を引き継ぎます。
+
+各MODの動作と設定は、[Controller](custom-mods/maki-chunksmith-controller/README.md)、[Chunk Cache](custom-mods/maki-chunksmith-chunk-cache/README.md)、[Millénaire互換MOD](custom-mods/maki-millenaire-lod-compat/README.md)のREADMEを参照してください。

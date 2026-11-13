@@ -1,4 +1,4 @@
-# PR #91導入時のController設定移行
+# Chunksmith Controller設定移行
 
 既存サーバーの`maki-lod-cpu.properties`にある有効な設定値を、新しく同梱される`maki-chunksmith-controller.properties`へ引き継ぎます。新設定ファイルが既に配置されている場合も、初回起動前に実行してください。サーバーは停止した状態にします。
 
