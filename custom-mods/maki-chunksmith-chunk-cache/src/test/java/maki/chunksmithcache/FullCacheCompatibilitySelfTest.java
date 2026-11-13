@@ -18,6 +18,7 @@ public final class FullCacheCompatibilitySelfTest {
 
     public static void main(String[] args) throws Exception {
         inPlaceAdoption();
+        deferredRecoveryRetriesAfterCapacityReturns();
         require(Fingerprint.CACHE_ID.matches("[0-9a-f]{24}"),
             "FULL storage id must remain a stable cache-format namespace");
         require(!Fingerprint.CACHE_ID.equals(OLD_ID),
@@ -55,6 +56,58 @@ public final class FullCacheCompatibilitySelfTest {
         }finally{
             try(var walk=Files.walk(root)){for(Path file:walk.sorted(java.util.Comparator.reverseOrder()).toList())Files.delete(file);}
             Files.deleteIfExists(config);
+        }
+    }
+
+    private static void deferredRecoveryRetriesAfterCapacityReturns() throws Exception {
+        Path server=Files.createTempDirectory("maki-deferred-full-recovery");
+        Path root=server.resolve("cache");
+        try {
+            Path config=server.resolve(CacheRetentionPolicy.CONFIG_RELATIVE);
+            Files.createDirectories(config.getParent());
+            Files.writeString(config,"cache.max-active-bytes=15\ncache.minimum-free-bytes=1\n"
+                +"quarantine.retention-days=1\nquarantine.min-protection-hours=0\n");
+            Path source=root.resolve(".quarantine/"+OLD_ID+"-1");
+            Path file=source.resolve("r.0.0/c.0.0.nbt.gz");
+            Path active=root.resolve("current");Path full=active.resolve("full.nbt.gz");
+            Files.createDirectories(file.getParent());Files.createDirectories(active);
+            Files.write(file,new byte[2]);Files.write(full,new byte[14]);
+            Files.setLastModifiedTime(source,java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis()-3L*24*60*60*1000));
+            CacheDiskBudget budget=CacheDiskBudget.at(root);budget.refresh(config);
+            require(CacheDirectoryMerge.tryRecoverValidated(source,active,p->true,p->true,budget)==null,
+                "14 active + 2 quarantined cannot copy under a 15-byte limit");
+            QuarantineRecoveryRetry retry=GenerationStore.recoveryRetry(root);
+            retry.deferred(source,0L);
+            require(!retry.claim(QuarantineRecoveryRetry.INTERVAL_NANOS-1),"deferred recovery is rate limited");
+            GenerationStore.pruneQuarantine(root,CacheRetentionPolicy.load(server));
+            require(Files.isRegularFile(file),"retention must preserve a capacity-deferred FULL source");
+            require(Files.size(full)==14,"current FULL remains readable while recovery is deferred");
+            require(retry.claim(QuarantineRecoveryRetry.INTERVAL_NANOS),"maintenance can retry despite cached readiness success");
+            require(!retry.claim(QuarantineRecoveryRetry.INTERVAL_NANOS),"only one retry may be queued");
+            retry.finished(QuarantineRecoveryRetry.INTERVAL_NANOS);
+            require(!retry.claim(QuarantineRecoveryRetry.INTERVAL_NANOS+1),"a failed/rejected retry waits before resubmission");
+            Files.delete(full);budget.deleted(14);
+            require(retry.claim(2*QuarantineRecoveryRetry.INTERVAL_NANOS),"capacity recovery permits the next scheduled retry");
+            Path target=active.resolve("r.0.0/c.0.0.nbt.gz");
+            Path claim=PromotionClaim.claimedPath(target);
+            Files.createDirectories(claim.getParent());Files.write(claim,new byte[]{7});
+            boolean ownershipBlocked=false;
+            try { CacheDirectoryMerge.tryRecoverValidated(source,active,p->true,p->true,budget); }
+            catch(java.io.IOException expected){ownershipBlocked=true;}
+            require(ownershipBlocked&&!Files.exists(target)&&Files.readAllBytes(claim)[0]==7&&Files.exists(file),
+                "background recovery cannot republish a FULL owned by an active player handoff");
+            Files.delete(claim);
+            var recovered=CacheDirectoryMerge.tryRecoverValidated(source,active,p->true,p->true,budget);
+            require(recovered!=null&&recovered.adoptedEntries()==1&&Files.size(active.resolve("r.0.0/c.0.0.nbt.gz"))==2,
+                "deferred FULL is adopted during the same run after capacity returns");
+            retry.recovered(source);retry.finished(2*QuarantineRecoveryRetry.INTERVAL_NANOS);
+            require(!retry.protects(source)&&!retry.claim(3*QuarantineRecoveryRetry.INTERVAL_NANOS),
+                "completed recovery leaves neither retry work nor special retention protection");
+            GenerationStore.pruneQuarantine(root,CacheRetentionPolicy.load(server));
+            require(!Files.exists(source),"completed source returns to normal quarantine retention");
+        } finally {
+            GenerationStore.clearRecoveryRetry(root);RecoveryClaims.clear(root);
+            try(var walk=Files.walk(server)){for(Path file:walk.sorted(java.util.Comparator.reverseOrder()).toList())Files.delete(file);}
         }
     }
 

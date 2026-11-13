@@ -1065,7 +1065,10 @@ public final class CacheManager {
       // full generation can consume the quota needed to trigger its own quarantine.
       for (ServerLevel level:server.getAllLevels()) {
          Fingerprint.Snapshot snapshot=Fingerprint.snapshotForLevel(level);
-         if(snapshot!=null) rotateGenerations(level,snapshot,"maintenance");
+         if(snapshot!=null){
+            rotateGenerations(level,snapshot,"maintenance");
+            GenerationStore.retryDeferredRecovery(level,snapshot);
+         }
       }
       synchronized (NEXT_DISK_REFRESH) {
          if (now >= NEXT_DISK_REFRESH.getOrDefault(server,0L) && DISK_REFRESHING.add(server)) {
@@ -1156,6 +1159,7 @@ public final class CacheManager {
       for(Path dimension:stoppingDimensions) {
          RecoveryClaims.clear(dimension);
          NEXT_LOCAL_RECOVERY_WARNING.remove(dimension);
+         GenerationStore.clearRecoveryRetry(dimension);
       }
    }
 

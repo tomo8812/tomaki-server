@@ -207,7 +207,11 @@ final class CacheDirectoryMerge {
                 || Files.mismatch(source, temporary) != -1L) {
                 throw new IOException("Incomplete chunk-cache migration copy: " + source);
             }
-            moveReplacing(temporary, target);
+            // Recovery can run after normal cache readiness. Use the same
+            // publication boundary as capture so a player handoff's .in-use
+            // ownership marker cannot be bypassed by a delayed recovery copy.
+            if(!PromotionClaim.publish(temporary,target))
+                throw new IOException("Chunk-cache recovery target is owned by a normal handoff: "+target);
         } finally {
             Files.deleteIfExists(temporary);
         }

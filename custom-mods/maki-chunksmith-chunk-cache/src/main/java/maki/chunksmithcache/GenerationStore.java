@@ -24,8 +24,29 @@ final class GenerationStore {
     private static final String QUARANTINE_DIR = ".quarantine";
     private static final String QUARANTINE_INFO = "quarantine-info.txt";
     private static final String RECOVERY_INFO = "recovery-info.txt";
+    private static final java.util.concurrent.ConcurrentHashMap<Path,QuarantineRecoveryRetry> DEFERRED_RECOVERY=new java.util.concurrent.ConcurrentHashMap<>();
 
     private GenerationStore() {}
+
+    static QuarantineRecoveryRetry recoveryRetry(Path root){
+        return DEFERRED_RECOVERY.computeIfAbsent(root.toAbsolutePath().normalize(),ignored->new QuarantineRecoveryRetry());
+    }
+
+    static void retryDeferredRecovery(ServerLevel level,Fingerprint.Snapshot snapshot){
+        Path root=dimensionRoot(level);
+        QuarantineRecoveryRetry retry=recoveryRetry(root);
+        if(!retry.claim(System.nanoTime()))return;
+        if(!CacheManager.submitMaintenance(()->{
+            try{
+                CacheDiskBudget budget=refreshMigrationBudget(level);
+                recoverPreviousQuarantines(level,root,snapshot,"capacity-retry",budget);
+            }catch(IOException error){
+                LOG.warn("Deferred FULL recovery remains pending for {}",root,error);
+            }finally{retry.finished(System.nanoTime());}
+        }))retry.finished(System.nanoTime());
+    }
+
+    static void clearRecoveryRetry(Path root){DEFERRED_RECOVERY.remove(root.toAbsolutePath().normalize());}
 
     static boolean reconcile(ServerLevel level, Fingerprint.Snapshot snapshot, String trigger) {
         Path root = dimensionRoot(level);
@@ -203,22 +224,25 @@ final class GenerationStore {
         try (Stream<Path> stream = Files.list(quarantine)) {
             candidates = stream.filter(Files::isDirectory).sorted().toList();
         }
+        QuarantineRecoveryRetry retry=recoveryRetry(root);
+        retry.retainSources(candidates);
         Path active = root.resolve(snapshot.fingerprint());
         FingerprintManifest.Manifest current = snapshot.manifest(Set.of(snapshot.fingerprint()));
         for (Path source : candidates) {
             FingerprintManifest.Manifest old = historicalIdentity(source);
-            if (old == null) continue;
+            if (old == null) {retry.recovered(source);continue;}
             FingerprintManifest.Manifest existing =
                 FingerprintManifest.readIfValid(active.resolve(FingerprintManifest.FILE_NAME));
-            if (alreadyRecovered(source, snapshot.fingerprint(), old.fingerprint(), existing)) continue;
+            if (alreadyRecovered(source, snapshot.fingerprint(), old.fingerprint(), existing)) {retry.recovered(source);continue;}
             // Acceptance must precede partial copies: a capacity deferral can
             // leave valid, already copied FULLs in the active directory.
             FingerprintManifest.writeAtomic(active.resolve(FingerprintManifest.FILE_NAME),
                 snapshot.manifest(acceptedIdentities(snapshot, old, existing)));
             CacheDirectoryMerge.MergeStats copied = CacheDirectoryMerge.tryRecoverValidated(
                 source,active,cacheValidator(level,old),cacheValidator(level,validationManifest(current,active,old)),budget);
-            if(copied==null)continue; // Optional recovery must not block current FULL loads.
+            if(copied==null){retry.deferred(source,System.nanoTime());continue;}
             writeRecoveryReceipt(source, old.fingerprint(), snapshot.fingerprint(), copied, trigger);
+            retry.recovered(source);
             LOG.info("Recovered valid quarantined FULLs {} -> {}; checked={} adopted={} rejected={} trigger={}",
                 old.fingerprint(), snapshot.fingerprint(), copied.sourceEntries(),
                 copied.adoptedEntries(), copied.rejectedEntries(), trigger);
@@ -257,7 +281,7 @@ final class GenerationStore {
         }
     }
 
-    private static void pruneQuarantine(Path root, CacheRetentionPolicy policy) throws IOException {
+    static void pruneQuarantine(Path root, CacheRetentionPolicy policy) throws IOException {
         RecoveryClaims.initialize(root);
         Path quarantine = root.resolve(QUARANTINE_DIR);
         if (!Files.isDirectory(quarantine)) return;
@@ -265,6 +289,9 @@ final class GenerationStore {
         long minimumAge = Duration.ofHours(policy.minProtectionHours()).toMillis();
         long retention = Duration.ofDays(policy.retentionDays()).toMillis();
         List<QuarantineEntry> entries = quarantineEntries(quarantine);
+        // Deferred valid FULLs have not finished adoption. Retention may not
+        // discard the only remaining source while capacity recovery is pending.
+        entries.removeIf(entry->recoveryRetry(root).protects(entry.path()));
 
         for (QuarantineEntry entry : new ArrayList<>(entries)) {
             long age = Math.max(0L, now - entry.modifiedAtMillis());
