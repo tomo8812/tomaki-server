@@ -54,3 +54,39 @@ tasks.named('jar') {
         into 'META-INF/sources'
     }
 }
+
+// Diorama 0.5.0 builds both views from already received client FULL chunks.
+// It has no Chunksmith/region-download terrain input. Pin this boundary rather
+// than add another terrain transport or alter Minecraft's player chunk packets.
+def playerLoadedAuditClasspath = configurations.compileClasspath.asPath
+tasks.register('verifyPlayerLoadedMapSource') {
+    inputs.files(configurations.compileClasspath)
+    doLast {
+        def javap = new File(System.getProperty('java.home'), 'bin/javap').absolutePath
+        def inspect = { String name ->
+            def process = new ProcessBuilder(javap, '-classpath', playerLoadedAuditClasspath,
+                '-p', '-c', name).redirectErrorStream(true).start()
+            def output = process.inputStream.getText('UTF-8')
+            if (process.waitFor() != 0) throw new GradleException(output)
+            return output
+        }
+        def session=inspect('dev.diorama.MapSession')
+        if(!session.contains('ClientLevel.getChunkSource:') || !session.contains('ChunkSnapshot.take:'))
+            throw new GradleException('Diorama must snapshot actual client chunks')
+        if(session.contains('ServerLevel.getChunkSource:') || session.contains('CsLod') || session.contains('RegionFileStorage'))
+            throw new GradleException('Diorama may not acquire server pregen terrain')
+        def calls=session.readLines().findAll { it.contains('ClientChunkCache.getChunk:') }
+        if(calls.size()!=3) throw new GradleException('Review all Diorama chunk input paths: expected 3 existing-only client reads')
+        def instructions=session.readLines()
+        instructions.eachWithIndex { line, index ->
+            if(line.contains('ClientChunkCache.getChunk:') && !instructions[index-1].contains('iconst_0'))
+                throw new GradleException('Diorama client reads must not request chunk creation')
+        }
+        ['dev.diorama.MapScreen','dev.diorama.MinimapHud'].each { name ->
+            def view=inspect(name)
+            if(!view.contains('MapSession.map:') || !view.contains('MapViewport.draw:'))
+                throw new GradleException(name+': full map and minimap must share the loaded-client map source')
+        }
+    }
+}
+tasks.named('check') { dependsOn tasks.named('verifyPlayerLoadedMapSource') }

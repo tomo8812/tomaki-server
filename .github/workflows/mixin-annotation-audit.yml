@@ -24,6 +24,7 @@ jobs:
         with:
           sparse-checkout: |
             .github
+            scripts
             config
             custom-mods
 
@@ -73,13 +74,16 @@ jobs:
 
       - name: Verify deployment sources and unique custom MOD IDs
         if: steps.scope.outputs.audit == 'true'
-        run: python3 .github/scripts/check_deployment_sources.py
+        run: |
+          python3 .github/scripts/check_deployment_sources.py
+          python3 .github/scripts/check_generation_responsibilities.py
 
       - name: Test audit and selection regressions
         if: always() && steps.scope.outputs.tests == 'true'
         run: |
           python3 -m unittest discover -s .github/scripts -p 'test_mixin*.py'
           python3 -m unittest discover -s .github/scripts -p 'test_mod_interop.py'
+          python3 -m unittest discover -s .github/scripts -p 'test_remove_pregen_data.py'
 
       - name: Upload shipped JAR audit
         if: always() && steps.scope.outputs.audit == 'true'
@@ -91,7 +95,7 @@ jobs:
 
   source-build:
     needs: jar-audit
-    if: needs.jar-audit.outputs.projects != '[]'
+    if: always() && needs.jar-audit.outputs.projects != '[]' && needs.jar-audit.outputs.projects != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -126,7 +130,8 @@ jobs:
           import json, os, pathlib, shutil, subprocess
           output = pathlib.Path('/tmp/maki-rebuilt')
           output.mkdir()
-          for project in json.loads(os.environ['PROJECTS']):
+          projects = json.loads(os.environ['PROJECTS'])
+          for project in projects:
               directory = pathlib.Path('custom-mods') / project
               subprocess.run(['gradle', '--build-cache', '-p', str(directory), 'check', 'jar'], check=True)
               jars = list((directory / 'build/libs').glob('maki-*.jar'))
@@ -136,6 +141,13 @@ jobs:
               for jar in jars:
                   shutil.copy2(jar, output / jar.name)
           PY
+
+      - name: Upload rebuilt deployment JARs
+        uses: actions/upload-artifact@v4
+        with:
+          name: rebuilt-deployment-jars
+          path: /tmp/maki-rebuilt/*.jar
+          retention-days: 14
 
       - name: Audit rebuilt JARs
         run: |

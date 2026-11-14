@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Quick non-destructive Oracle A1 pregen preflight. Does NOT start Minecraft.
+
+Usage: python3 scripts/a1-pregen-preflight.py --dir /path/to/minecraft/server
+Writes only into a temporary directory underneath --dir, then removes it.
+"""
+import argparse
+import concurrent.futures
+import json
+import os
+import platform
+import shutil
+import statistics
+import tempfile
+import time
+import zlib
+
+MIB = 1024 * 1024
+DISK_RESERVE_BYTES = 2 * 1024**3
+DISK_BENCH_BYTES = 64 * MIB + 16 * 4096
+DISK_SAFETY_MARGIN_BYTES = 128 * MIB  # Covers small additional writes and concurrent disk noise
+
+
+
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read().strip()
+    except (OSError, UnicodeError):
+        return None
+
+
+def cgroup_v2_root():
+    # Mount namespace paths vary. /sys/fs/cgroup typically exposes the current
+    # hierarchy inside the container; do not assume an SSH unit equals JVM unit.
+    own = read_text('/proc/self/cgroup') or ''
+    for line in own.splitlines():
+        if line.startswith('0::'):
+            path = line.partition('0::')[2]
+            return '/sys/fs/cgroup', path
+    return None, None
+
+
+def cgroup_cpu_stat():
+    text = read_text('/sys/fs/cgroup/cpu.stat')
+    if not text:
+        return None
+    result = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            try:
+                result[parts[0]] = int(parts[1])
+            except ValueError:
+                pass
+    return result
+
+
+def stat_delta(before, after):
+    if not before or not after:
+        return None
+    return {key: after[key] - value for key, value in before.items()
+            if key in after and after[key] >= value}
+
+
+def meminfo_kib(name):
+    for line in (read_text('/proc/meminfo') or '').splitlines():
+        if line.startswith(name + ':'):
+            return int(line.split()[1])
+    return None
+
+
+def pressure(kind):
+    data = read_text('/proc/pressure/' + kind) or ''
+    for line in data.splitlines():
+        if line.startswith('some '):
+            try:
+                return float(next(x[6:] for x in line.split() if x.startswith('avg10=')))
+            except (StopIteration, ValueError):
+                pass
+    return None
+
+
+def cpu_sample():
+    line = (read_text('/proc/stat') or '').splitlines()[0].split()
+    v = list(map(int, line[1:]))
+    return sum(v), v[3] + v[4]
+
+
+def benchmark_cpu():
+    # Synthetic compression, NOT a Minecraft worldgen or NBT throughput measurement.
+    data = (os.urandom(32 * 1024) + b'\0' * (32 * 1024)) * 128  # 8 MiB
+
+    def task():
+        for _ in range(2):
+            zlib.compress(data, 6)
+
+    t0 = time.perf_counter()
+    task()
+    single = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda _: task(), (0, 1)))
+    dual = time.perf_counter() - t0
+    return {
+        'synthetic_zlib_1_worker_mib_s': round(16 / max(single, 1e-9), 1),
+        'synthetic_zlib_2_workers_total_mib_s': round(32 / max(dual, 1e-9), 1),
+    }
+
+
+def benchmark_disk(workdir):
+    # Reserve space for normal-world saves for the entire test, not just at start.
+    # This remains advisory in the presence of unrelated concurrent writers.
+    required = DISK_RESERVE_BYTES + DISK_BENCH_BYTES + DISK_SAFETY_MARGIN_BYTES
+    if shutil.disk_usage(workdir).free < required:
+        return {"status": "skipped", "reason": "insufficient-free-space-preserving-2gib-reserve",
+                "required_free_gib": round(required / 1024**3, 3)}
+    with tempfile.TemporaryDirectory(prefix='.pregen-preflight-', dir=workdir) as temp:
+        def ensure_headroom(next_bytes):
+            if shutil.disk_usage(temp).free < DISK_RESERVE_BYTES + DISK_SAFETY_MARGIN_BYTES + next_bytes:
+                raise RuntimeError("free-space-headroom-changed-during-benchmark")
+        path = os.path.join(temp, 'temp.bin')
+        block = os.urandom(MIB)
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        try:
+            t0 = time.perf_counter()
+            for _ in range(64):
+                ensure_headroom(MIB)
+                view = memoryview(block)
+                while view:
+                    view = view[os.write(fd, view):]
+            os.fsync(fd)
+            large = time.perf_counter() - t0
+            small = []
+            for _ in range(16):
+                ensure_headroom(4096)
+                t0 = time.perf_counter()
+                os.write(fd, block[:4096])
+                os.fsync(fd)
+                small.append((time.perf_counter() - t0) * 1000)
+        finally:
+            os.close(fd)
+    return {
+        'status': 'completed',
+        'sync_write_64mib_mib_s': round(64 / max(large, 1e-9), 1),
+        'sync_4k_p50_ms': round(statistics.median(small), 2),
+        'sync_4k_p95_ms': round(sorted(small)[-2], 2),
+        'bytes_written_for_benchmark': 64 * MIB + 16 * 4096,
+    }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--dir', required=True, help='Directory on same filesystem as the world/cache, with >=2 GiB free')
+    parser.add_argument('--output', help='Optional JSON output file (default: print only)')
+    args = parser.parse_args()
+    workdir = os.path.realpath(args.dir)
+    if not os.path.isdir(workdir):
+        parser.error('--dir must be an existing directory')
+    du = shutil.disk_usage(workdir)
+    # A low-space VM still gets a useful read-only host report.
+    root, hierarchy = cgroup_v2_root()
+    report = {
+        'profile_version': 2,
+        'measurement_scope': 'ssh-python-process',
+        'target_runtime_limits': 'unverified; confirm Minecraft JVM process/cgroup at runtime',
+        'proc_self_cgroup': read_text('/proc/self/cgroup'),
+        'cgroup_v2_mount': root,
+        'cgroup_self_hierarchy': hierarchy,
+        'target': 'Oracle VM.Standard.A1.Flex 2 OCPU / 12 GB (expected; verify below)',
+        'architecture': platform.machine(),
+        'logical_cpus_visible': os.cpu_count(),
+        'affinity_cpu_count': len(os.sched_getaffinity(0)) if hasattr(os, 'sched_getaffinity') else None,
+        'cgroup_cpu_max': read_text('/sys/fs/cgroup/cpu.max'),
+        'cgroup_memory_max_bytes': read_text('/sys/fs/cgroup/memory.max'),
+        'mem_total_mib': round((meminfo_kib('MemTotal') or 0) / 1024),
+        'mem_available_mib': round((meminfo_kib('MemAvailable') or 0) / 1024),
+        'disk_free_gib': round(du.free / 1024**3, 2),
+        'cpu_psi_avg10_pct': pressure('cpu'),
+        'psi_scope': 'system /proc/pressure (not necessarily JVM cgroup)',
+        'cgroup_cpu_pressure': read_text('/sys/fs/cgroup/cpu.pressure'),
+        'cgroup_memory_pressure': read_text('/sys/fs/cgroup/memory.pressure'),
+        'cgroup_io_pressure': read_text('/sys/fs/cgroup/io.pressure'),
+        'memory_psi_avg10_pct': pressure('memory'),
+        'io_psi_avg10_pct': pressure('io'),
+    }
+    total0, idle0 = cpu_sample()
+    cgroup0 = cgroup_cpu_stat()
+    time.sleep(1)
+    cgroup1 = cgroup_cpu_stat()
+    total1, idle1 = cpu_sample()
+    dt = total1 - total0
+    report['system_cpu_utilization_1s_pct'] = round(100 * (1 - (idle1-idle0)/dt), 1) if dt > 0 else None
+    report['system_cpu_utilization_scope'] = 'system /proc/stat'
+    report['cgroup_cpu_stat_delta_1s'] = stat_delta(cgroup0, cgroup1)
+    report['cpu_microbenchmark'] = benchmark_cpu()
+    try:
+        report['disk_microbenchmark'] = benchmark_disk(workdir)
+    except (OSError, RuntimeError) as exc:
+        report['disk_microbenchmark'] = {'status': 'skipped', 'reason': str(exc)}
+    report['benchmark_filesystem_device'] = os.stat(workdir).st_dev
+    report['benchmark_filesystem_path'] = workdir
+    report['disk_reserve_gib'] = DISK_RESERVE_BYTES / 1024**3
+    report['disk_benchmark_max_mib'] = round(DISK_BENCH_BYTES / MIB, 3)
+    report['disk_safety_margin_mib'] = DISK_SAFETY_MARGIN_BYTES / MIB
+    report['warning'] = 'Synthetic CPU and sync I/O tests only; no Minecraft goodput measured. Calibrate online.'
+    # A JSON output file must not consume the same 2 GiB disk reserve either.
+    if args.output:
+        try:
+            parent = os.path.realpath(os.path.dirname(os.path.abspath(args.output)))
+            available = shutil.disk_usage(parent).free
+            if available < DISK_RESERVE_BYTES + DISK_SAFETY_MARGIN_BYTES + 64 * 1024:
+                report['output_skipped_reason'] = 'insufficient-free-space-for-json-preserving-reserve'
+            else:
+                flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                if hasattr(os, 'O_NOFOLLOW'):
+                    flags |= os.O_NOFOLLOW
+                fd = os.open(args.output, flags, 0o600)
+                try:
+                    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                        f.write(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+                except BaseException:
+                    try:
+                        os.unlink(args.output)
+                    except OSError:
+                        pass
+                    raise
+                report['output_written'] = args.output
+                report['output_filesystem_path'] = parent
+                report['output_filesystem_device'] = os.stat(parent).st_dev
+        except OSError as exc:
+            report['output_skipped_reason'] = str(exc)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
+if __name__ == '__main__':
+    main()
