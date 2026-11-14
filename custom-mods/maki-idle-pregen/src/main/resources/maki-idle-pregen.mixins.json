@@ -6,7 +6,7 @@
   "server": [
     "MinecraftServerMixin",
     "VillageManagerMixin",
-    "VillageSpawnQueueMixin",
+    "MillVillagerMixin",
     "VsPipelineMixin",
     "VsPhysShipMixin",
     "VsPhysLevelMixin",

@@ -1,16 +1,16 @@
 package maki.idlepregen.mixin;
 
 import maki.idlepregen.IdlePregenApi;
-import net.minecraft.server.level.ServerLevel;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-@Mixin(targets = "org.millenaire.world.VillageSpawnQueue", remap = false)
-public abstract class VillageSpawnQueueMixin {
-    @Inject(method = "trySpawnNext", at = @At("HEAD"), cancellable = true)
-    private void maki$pauseNaturalGeneration(ServerLevel level, CallbackInfo ci) {
+/** Pause villager AI, movement and work without stopping the world's ticks. */
+@Mixin(targets = "org.millenaire.entity.MillVillager", remap = false)
+public abstract class MillVillagerMixin {
+    @Inject(method = "tick()V", at = @At("HEAD"), cancellable = true, require = 1)
+    private void maki$pauseVillagerActivity(CallbackInfo ci) {
         if (IdlePregenApi.isActive()) {
             ci.cancel();
         }

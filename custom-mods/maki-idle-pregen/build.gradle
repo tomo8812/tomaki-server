@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.idlepregen'
-version = '1.1.1'
+version = '1.2.0'
 
 base {
     archivesName = 'maki-idle-pregen'
@@ -17,8 +17,8 @@ neoForge {
 }
 
 dependencies {
-    compileOnly files('../../mods/chunksmith-4.6.0+1.21.1-neoforge.jar')
-    compileOnly files('../../mods/millenaire-9.0.3.jar')
+    compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
+    compileOnly files('../../mods/millenaire-9.1.0.jar')
 }
 
 tasks.withType(JavaCompile).configureEach {
@@ -48,7 +48,7 @@ tasks.register('verifyMixinAnnotationRetention') {
         [
             'maki.idlepregen.mixin.MinecraftServerMixin',
             'maki.idlepregen.mixin.VillageManagerMixin',
-            'maki.idlepregen.mixin.VillageSpawnQueueMixin',
+            'maki.idlepregen.mixin.MillVillagerMixin',
             'maki.idlepregen.mixin.VsPipelineMixin',
             'maki.idlepregen.mixin.VsPhysShipMixin',
             'maki.idlepregen.mixin.VsPhysLevelMixin',
