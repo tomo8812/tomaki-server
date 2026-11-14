@@ -1,0 +1,92 @@
+{
+  "parent": "minecraft:block/block",
+  "textures": {
+    "overlay": "millenaire:block/free_overlay",
+    "particle": "#freeblock"
+  },
+  "elements": [
+    {
+      "from": [
+        0,
+        0,
+        0
+      ],
+      "to": [
+        16,
+        16,
+        16
+      ],
+      "faces": {
+        "down": {
+          "texture": "#freeblock",
+          "cullface": "down"
+        },
+        "up": {
+          "texture": "#freeblock",
+          "cullface": "up"
+        },
+        "north": {
+          "texture": "#freeblock",
+          "cullface": "north"
+        },
+        "south": {
+          "texture": "#freeblock",
+          "cullface": "south"
+        },
+        "west": {
+          "texture": "#freeblock",
+          "cullface": "west"
+        },
+        "east": {
+          "texture": "#freeblock",
+          "cullface": "east"
+        }
+      }
+    },
+    {
+      "from": [
+        -0.01,
+        -0.01,
+        -0.01
+      ],
+      "to": [
+        16.01,
+        16.01,
+        16.01
+      ],
+      "faces": {
+        "down": {
+          "texture": "#overlay",
+          "uv": [0, 0, 16, 16],
+          "cullface": "down"
+        },
+        "up": {
+          "texture": "#overlay",
+          "uv": [0, 0, 16, 16],
+          "cullface": "up"
+        },
+        "north": {
+          "texture": "#overlay",
+          "uv": [0, 0, 16, 16],
+          "cullface": "north"
+        },
+        "south": {
+          "texture": "#overlay",
+          "uv": [0, 0, 16, 16],
+          "cullface": "south"
+        },
+        "west": {
+          "texture": "#overlay",
+          "uv": [0, 0, 16, 16],
+          "cullface": "west"
+        },
+        "east": {
+          "texture": "#overlay",
+          "uv": [0, 0, 16, 16],
+          "cullface": "east"
+        }
+      }
+    }
+  ],
+  "render_type": "minecraft:cutout"
+}

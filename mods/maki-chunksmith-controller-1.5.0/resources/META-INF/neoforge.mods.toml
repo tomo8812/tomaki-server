@@ -1,0 +1,37 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="maki_chunksmith_controller"
+version="1.5.0"
+displayName="Maki Chunksmith Controller"
+description="Server-only Chunksmith generation controller. Controls native pregen and submitted generation jobs using resource budgets and completion measurements, with named-player follow and player priority."
+[[dependencies.maki_chunksmith_controller]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.262]"
+side="SERVER"
+[[dependencies.maki_chunksmith_controller]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+side="SERVER"
+[[dependencies.maki_chunksmith_controller]]
+modId="chunksmith"
+type="required"
+versionRange="[4.8.1]"
+ordering="AFTER"
+side="SERVER"
+[[dependencies.maki_chunksmith_controller]]
+modId="valkyrienskies"
+type="required"
+versionRange="[2.4.12-td.9_66a13242ed]"
+side="SERVER"
+[[dependencies.maki_chunksmith_controller]]
+modId="maki_chunksmith_fixes"
+type="required"
+versionRange="[1.0.0]"
+ordering="AFTER"
+side="SERVER"
+[[mixins]]
+config="maki-chunksmith-controller.mixins.json"

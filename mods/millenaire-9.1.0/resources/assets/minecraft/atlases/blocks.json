@@ -1,0 +1,119 @@
+{
+  "sources": [
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/denier",
+      "sprite": "millenaire:block/mock_icon/millenaire/denier"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/wall_byzantine_icon_large",
+      "sprite": "millenaire:block/mock_icon/millenaire/wall_byzantine_icon_large"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/wall_byzantine_icon_medium",
+      "sprite": "millenaire:block/mock_icon/millenaire/wall_byzantine_icon_medium"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/wall_byzantine_icon_small",
+      "sprite": "millenaire:block/mock_icon/millenaire/wall_byzantine_icon_small"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/wall_carpet_large",
+      "sprite": "millenaire:block/mock_icon/millenaire/wall_carpet_large"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/wall_carpet_medium",
+      "sprite": "millenaire:block/mock_icon/millenaire/wall_carpet_medium"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/wall_carpet_small",
+      "sprite": "millenaire:block/mock_icon/millenaire/wall_carpet_small"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/wall_hide_hanging",
+      "sprite": "millenaire:block/mock_icon/millenaire/wall_hide_hanging"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/wall_indian_statue",
+      "sprite": "millenaire:block/mock_icon/millenaire/wall_indian_statue"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "millenaire:item/wall_mayan_statue",
+      "sprite": "millenaire:block/mock_icon/millenaire/wall_mayan_statue"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/apple",
+      "sprite": "millenaire:block/mock_icon/minecraft/apple"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/beef",
+      "sprite": "millenaire:block/mock_icon/minecraft/beef"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/bone",
+      "sprite": "millenaire:block/mock_icon/minecraft/bone"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/chicken",
+      "sprite": "millenaire:block/mock_icon/minecraft/chicken"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/cod",
+      "sprite": "millenaire:block/mock_icon/minecraft/cod"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/feather",
+      "sprite": "millenaire:block/mock_icon/minecraft/feather"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/fishing_rod",
+      "sprite": "millenaire:block/mock_icon/minecraft/fishing_rod"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/ink_sac",
+      "sprite": "millenaire:block/mock_icon/minecraft/ink_sac"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/iron_sword",
+      "sprite": "millenaire:block/mock_icon/minecraft/iron_sword"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/mutton",
+      "sprite": "millenaire:block/mock_icon/minecraft/mutton"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/oak_door",
+      "sprite": "millenaire:block/mock_icon/minecraft/oak_door"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/oak_sign",
+      "sprite": "millenaire:block/mock_icon/minecraft/oak_sign"
+    },
+    {
+      "type": "minecraft:single",
+      "resource": "minecraft:item/porkchop",
+      "sprite": "millenaire:block/mock_icon/minecraft/porkchop"
+    }
+  ]
+}

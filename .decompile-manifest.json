@@ -35,10 +35,10 @@
       "output": "mods/architectury-13.0.11-neoforge",
       "sha256": "9cc92f2c09533fc5482c60f993bd891c655a0e32b637037cdcb7c2b23adedeeb"
     },
-    "mods/chunksmith-4.6.0+1.21.1-neoforge.jar": {
-      "blob_oid": "756d4ec6061a92953f7c613925be6349f6397dfb",
-      "output": "mods/chunksmith-4.6.0+1.21.1-neoforge",
-      "sha256": "0bf37facd76117b1e6a1b638232d840b60c1da5a2f74bb52d15e7c2e80011646"
+    "mods/chunksmith-4.8.1+1.21.1-neoforge.jar": {
+      "blob_oid": "2eb3989797266602b95049204449c1583f426b1b",
+      "output": "mods/chunksmith-4.8.1+1.21.1-neoforge",
+      "sha256": "bf6371873cb78f2a7645001eb1ef0f7f6d7e5e80c51a52667b7d37ee898888ca"
     },
     "mods/clientsort-neoforge-3.89.2+1.21.1.jar": {
       "blob_oid": "920afd5924fc73c46af9242e7ae369aeb0afc3c9",
@@ -125,30 +125,25 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "3464fc7284bc684525086648c5c3668d3f1c20c14a2083d48f9686a2dbceca8c"
     },
-    "mods/maki-chunksmith-chunk-cache-1.4.2.jar": {
-      "blob_oid": "73b5b1529961836da23a0858dc123578d8446528",
-      "output": "mods/maki-chunksmith-chunk-cache-1.4.2",
-      "sha256": "43ca8e303cff05f45db9f315a82dba382d13ef761a2e76e1272fa87a8aec07ea"
+    "mods/maki-chunksmith-controller-1.5.0.jar": {
+      "blob_oid": "6931034ddd39a2c9dee351ec47e1e2d4bb25d367",
+      "output": "mods/maki-chunksmith-controller-1.5.0",
+      "sha256": "3f4dcd2f2769658671c0a1960c98c75829264cd0621568711bbb18cfb142776e"
+    },
+    "mods/maki-chunksmith-fixes-1.0.0.jar": {
+      "blob_oid": "b3288e88294711fb17f38389a306b29acdbd99f5",
+      "output": "mods/maki-chunksmith-fixes-1.0.0",
+      "sha256": "12b8060a520a93d64351bf1c176f92d492d6ef79574ddaab16371eab7adcf029"
     },
     "mods/maki-diorama-share-1.0.1.jar": {
-      "blob_oid": "c5bf0011c7a0f4ac2aa5e415338bb0fe4c67fb64",
+      "blob_oid": "8b090e9c621113d4576274bf72fc807b532aa954",
       "output": "mods/maki-diorama-share-1.0.1",
-      "sha256": "856c638123c658cf3ece04e8dd83b0557aa80dab3463dbfd92bcc34b01971a3a"
+      "sha256": "07386c41d9723774891441368d3d5e92f7adfa4b68b5d0809ca81f2720d840a5"
     },
-    "mods/maki-idle-pregen-1.1.1.jar": {
-      "blob_oid": "29fc5617afa924bf68da3f4f8056c2006dd2c534",
-      "output": "mods/maki-idle-pregen-1.1.1",
-      "sha256": "85edab9fbce7fd0a643aead86577e269037fc39fe84606c229f1d446441a5f12"
-    },
-    "mods/maki-lod-cpu-1.4.2.jar": {
-      "blob_oid": "442fea99dda3e468299679f3fa5a8372cfe43c30",
-      "output": "mods/maki-lod-cpu-1.4.2",
-      "sha256": "ba2424aa058b32db377c504075242a3d006194497203519b38551cff779cf2b9"
-    },
-    "mods/maki-millenaire-lod-compat-1.0.6.jar": {
-      "blob_oid": "2e130091f7b9feef41dce5e8ce3ad025a8cafbbe",
-      "output": "mods/maki-millenaire-lod-compat-1.0.6",
-      "sha256": "27d466ac52e1bbb510ee639294ab6713fdebac16597f146affa3d9d6660dfc52"
+    "mods/maki-idle-pregen-1.2.0.jar": {
+      "blob_oid": "27455c0c8aa1b08491d3d716916dcb69a12d477a",
+      "output": "mods/maki-idle-pregen-1.2.0",
+      "sha256": "8a4102ff1fecd9cfb56c4f9c9853f0dd562319b98adcb5d7c7658677ee53ca5a"
     },
     "mods/maki-mods-observer-1.0.0.jar": {
       "blob_oid": "33c1aa180cd453fd463b5f4687e1d660184f76d8",
@@ -170,15 +165,15 @@
       "output": "mods/maki-ship-footsteps-1.0.1",
       "sha256": "a31119be7536383321233d1d3beccfe5c0f5b45fbbe2ec013463847086315e8e"
     },
-    "mods/maki-ship-save-1.0.2.jar": {
-      "blob_oid": "f98543dce85464f73eac3c36251aa8dcb24004a4",
-      "output": "mods/maki-ship-save-1.0.2",
-      "sha256": "a62a206c33995e141e8e365c0766867b98be6e636001007f30591b05d196eb32"
+    "mods/maki-ship-save-1.0.3.jar": {
+      "blob_oid": "b10751cc60236bf7842903cf3294c3d9912b4dfc",
+      "output": "mods/maki-ship-save-1.0.3",
+      "sha256": "1775a10df3660e68901dd510798b4a159f6a15df9efbf188f07ee30d40777801"
     },
-    "mods/millenaire-9.0.3.jar": {
-      "blob_oid": "f6d20e23e076014077670a344218478e9911014d",
-      "output": "mods/millenaire-9.0.3",
-      "sha256": "5882528027ac67e8759db3926ebef36abe2300029526582f80c7a988b583ec62"
+    "mods/millenaire-9.1.0.jar": {
+      "blob_oid": "4b0bac4fe2b4bfb87ec7e02c8bee8b1d94d6f68a",
+      "output": "mods/millenaire-9.1.0",
+      "sha256": "79932591423c867bada662827a984c52bd355525358b215fe31a5413897708ce"
     },
     "mods/modernfix-neoforge-5.27.27+mc1.21.1.jar": {
       "blob_oid": "a2343b9163174ebdbba2c07c216186253967f521",

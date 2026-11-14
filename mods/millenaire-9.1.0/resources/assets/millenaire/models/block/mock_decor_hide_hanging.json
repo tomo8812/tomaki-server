@@ -1,0 +1,6 @@
+{
+  "parent": "millenaire:block/mock_decor_wall_base",
+  "textures": {
+    "icon": "millenaire:block/mock_icon/millenaire/wall_hide_hanging"
+  }
+}

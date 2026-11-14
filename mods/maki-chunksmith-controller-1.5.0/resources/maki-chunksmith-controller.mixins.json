@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8.7",
+  "package": "maki.chunksmithcontroller.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "server": [
+    "GenerationTaskMixin",
+    "TaskLoaderMixin",
+    "NativeWorldTelemetryMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
