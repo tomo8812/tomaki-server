@@ -11,7 +11,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(PathNavigationRegion.class)
 public abstract class PathNavigationRegionMixin {
-   @Inject(method = "getChunk", at = @At("RETURN"))
+   @Inject(method = "getChunk(II)Lnet/minecraft/world/level/chunk/ChunkAccess;", at = @At("RETURN"))
    private void maki$countEmptyChunkAccess(int chunkX, int chunkZ, CallbackInfoReturnable<ChunkAccess> cir) {
       if (cir.getReturnValue() instanceof EmptyLevelChunk) {
          MillenaireInitTelemetry.recordEmptyChunkAccess();
