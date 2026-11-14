@@ -4,7 +4,7 @@ license="MIT"
 
 [[mods]]
 modId="maki_diorama_share"
-version="1.0.1"
+version="1.1.1"
 displayName="Maki Diorama Sharing"
 description="Server-backed waypoint and death history sharing, with per-viewer history limits."
 
@@ -26,5 +26,5 @@ side="BOTH"
 [[dependencies.maki_diorama_share]]
 modId="diorama"
 type="required"
-versionRange="[0.5.0,0.6)"
+versionRange="[0.10.1,0.11)"
 side="CLIENT"

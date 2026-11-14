@@ -1,0 +1,1 @@
+{"required":true,"minVersion":"0.8.7","package":"maki.dioramacamera.mixin","compatibilityLevel":"JAVA_21","client":["FinalProjectionMixin"],"injectors":{"defaultRequire":1}}

@@ -15,6 +15,7 @@ expected_projects = {
     "maki-airship-foundation-compat",
     "maki-assembly-tracking",
     "maki-diorama-share",
+    "maki-diorama-camera",
     "maki-idle-pregen",
     "maki-chunksmith-controller",
     "maki-chunksmith-fixes",

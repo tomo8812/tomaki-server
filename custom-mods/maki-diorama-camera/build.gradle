@@ -1,0 +1,34 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+
+group = 'maki.dioramacamera'
+version = '1.0.1'
+base { archivesName = 'maki-diorama-camera' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+neoForge { version = '21.1.262' }
+
+dependencies {
+    compileOnly files('../../mods/diorama-0.10.1+neoforge-1.21.1.jar')
+    testImplementation 'org.ow2.asm:asm-tree:9.8'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+
+tasks.named('jar') {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    manifest { attributes('Implementation-Title': 'Maki Diorama Camera Alignment', 'Implementation-Version': project.version) }
+    from(sourceSets.main.allJava) { into 'META-INF/sources' }
+}
+
+tasks.register('verifyCameraCompatibility', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath + sourceSets.main.compileClasspath
+    mainClass = 'maki.dioramacamera.CameraCompatibilityHarness'
+}
+tasks.named('check') { dependsOn tasks.named('verifyCameraCompatibility') }

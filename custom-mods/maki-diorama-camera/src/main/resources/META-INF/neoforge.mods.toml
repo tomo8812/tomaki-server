@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="maki_diorama_camera"
+version="1.0.1"
+displayName="Maki Diorama Camera Alignment"
+description="Aligns Diorama waypoint and death-marker projection with the final world-render camera and matrices."
+[[dependencies.maki_diorama_camera]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+side="CLIENT"
+[[dependencies.maki_diorama_camera]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.262,21.2)"
+side="CLIENT"
+[[dependencies.maki_diorama_camera]]
+modId="diorama"
+type="required"
+versionRange="[0.10.1,0.11)"
+ordering="AFTER"
+side="CLIENT"
+[[mixins]]
+config="maki-diorama-camera.mixins.json"

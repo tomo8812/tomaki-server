@@ -74,7 +74,12 @@ public final class ClientSharing {
     }
 
     public static List<Waypoint> raw(WaypointStore waypointStore) {
-        return ((StoreAccess) (Object) waypointStore).maki$raw();
+        return local(waypointStore).all();
+    }
+
+    private static LocalWaypoints local(WaypointStore waypointStore) {
+        StoreAccess access = (StoreAccess) (Object) waypointStore;
+        return new LocalWaypoints(access.maki$raw(), access.maki$elsewhere());
     }
 
     private static UUID me() {
@@ -100,13 +105,7 @@ public final class ClientSharing {
     }
 
     private static Map<UUID, ShareState.Mark> own() {
-        Map<UUID, ShareState.Mark> result = new LinkedHashMap<>();
-        for (Waypoint waypoint : raw(store)) {
-            if (waypoint.kind == Kind.MANUAL) {
-                result.put(waypoint.id, draft(waypoint, false));
-            }
-        }
-        return result;
+        return local(store).own(waypoint -> draft(waypoint, false));
     }
 
     private static void send(JsonObject payload) {
@@ -257,29 +256,21 @@ public final class ClientSharing {
         Set<UUID> unsentLocal = sync.unsentChanges(localBeforeMerge);
         Map<UUID, ShareState.Mark> serverOwn = sync.acknowledged();
         Set<UUID> serverIds = new HashSet<>(serverOwn.keySet());
-        List<Waypoint> localWaypoints = raw(store);
-
-        boolean changed = localWaypoints.removeIf(waypoint ->
-            waypoint.kind == Kind.MANUAL
-                && memory.known.contains(waypoint.id)
-                && !serverIds.contains(waypoint.id)
-                && !unsentLocal.contains(waypoint.id)
-        );
+        LocalWaypoints localWaypoints = local(store);
+        boolean changed = localWaypoints.removeMissing(memory.known, serverIds, unsentLocal);
+        List<Waypoint> recoveredWaypoints = new ArrayList<>();
 
         for (ShareState.Mark mark : serverOwn.values()) {
             if (unsentLocal.contains(mark.source())) {
                 continue;
             }
 
-            Waypoint waypoint = localWaypoints.stream()
-                .filter(candidate -> candidate.kind == Kind.MANUAL && candidate.id.equals(mark.source()))
-                .findFirst()
-                .orElse(null);
+            Waypoint waypoint = localWaypoints.findManual(mark.source());
+            boolean recovered = waypoint == null;
 
             if (waypoint == null) {
                 waypoint = new Waypoint();
                 waypoint.id = mark.source();
-                localWaypoints.add(waypoint);
                 changed = true;
             }
 
@@ -294,7 +285,13 @@ public final class ClientSharing {
                 waypoint.created = mark.created();
                 changed = true;
             }
+            if (recovered) {
+                // Let Diorama assign genuinely recovered markers to the map in use.
+                // Existing markers, including inactive-map ones, keep their native map.
+                recoveredWaypoints.add(waypoint);
+            }
         }
+        store.addAll(recoveredWaypoints);
 
         memory.known = serverIds;
         saveMemory();

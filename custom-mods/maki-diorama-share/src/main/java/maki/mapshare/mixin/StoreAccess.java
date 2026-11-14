@@ -10,4 +10,7 @@ import org.spongepowered.asm.mixin.gen.Accessor;
 public interface StoreAccess {
     @Accessor("waypoints")
     List<Waypoint> maki$raw();
+
+    @Accessor("elsewhere")
+    List<Waypoint> maki$elsewhere();
 }

@@ -51,6 +51,12 @@ class BuildSelectionTest(unittest.TestCase):
         result = plan(self.root, ['custom-mods/maki-new/build.gradle'])
         self.assertEqual(result['projects'], ['maki-new'])
 
+    def test_deployed_config_change_selects_its_native_loader_test(self):
+        self.project('maki-independent', "inputs.file('../../config/diorama-server.properties')")
+        result = plan(self.root, ['config/diorama-server.properties'])
+        self.assertEqual(result['projects'], ['maki-independent'])
+        self.assertTrue(result['audit'])
+
     def test_local_gradle_cache_is_not_read_as_a_build_file(self):
         (self.root / 'custom-mods/maki-api/.gradle').mkdir()
         self.assertEqual(len(projects_and_inputs(self.root)), 4)
