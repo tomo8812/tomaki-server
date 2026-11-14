@@ -8,6 +8,7 @@
 Eureka-VS2-Fabric-MC1.21.1-v3.2.0.jar
 GoldenAgeCombat-v21.1.3-1.21.1-NeoForge.jar
 Jade-1.21.1-NeoForge-15.10.6.jar
+NaturesCompass-1.21.1-3.4.0-neoforge.jar
 QuadHotbar-1.21.1-neoforge-1.1.0-beta1.jar
 ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar
 architectury-13.0.11-neoforge.jar
