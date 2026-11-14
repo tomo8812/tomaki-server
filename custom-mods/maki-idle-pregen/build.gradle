@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.idlepregen'
-version = '1.2.0'
+version = '1.2.1'
 
 base {
     archivesName = 'maki-idle-pregen'
@@ -17,6 +17,7 @@ neoForge {
 }
 
 dependencies {
+    testImplementation 'org.ow2.asm:asm-tree:9.8'
     compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
     compileOnly files('../../mods/millenaire-9.1.0.jar')
 }
@@ -163,7 +164,15 @@ tasks.register('verifyVsPhysicsPauseOwnership', JavaExec) {
     mainClass = 'maki.idlepregen.VsPhysicsPauseControllerHarness'
 }
 
+tasks.register('verifyNavigationMixinTarget', JavaExec) {
+    dependsOn tasks.named('testClasses')
+    // ModDev exposes the mapped Minecraft classes on the compile classpath.
+    classpath = sourceSets.test.runtimeClasspath + sourceSets.main.compileClasspath
+    mainClass = 'maki.idlepregen.NavigationMixinTargetHarness'
+}
+
 tasks.named('check') {
+    dependsOn tasks.named('verifyNavigationMixinTarget')
     dependsOn tasks.named('verifyMixinAnnotationRetention')
     dependsOn tasks.named('verifyValkyrienSkiesPauseApi')
     dependsOn tasks.named('verifyVsPhysicsPauseOwnership')

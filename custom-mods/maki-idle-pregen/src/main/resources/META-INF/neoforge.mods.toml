@@ -4,7 +4,7 @@ license="MIT"
 
 [[mods]]
 modId="maki_idle_pregen"
-version="1.2.0"
+version="1.2.1"
 displayName="Maki Idle Pregen"
 description="Server-only idle generation coordinator with bounded, loaded-chunk-only Millenaire startup initialization. It pauses Millenaire village activity and villagers, and owned Valkyrien Skies physics time while preserving state synchronization during empty background generation. World time and native village generation continue normally."
 
