@@ -23,7 +23,7 @@ class MixinCITest(unittest.TestCase):
         return result, json.loads(report.read_text()), summary.read_text(encoding='utf-8')
 
     def test_missing_class_is_failed_check_with_report(self):
-        source = next((self.root / 'mods').glob('maki-lod-cpu-*.jar'))
+        source = next((self.root / 'mods').glob('maki-chunksmith-controller-*.jar'))
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             with zipfile.ZipFile(source) as src, zipfile.ZipFile(directory / source.name, 'w') as dst:
@@ -45,7 +45,7 @@ class MixinCITest(unittest.TestCase):
             self.assertIn('**FAIL**', summary)
 
     def test_corrupt_jar_does_not_hide_valid_jar_results(self):
-        source = next((self.root / 'mods').glob('maki-lod-cpu-*.jar'))
+        source = next((self.root / 'mods').glob('maki-chunksmith-controller-*.jar'))
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             (directory / source.name).write_bytes(source.read_bytes())

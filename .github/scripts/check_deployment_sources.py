@@ -1,6 +1,7 @@
 """Verify the deployable custom MOD set is source-owned, unique, and current."""
 from pathlib import Path
 import tomllib
+import json
 import zipfile
 
 root = Path(__file__).resolve().parents[2]
@@ -13,11 +14,10 @@ expected_projects = {
     "maki-airship-compat",
     "maki-airship-foundation-compat",
     "maki-assembly-tracking",
-    "maki-chunksmith-chunk-cache",
     "maki-diorama-share",
     "maki-idle-pregen",
-    "maki-lod-cpu",
-    "maki-millenaire-lod-compat",
+    "maki-chunksmith-controller",
+    "maki-chunksmith-fixes",
     "maki-mods-observer",
     "maki-ship-anchor-fix",
     "maki-ship-edge",
@@ -29,20 +29,18 @@ assert project_names == expected_projects, (
     f"extra={sorted(project_names-expected_projects)}"
 )
 
-for forbidden in ("maki-status-io", "maki-lag-observer", "maki-lod-cpu-online-fix"):
+for forbidden in ("maki-status-io", "maki-lag-observer", "maki-lod-cpu-online-fix", "maki-lod-cpu", "maki-chunksmith-chunk-cache", "maki-millenaire-lod-compat"):
     assert not (projects_dir / forbidden).exists(), f"Retired source project present: {forbidden}"
     assert not list(mods_dir.glob(forbidden + "-*.jar")), f"Retired deployable JAR present: {forbidden}"
 
 assert not (root / "config/maki-lag-observer.properties").exists(), "Retired observer config is still deployed"
-fingerprint_config = (root / "config/maki-chunksmith-chunk-cache.properties").read_text(encoding="utf-8")
-assert "maki_lag_observer" not in fingerprint_config, "Retired observer MOD ID remains in active fingerprint config"
-assert "maki-lag-observer.properties" not in fingerprint_config, "Retired observer config path remains in active fingerprint config"
-assert "fingerprint.observation-only-mod-ids" not in fingerprint_config, "MOD-id-only compatibility exemptions must not be deployed"
-assert "config/maki-mods-observer.properties" in fingerprint_config, "Observer config is not excluded from compatibility fingerprinting"
-audited_mod_source = (
-    root / "custom-mods/maki-chunksmith-chunk-cache/src/main/java/maki/chunksmithcache/AuditedModCompatibility.java"
-).read_text(encoding="utf-8")
-assert '"maki_mods_observer"' in audited_mod_source, "Observer JAR is missing its exact audited compatibility attestation"
+
+# Connector normalizes Fabric '+' versions to '_' for NeoForge dependencies.
+with zipfile.ZipFile(mods_dir / 'ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar') as archive:
+    vs_version = json.loads(archive.read('fabric.mod.json'))['version'].replace('+', '_')
+controller_metadata = tomllib.loads((projects_dir / 'maki-chunksmith-controller/src/main/resources/META-INF/neoforge.mods.toml').read_text())
+vs_dependency = next(dep for dep in controller_metadata['dependencies']['maki_chunksmith_controller'] if dep['modId'] == 'valkyrienskies')
+assert vs_dependency['versionRange'] == f'[{vs_version}]', 'Controller must require the bundled Connector-normalized VS version'
 
 seen_ids = {}
 checked_sources = 0
