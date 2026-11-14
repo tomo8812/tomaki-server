@@ -31,7 +31,7 @@ lithium-neoforge-0.15.4+mc1.21.1.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
 maki-diorama-camera-1.0.1.jar
-maki-diorama-share-1.1.0.jar
+maki-diorama-share-1.1.1.jar
 maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar
 maki-ship-footsteps-1.0.1.jar
@@ -55,7 +55,7 @@ terrain_slabs-neoforge-3.1.2.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
 maki-assembly-tracking-1.0.0.jar
-maki-diorama-share-1.1.0.jar
+maki-diorama-share-1.1.1.jar
 maki-idle-pregen-1.2.1.jar
 maki-chunksmith-controller-1.5.0.jar
 maki-chunksmith-fixes-1.0.0.jar
