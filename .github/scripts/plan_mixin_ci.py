@@ -21,9 +21,9 @@ def projects_and_inputs(root):
         # tasks, not just dependencies {}. Resolve literals without running Gradle.
         inputs = set()
         upstream = set()
-        for literal in re.findall(r'''["']([^"'\n]+\.jar)["']''', text):
+        for literal in re.findall(r'''["']([^"'\n]+\.(?:jar|properties))["']''', text):
             path = posixpath.normpath(f'custom-mods/{project}/{literal}')
-            if path.startswith('mods/'):
+            if path.startswith(('mods/', 'config/')):
                 inputs.add(path)
             match = re.match(r'custom-mods/([^/]+)/build/', path)
             if match and match[1] != project:

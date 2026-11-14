@@ -2,6 +2,8 @@
 
 ## クライアント側に入れるMOD
 
+クライアント用JARは [`client-mods/`](client-mods/) で管理します。このフォルダ内の `.jar` をクライアントの `mods/` へ配置してください。下記はサーバーと同じ版を使う共通MODです。共通JARの同期と追加のクライアント専用MODの扱いは[クライアント導入手順](client-mods/README.md)を参照してください。
+
 このサーバーへ参加するクライアントは、以下のJARを `mods/` に入れてください。
 
 ```text
@@ -14,7 +16,7 @@ ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar
 architectury-13.0.11-neoforge.jar
 chunksmith-4.8.1+1.21.1-neoforge.jar
 clientsort-neoforge-3.89.2+1.21.1.jar
-diorama-0.5.0+neoforge-1.21.1.jar
+diorama-0.10.1+neoforge-1.21.1.jar
 connector-2.0.0-beta.17+1.21.1-full-keyfix1.jar
 emi-1.1.24+1.21.1+neoforge.jar
 forgified-fabric-api-0.116.15+2.3.6+1.21.1.jar
@@ -26,7 +28,8 @@ letsdo-farm_and_charm-neoforge-1.1.29.jar
 letsdo-herbalbrews-neoforge-1.1.4.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
-maki-diorama-share-1.0.1.jar
+maki-diorama-camera-1.0.1.jar
+maki-diorama-share-1.1.0.jar
 maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar
 maki-ship-footsteps-1.0.1.jar
@@ -39,15 +42,17 @@ terrain_slabs-neoforge-3.1.2.jar
 ここに記載していない `mods/` 内のJARは、クライアント側へ入れる必要はありません。
 
 
+`maki-diorama-camera-1.0.1.jar` はクライアント用です。船に乗っているときのウェイポイント・死亡地点表示を最終描画カメラに合わせます。旧1.0.0は削除して交換してください。
+
 ## サーバー側の自作MOD
 
-サーバーでは `custom-mods/` の12プロジェクトから生成した次のJARを1つずつ `mods/` に配置します。通常運用の状態確認には `latest.log` を使用し、定期的なstatus JSONは使用しません。
+サーバーでは `custom-mods/` のサーバー用12プロジェクトから生成した次のJARを1つずつ `mods/` に配置します。通常運用の状態確認には `latest.log` を使用し、定期的なstatus JSONは使用しません。
 
 ```text
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
 maki-assembly-tracking-1.0.0.jar
-maki-diorama-share-1.0.1.jar
+maki-diorama-share-1.1.0.jar
 maki-idle-pregen-1.2.1.jar
 maki-chunksmith-controller-1.5.0.jar
 maki-chunksmith-fixes-1.0.0.jar
@@ -70,7 +75,9 @@ Chunksmith Fixesは4.8.1のLOD存在判定・変更済みチャンクのLOD更�
 
 無人の事前生成中はIdle PregenがMillénaireの村の活動・成長・改築、村人の動作、VS物理時間を停止します。ワールド時刻は通常どおり進め、新しい村の候補探索・生成と実チャンクの生成・保存を継続します。
 
-Diorama 0.5.0の全体マップ（Mキー）とミニマップは、プレイヤーのクライアントが受け取った実チャンクから作ります。サーバーの事前生成データやCSLODを先行配信する機能は追加しません。ChunksmithのLOD保存と、Dioramaの表示入力は別の経路です。
+Diorama 0.10.1はサーバーにも配置し、`config/diorama-server.properties` の `share-map=true`・`share-land=generated` で、通常保存された生成済みチャンクの地表をクライアントへ配信します。訪問前の事前生成済み範囲も地図の補完対象になり、描画は各クライアントで行います。配信枠は1人あたり500 KiB/秒です。ChunksmithのCSLODは使用しません。サーバーのWeb地図も有効で、`http://サーバーのアドレス:8100/` から閲覧できます。
+
+クライアントはMキーの地図設定のLook（外観）タブで「ワールドデータから補完」をONにします。既定はONですが、以前OFFにしていた場合は再度ONにしてください。OFFにすると補完を停止し、既に保存した地図は残ります。地下の未探索範囲は配信しません。詳細と制限は[Diorama共有の更新手順](custom-mods/maki-diorama-share/README.md)を参照してください。
 
 ### 既存サーバーの切替
 

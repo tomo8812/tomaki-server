@@ -14,6 +14,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  client-pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            mods
+            client-mods
+            scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify client JAR copies, archive integrity and duplicate MOD IDs
+        run: python3 scripts/sync-client-mods.py --check
+
   jar-audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -58,7 +74,8 @@ jobs:
         if: steps.scope.outputs.audit == 'true'
         run: |
           curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
-          python3 .github/scripts/audit_mixin_annotations.py --annotation-api /tmp/sponge-mixin.jar --github-actions --json-output reports/shipped-mixin-audit.json
+          curl --fail --location --retry 3 -o /tmp/mixinextras.jar 'https://maven.neoforged.net/releases/io/github/llamalad7/mixinextras-neoforge/0.5.5/mixinextras-neoforge-0.5.5.jar'
+          python3 .github/scripts/audit_mixin_annotations.py --annotation-api /tmp/sponge-mixin.jar --annotation-api /tmp/mixinextras.jar --github-actions --json-output reports/shipped-mixin-audit.json
 
       - name: Check installed MOD dependencies and required Mixin bytecode injections
         if: always() && steps.scope.outputs.audit == 'true'
@@ -105,6 +122,7 @@ jobs:
             .github
             custom-mods
             mods
+            config
 
       - uses: actions/setup-python@v5
         with:
@@ -152,7 +170,8 @@ jobs:
       - name: Audit rebuilt JARs
         run: |
           curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
-          python3 .github/scripts/audit_mixin_annotations.py --mods-dir /tmp/maki-rebuilt --annotation-api /tmp/sponge-mixin.jar --github-actions --json-output reports/rebuilt-mixin-audit.json
+          curl --fail --location --retry 3 -o /tmp/mixinextras.jar 'https://maven.neoforged.net/releases/io/github/llamalad7/mixinextras-neoforge/0.5.5/mixinextras-neoforge-0.5.5.jar'
+          python3 .github/scripts/audit_mixin_annotations.py --mods-dir /tmp/maki-rebuilt --annotation-api /tmp/sponge-mixin.jar --annotation-api /tmp/mixinextras.jar --github-actions --json-output reports/rebuilt-mixin-audit.json
 
 
       - name: Upload rebuilt JAR audit
