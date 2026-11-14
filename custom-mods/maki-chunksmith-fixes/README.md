@@ -1,4 +1,4 @@
-# Maki Chunksmith Fixes 1.0.0
+# Maki Chunksmith Fixes 1.0.1
 
 Minecraft 1.21.1 / NeoForge 21.1.262 / Chunksmith 4.8.1専用のサーバー修正MODです。LOD保存処理の修正と、変更された実チャンクからの既存LOD更新を担当します。
 

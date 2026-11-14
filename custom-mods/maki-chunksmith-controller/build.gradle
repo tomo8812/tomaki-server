@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'maki.chunksmithcontroller'
-version = '1.5.0'
+version = '1.5.1'
 
 base {
     archivesName = 'maki-chunksmith-controller'
@@ -19,7 +19,7 @@ neoForge {
 
 dependencies {
     compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
-    compileOnly files('../../mods/maki-chunksmith-fixes-1.0.0.jar')
+    compileOnly files('../../mods/maki-chunksmith-fixes-1.0.1.jar')
     testImplementation platform('org.junit:junit-bom:5.11.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }

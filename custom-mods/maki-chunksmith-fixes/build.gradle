@@ -3,7 +3,7 @@ plugins {
     id 'net.neoforged.moddev' version '2.0.148'
 }
 group = 'maki.chunksmithfixes'
-version = '1.0.0'
+version = '1.0.1'
 base { archivesName = 'maki-chunksmith-fixes' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 neoForge { version = '21.1.262' }

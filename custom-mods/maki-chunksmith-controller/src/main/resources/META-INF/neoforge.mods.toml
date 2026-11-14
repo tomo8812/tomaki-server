@@ -3,7 +3,7 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_chunksmith_controller"
-version="1.5.0"
+version="1.5.1"
 displayName="Maki Chunksmith Controller"
 description="Server-only Chunksmith generation controller. Controls native pregen and submitted generation jobs using resource budgets and completion measurements, with named-player follow and player priority."
 [[dependencies.maki_chunksmith_controller]]
@@ -30,7 +30,7 @@ side="SERVER"
 [[dependencies.maki_chunksmith_controller]]
 modId="maki_chunksmith_fixes"
 type="required"
-versionRange="[1.0.0]"
+versionRange="[1.0.1,)"
 ordering="AFTER"
 side="SERVER"
 [[mixins]]
