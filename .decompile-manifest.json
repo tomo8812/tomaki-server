@@ -55,6 +55,11 @@
       "output": "mods/connector-2.0.0-beta.17+1.21.1-full-keyfix1",
       "sha256": "bde9d18ca0ba979f853f458f350ec0d1797ecb79197ff0c745fba7516b67d4a5"
     },
+    "mods/diorama-0.10.1+neoforge-1.21.1.jar": {
+      "blob_oid": "a08da5b86bafc59b3dda0f49c88c24d44b0f1f40",
+      "output": "mods/diorama-0.10.1+neoforge-1.21.1",
+      "sha256": "2d0c82cd576b249bfc19b6d4ead71f0e7e2142e73bb7ae6638aca7dc52e41879"
+    },
     "mods/disabler-neoforge-1.21.1-1.3.jar": {
       "blob_oid": "64d9ea930fe533891ba1c453c8fd3ae2130f4134",
       "output": "mods/disabler-neoforge-1.21.1-1.3",
@@ -140,10 +145,15 @@
       "output": "mods/maki-chunksmith-fixes-1.0.0",
       "sha256": "12b8060a520a93d64351bf1c176f92d492d6ef79574ddaab16371eab7adcf029"
     },
-    "mods/maki-diorama-share-1.0.1.jar": {
-      "blob_oid": "8b090e9c621113d4576274bf72fc807b532aa954",
-      "output": "mods/maki-diorama-share-1.0.1",
-      "sha256": "07386c41d9723774891441368d3d5e92f7adfa4b68b5d0809ca81f2720d840a5"
+    "mods/maki-diorama-camera-1.0.1.jar": {
+      "blob_oid": "af1f596cfcd3949075fe42b99f0c0fbd0d806489",
+      "output": "mods/maki-diorama-camera-1.0.1",
+      "sha256": "c8f7f29a7e7b2d52822796762575d25a53588bca91882436fef07da1c2def1ea"
+    },
+    "mods/maki-diorama-share-1.1.1.jar": {
+      "blob_oid": "e535ae3dcbc65026aab4aae740346634abd2cc5b",
+      "output": "mods/maki-diorama-share-1.1.1",
+      "sha256": "c9ad0477e3af43872fef24d9cbfffc0cad447add2b5e6b244d891f42d353119b"
     },
     "mods/maki-idle-pregen-1.2.1.jar": {
       "blob_oid": "e4daa95b0622b9c61888ab44ad650512c4f0f44b",
