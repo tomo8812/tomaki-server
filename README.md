@@ -9,6 +9,7 @@ Decompiler: Vineflower 1.12.0
 | `Eureka-VS2-Fabric-MC1.21.1-v3.2.0.jar` | [`mods/Eureka-VS2-Fabric-MC1.21.1-v3.2.0/`](mods/Eureka-VS2-Fabric-MC1.21.1-v3.2.0) | `8eeb734c9a27` |
 | `GoldenAgeCombat-v21.1.3-1.21.1-NeoForge.jar` | [`mods/GoldenAgeCombat-v21.1.3-1.21.1-NeoForge/`](mods/GoldenAgeCombat-v21.1.3-1.21.1-NeoForge) | `978206972d3d` |
 | `Jade-1.21.1-NeoForge-15.10.6.jar` | [`mods/Jade-1.21.1-NeoForge-15.10.6/`](mods/Jade-1.21.1-NeoForge-15.10.6) | `cf72bfb0f6ff` |
+| `NaturesCompass-1.21.1-3.4.0-neoforge.jar` | [`mods/NaturesCompass-1.21.1-3.4.0-neoforge/`](mods/NaturesCompass-1.21.1-3.4.0-neoforge) | `2a5c81958ef0` |
 | `QuadHotbar-1.21.1-neoforge-1.1.0-beta1.jar` | [`mods/QuadHotbar-1.21.1-neoforge-1.1.0-beta1/`](mods/QuadHotbar-1.21.1-neoforge-1.1.0-beta1) | `84362ac0593f` |
 | `ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7.jar` | [`mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7/`](mods/ValkyrienSkies-Fabric-MC1.21.1-v3.2.0-connectorfix7) | `ee2e44106523` |
 | `architectury-13.0.11-neoforge.jar` | [`mods/architectury-13.0.11-neoforge/`](mods/architectury-13.0.11-neoforge) | `8a0563d0edcd` |
