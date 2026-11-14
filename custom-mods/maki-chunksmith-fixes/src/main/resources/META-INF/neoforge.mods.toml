@@ -1,0 +1,26 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+[[mods]]
+modId="maki_chunksmith_fixes"
+version="1.0.0"
+displayName="Maki Chunksmith Fixes"
+description="Chunksmith 4.8.1 fixes for committed LOD presence, dirty-chunk LOD refresh, ordered LOD writes and failed chunk request propagation."
+[[dependencies.maki_chunksmith_fixes]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.262]"
+side="SERVER"
+[[dependencies.maki_chunksmith_fixes]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+side="SERVER"
+[[dependencies.maki_chunksmith_fixes]]
+modId="chunksmith"
+type="required"
+versionRange="[4.8.1]"
+ordering="AFTER"
+side="SERVER"
+[[mixins]]
+config="maki-chunksmith-fixes.mixins.json"

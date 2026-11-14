@@ -1,0 +1,27 @@
+plugins {
+    id 'java'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+group = 'maki.chunksmithfixes'
+version = '1.0.0'
+base { archivesName = 'maki-chunksmith-fixes' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+neoForge { version = '21.1.262' }
+dependencies {
+    compileOnly files('../../mods/chunksmith-4.8.1+1.21.1-neoforge.jar')
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+}
+tasks.named('test') { useJUnitPlatform() }
+tasks.named('jar') {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+    from(sourceSets.main.allJava) { into 'META-INF/sources' }
+}
+
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath

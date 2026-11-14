@@ -1,0 +1,20 @@
+{
+  "required": true,
+  "minVersion": "0.8.7",
+  "package": "maki.chunksmithfixes.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "server": [
+    "GenerationTaskLodMixin",
+    "ExploredLodMixin",
+    "ExploredLodGuardMixin",
+    "PresenceIndexMixin",
+    "RegionStoreMixin",
+    "StoreSinkMixin",
+    "NeoForgeWorldMixin",
+    "LodSupportMixin",
+    "LevelChunkChangeMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
