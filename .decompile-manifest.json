@@ -135,10 +135,10 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "3464fc7284bc684525086648c5c3668d3f1c20c14a2083d48f9686a2dbceca8c"
     },
-    "mods/maki-chunksmith-controller-1.5.1.jar": {
-      "blob_oid": "ff1443e5063cc686557e1220bf4a784a0d109069",
-      "output": "mods/maki-chunksmith-controller-1.5.1",
-      "sha256": "b16a153a63d94865a8afccfd31d7c8a9475531fe8766af63fe9eeaa4ef9ed2fa"
+    "mods/maki-chunksmith-controller-1.5.2.jar": {
+      "blob_oid": "cb565529bd69902ae988ae28121b817d832ce18f",
+      "output": "mods/maki-chunksmith-controller-1.5.2",
+      "sha256": "4e5de03c43306244597a4eb5d7902ca8e40d4158e0525a659b6a13e2fe45e321"
     },
     "mods/maki-chunksmith-fixes-1.0.1.jar": {
       "blob_oid": "396de6ae16353135d3af7b3cd3f785f6219769d8",

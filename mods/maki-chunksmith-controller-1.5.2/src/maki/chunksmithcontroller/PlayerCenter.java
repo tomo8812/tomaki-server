@@ -498,8 +498,10 @@ public final class PlayerCenter {
                            } else {
                               if (current == null
                                  && !requested
-                                 && appliedX != null
-                                 && FollowPolicy.moved(saved.x, saved.z, appliedX, appliedZ)
+                                 && (
+                                    appliedX != null && FollowPolicy.moved(saved.x, saved.z, appliedX, appliedZ)
+                                       || lastTask != null && Double.compare(lastTask.getSelection().radiusX(), settings().followRadius) != 0
+                                 )
                                  && FollowPolicy.due(now, lastCenterChange, settings().recenterSeconds)) {
                                  requested = true;
                               }

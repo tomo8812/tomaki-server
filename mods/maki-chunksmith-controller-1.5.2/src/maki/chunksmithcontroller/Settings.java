@@ -47,7 +47,7 @@ public final class Settings {
       s.minimumGainPercent = number(p, "throughput-minimum-gain-percent", 5.0, 2.0, 25.0);
       s.memoryReserveMb = number(p, "minimum-system-headroom-mb", 512.0, 256.0, 4096.0);
       s.gcPressurePercent = number(p, "gc-pressure-percent", 20.0, 10.0, 50.0);
-      s.followRadius = integer(p, "follow-radius-blocks", 4096, 128, 8192);
+      s.followRadius = integer(p, "follow-radius-blocks", 4096, 128, 16384);
       s.recenterSeconds = integer(p, "follow-recenter-seconds", 30, 10, 600);
       s.emptyGraceSeconds = integer(p, "follow-empty-grace-seconds", 0, 0, 3600);
       String enabled = p.getProperty("follow-enabled", "true");
