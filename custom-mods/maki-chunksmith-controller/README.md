@@ -1,6 +1,6 @@
-# Maki Chunksmith Controller 1.5.1
+# Maki Chunksmith Controller 1.5.2
 
-Minecraft 1.21.1 / NeoForge 21.1.262 / Chunksmith 4.8.1用の生成制御MODです。プレイヤーの位置を中心とする事前生成タスクを、リソース使用量と処理実績に基づいて制御します。
+Minecraft 1.21.1 / NeoForge 21.1.262 / Chunksmith 4.8.1用の生成制御MODです。プレイヤーの位置を中心とする事前生成タスクを、リソース使用量と処理実績に基づいて制御します。1.5.2では`follow-radius-blocks`の上限を`16384`ブロックへ引き上げ、前回範囲の完了後に設定を広げた場合も自動で再開するようにしました。
 
 ## 通常ワールドへの生成
 

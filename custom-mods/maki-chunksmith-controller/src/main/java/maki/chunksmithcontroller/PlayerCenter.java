@@ -262,7 +262,7 @@ public final class PlayerCenter {
             // An interrupted native run is a native pause, not retry debt.
             manualPause=true;reason="native-safety-pause";report(server,chunky,now);return;
         }
-        if(current==null&&!requested&&appliedX!=null&&FollowPolicy.moved(saved.x,saved.z,appliedX,appliedZ)&&FollowPolicy.due(now,lastCenterChange,settings().recenterSeconds))requested=true;
+        if(current==null&&!requested&&(appliedX!=null&&FollowPolicy.moved(saved.x,saved.z,appliedX,appliedZ)||lastTask!=null&&Double.compare(lastTask.getSelection().radiusX(),settings().followRadius)!=0)&&FollowPolicy.due(now,lastCenterChange,settings().recenterSeconds))requested=true;
         if(current!=null){
             var selection=current.getSelection();
             boolean moved=FollowPolicy.moved(saved.x,saved.z,(int)selection.centerX(),(int)selection.centerZ());
