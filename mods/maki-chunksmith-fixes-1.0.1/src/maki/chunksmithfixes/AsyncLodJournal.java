@@ -85,11 +85,11 @@ final class AsyncLodJournal {
    }
 
    synchronized boolean contains(long key) {
-      return this.loaded && this.debt.contains(key);
+      return this.debt.contains(key);
    }
 
    synchronized Set<Long> keys() {
-      return this.loaded ? Set.copyOf(this.debt) : Set.of();
+      return Set.copyOf(this.debt);
    }
 
    synchronized void change(long key, boolean add) {

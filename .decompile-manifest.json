@@ -135,15 +135,15 @@
       "output": "mods/maki-assembly-tracking-1.0.0",
       "sha256": "3464fc7284bc684525086648c5c3668d3f1c20c14a2083d48f9686a2dbceca8c"
     },
-    "mods/maki-chunksmith-controller-1.5.0.jar": {
-      "blob_oid": "6931034ddd39a2c9dee351ec47e1e2d4bb25d367",
-      "output": "mods/maki-chunksmith-controller-1.5.0",
-      "sha256": "3f4dcd2f2769658671c0a1960c98c75829264cd0621568711bbb18cfb142776e"
+    "mods/maki-chunksmith-controller-1.5.1.jar": {
+      "blob_oid": "ff1443e5063cc686557e1220bf4a784a0d109069",
+      "output": "mods/maki-chunksmith-controller-1.5.1",
+      "sha256": "b16a153a63d94865a8afccfd31d7c8a9475531fe8766af63fe9eeaa4ef9ed2fa"
     },
-    "mods/maki-chunksmith-fixes-1.0.0.jar": {
-      "blob_oid": "b3288e88294711fb17f38389a306b29acdbd99f5",
-      "output": "mods/maki-chunksmith-fixes-1.0.0",
-      "sha256": "12b8060a520a93d64351bf1c176f92d492d6ef79574ddaab16371eab7adcf029"
+    "mods/maki-chunksmith-fixes-1.0.1.jar": {
+      "blob_oid": "396de6ae16353135d3af7b3cd3f785f6219769d8",
+      "output": "mods/maki-chunksmith-fixes-1.0.1",
+      "sha256": "fd5a33ce7629386e4fc088b24ac557163c17404b0f4000690bbe5437592d7cbd"
     },
     "mods/maki-diorama-camera-1.0.1.jar": {
       "blob_oid": "af1f596cfcd3949075fe42b99f0c0fbd0d806489",

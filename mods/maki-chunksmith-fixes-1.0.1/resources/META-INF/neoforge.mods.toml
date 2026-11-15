@@ -3,7 +3,7 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="maki_chunksmith_fixes"
-version="1.0.0"
+version="1.0.1"
 displayName="Maki Chunksmith Fixes"
 description="Chunksmith 4.8.1 fixes for committed LOD presence, dirty-chunk LOD refresh, ordered LOD writes and failed chunk request propagation."
 [[dependencies.maki_chunksmith_fixes]]
