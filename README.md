@@ -30,7 +30,6 @@ letsdo-herbalbrews-neoforge-1.1.4.jar
 lithium-neoforge-0.15.4+mc1.21.1.jar
 maki-airship-compat-1.0.13.jar
 maki-airship-foundation-compat-1.0.0.jar
-maki-diorama-camera-1.0.1.jar
 maki-diorama-share-1.1.1.jar
 maki-ship-anchor-fix-1.1.2.jar
 maki-ship-edge-1.0.0.jar
@@ -45,7 +44,7 @@ terrain_slabs-neoforge-3.1.2.jar
 ここに記載していない `mods/` 内のJARは、クライアント側へ入れる必要はありません。
 
 
-`maki-diorama-camera-1.0.1.jar` はクライアント用です。船に乗っているときのウェイポイント・死亡地点表示を最終描画カメラに合わせます。旧1.0.0は削除して交換してください。
+`maki-diorama-camera-1.0.1.jar` はクライアント専用MODのため [`client-mods/`](client-mods/) のみに配置しています（サーバーの `mods/` への配置は不要です）。船に乗っているときのウェイポイント・死亡地点表示を最終描画カメラに合わせます。旧1.0.0は削除して交換してください。
 
 ## サーバー側の自作MOD
 

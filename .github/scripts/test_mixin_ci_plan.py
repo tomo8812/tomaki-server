@@ -38,6 +38,8 @@ class BuildSelectionTest(unittest.TestCase):
         self.assertEqual(plan(self.root, ['mods/api-1.jar'])['projects'], ['maki-worker', 'maki-addon'])
         self.assertEqual(plan(self.root, ['mods/unrelated.jar'])['projects'], [])
         self.assertTrue(plan(self.root, ['mods/unrelated.jar'])['audit'])
+        self.assertTrue(plan(self.root, ['client-mods/maki-diorama-camera-1.0.1.jar'])['audit'])
+        self.assertFalse(plan(self.root, ['client-mods/sodium.jar'])['audit'])
 
     def test_resources_and_tests_are_build_inputs(self):
         for path in ['src/main/resources/help.txt', 'src/main/resources/readme.md',

@@ -12,12 +12,16 @@ import zipfile
 class MixinCITest(unittest.TestCase):
     root = Path(__file__).resolve().parents[2]
 
-    def run_audit(self, directory):
-        report = directory / 'reports' / 'audit.json'
-        summary = directory / 'summary.md'
+    def run_audit(self, *directories):
+        primary = directories[0]
+        report = primary / 'reports' / 'audit.json'
+        summary = primary / 'summary.md'
+        cmd = [sys.executable, str(self.root / '.github/scripts/audit_mixin_annotations.py')]
+        for directory in directories:
+            cmd += ['--mods-dir', str(directory)]
+        cmd += ['--json-output', str(report), '--github-actions']
         result = subprocess.run(
-            [sys.executable, str(self.root / '.github/scripts/audit_mixin_annotations.py'),
-             '--mods-dir', str(directory), '--json-output', str(report), '--github-actions'],
+            cmd,
             env=dict(os.environ, GITHUB_STEP_SUMMARY=str(summary)),
             capture_output=True, text=True, encoding='utf-8')
         return result, json.loads(report.read_text()), summary.read_text(encoding='utf-8')
@@ -55,6 +59,25 @@ class MixinCITest(unittest.TestCase):
             self.assertGreaterEqual(len(report['classes']), 1)
             self.assertTrue(any('maki-broken.jar' in f for f in report['failures']))
             self.assertIn(source.name, summary)
+
+    def test_multiple_mods_dirs_deduplicate_shared_and_reject_mismatch(self):
+        shared = next((self.root / 'mods').glob('maki-diorama-share-*.jar'))
+        camera = next((self.root / 'client-mods').glob('maki-diorama-camera-*.jar'))
+        with tempfile.TemporaryDirectory() as tmp:
+            server_dir = Path(tmp) / 'mods'
+            client_dir = Path(tmp) / 'client-mods'
+            server_dir.mkdir()
+            client_dir.mkdir()
+            (server_dir / shared.name).write_bytes(shared.read_bytes())
+            (client_dir / shared.name).write_bytes(shared.read_bytes())
+            (client_dir / camera.name).write_bytes(camera.read_bytes())
+            result, report, _ = self.run_audit(server_dir, client_dir)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(report['jars'], [shared.name, camera.name])
+            (client_dir / shared.name).write_bytes(b'mismatched')
+            mismatch, bad_report, _ = self.run_audit(server_dir, client_dir)
+            self.assertEqual(mismatch.returncode, 1)
+            self.assertTrue(any('differs from' in f for f in bad_report['failures']))
 
 
 if __name__ == '__main__':

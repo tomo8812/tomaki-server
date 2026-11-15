@@ -210,7 +210,7 @@ def write_reports(rows, failures, jars, json_output=None, github_actions=False):
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mods-dir", default="mods")
+    parser.add_argument("--mods-dir", action="append", default=None)
     parser.add_argument("--json-output")
     parser.add_argument("--github-actions", action='store_true',
                         help='Emit error annotations and append a GitHub job summary')
@@ -228,9 +228,23 @@ def main() -> int:
                         if cls['access'] & 0x2000:
                             api['L' + cls['name'] + ';'] = cls
 
-    jars = sorted(Path(args.mods_dir).glob("maki-*.jar"))
+    mods_dirs = [Path(p) for p in (args.mods_dir or ["mods"])]
+    seen_jars: dict[str, Path] = {}
+    jars: list[Path] = []
+    failures: list[str] = []
+    for directory in mods_dirs:
+        for jar in sorted(directory.glob("maki-*.jar")):
+            previous = seen_jars.get(jar.name)
+            if previous is not None:
+                if jar.read_bytes() != previous.read_bytes():
+                    failures.append(f"{jar}: differs from {previous}")
+                continue
+            seen_jars[jar.name] = jar
+            jars.append(jar)
+
     all_rows: list[dict] = []
-    failures: list[str] = [] if jars else [f'No maki-* JARs found in {args.mods_dir}.']
+    if not jars:
+        failures.append(f"No maki-* JARs found in {', '.join(str(d) for d in mods_dirs)}.")
     for jar in jars:
         try:
             rows, jar_failures = audit_jar(jar, api)

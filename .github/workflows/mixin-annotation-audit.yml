@@ -56,7 +56,7 @@ jobs:
 
       - name: Fetch deployment JARs only when needed
         if: steps.scope.outputs.audit == 'true' || steps.scope.outputs.tests == 'true'
-        run: git sparse-checkout add mods
+        run: git sparse-checkout add mods client-mods
 
       - uses: actions/setup-python@v5
         if: steps.scope.outputs.audit == 'true' || steps.scope.outputs.tests == 'true'
@@ -75,7 +75,7 @@ jobs:
         run: |
           curl --fail --location --retry 3 -o /tmp/sponge-mixin.jar 'https://maven.neoforged.net/releases/net/fabricmc/sponge-mixin/0.16.4+mixin.0.8.7/sponge-mixin-0.16.4+mixin.0.8.7.jar'
           curl --fail --location --retry 3 -o /tmp/mixinextras.jar 'https://maven.neoforged.net/releases/io/github/llamalad7/mixinextras-neoforge/0.5.5/mixinextras-neoforge-0.5.5.jar'
-          python3 .github/scripts/audit_mixin_annotations.py --annotation-api /tmp/sponge-mixin.jar --annotation-api /tmp/mixinextras.jar --github-actions --json-output reports/shipped-mixin-audit.json
+          python3 .github/scripts/audit_mixin_annotations.py --mods-dir mods --mods-dir client-mods --annotation-api /tmp/sponge-mixin.jar --annotation-api /tmp/mixinextras.jar --github-actions --json-output reports/shipped-mixin-audit.json
 
       - name: Check installed MOD dependencies and required Mixin bytecode injections
         if: always() && steps.scope.outputs.audit == 'true'

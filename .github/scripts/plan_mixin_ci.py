@@ -71,7 +71,8 @@ def plan(root, changed, full=False):
     for name in sorted(selected):
         visit(name)
     audit = full or bool(selected) or any(
-        p.startswith('mods/') and p.endswith('.jar') or p.startswith('.github/scripts/')
+        (p.startswith('mods/') or p.startswith('client-mods/maki-')) and p.endswith('.jar')
+        or p.startswith('.github/scripts/')
         for p in changed)
     tests = full or any(p.startswith('.github/scripts/') for p in changed)
     return {'projects': ordered, 'audit': audit, 'tests': tests, 'full': full}
