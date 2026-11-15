@@ -6,10 +6,12 @@ import zipfile
 
 root = Path(__file__).resolve().parents[2]
 mods_dir = root / "mods"
+client_mods_dir = root / "client-mods"
 projects_dir = root / "custom-mods"
 
 projects = sorted(path for path in projects_dir.iterdir() if path.is_dir() and (path / "build.gradle").is_file())
 project_names = {path.name for path in projects}
+client_only_projects = {"maki-diorama-camera"}
 expected_projects = {
     "maki-airship-compat",
     "maki-airship-foundation-compat",
@@ -25,6 +27,7 @@ expected_projects = {
     "maki-ship-footsteps",
     "maki-ship-save",
 }
+server_projects = expected_projects - client_only_projects
 assert project_names == expected_projects, (
     f"Unexpected custom MOD source projects: missing={sorted(expected_projects-project_names)} "
     f"extra={sorted(project_names-expected_projects)}"
@@ -45,17 +48,18 @@ assert vs_dependency['versionRange'] == f'[{vs_version}]', 'Controller must requ
 
 seen_ids = {}
 checked_sources = 0
-matched_projects = set()
-for jar in sorted(mods_dir.glob("maki-*.jar")):
-    project_name = next(
+
+
+def resolve_project(jar: Path) -> str | None:
+    return next(
         (name for name in sorted(expected_projects, key=len, reverse=True) if jar.name.startswith(name + "-")),
         None,
     )
-    assert project_name is not None, f"No maintained source project owns {jar.name}"
-    assert project_name not in matched_projects, f"Multiple deployed JARs for {project_name}"
-    matched_projects.add(project_name)
-    project = projects_dir / project_name
 
+
+def check_jar(jar: Path, project_name: str) -> None:
+    global checked_sources
+    project = projects_dir / project_name
     with zipfile.ZipFile(jar) as archive:
         assert archive.testzip() is None, f"Corrupt archive: {jar.name}"
         metadata_text = archive.read("META-INF/neoforge.mods.toml").decode()
@@ -84,9 +88,51 @@ for jar in sorted(mods_dir.glob("maki-*.jar")):
             assert actual == expected, f"Stale source {embedded} in {jar.name}"
             checked_sources += 1
 
-assert matched_projects == expected_projects, (
-    f"Deployable custom MOD set incomplete: missing={sorted(expected_projects-matched_projects)}"
+
+matched_server_projects = set()
+for jar in sorted(mods_dir.glob("maki-*.jar")):
+    project_name = resolve_project(jar)
+    assert project_name is not None, f"No maintained source project owns {jar.name}"
+    assert project_name not in client_only_projects, f"Client-only custom MOD must not be deployed to mods/: {jar.name}"
+    assert project_name not in matched_server_projects, f"Multiple deployed JARs for {project_name}"
+    matched_server_projects.add(project_name)
+    check_jar(jar, project_name)
+
+assert matched_server_projects == server_projects, (
+    f"Deployable server custom MOD set incomplete: missing={sorted(server_projects-matched_server_projects)}"
 )
+
+shared_names = {
+    line.strip()
+    for line in (client_mods_dir / "shared-mods.txt").read_text(encoding="utf-8").splitlines()
+    if line.strip() and not line.lstrip().startswith("#")
+}
+for shared_name in sorted(shared_names):
+    if shared_name.startswith("maki-"):
+        shared_project = next(
+            (name for name in sorted(expected_projects, key=len, reverse=True) if shared_name.startswith(name + "-")),
+            None,
+        )
+        assert shared_project not in client_only_projects, (
+            f"Client-only custom MOD must not be listed in shared-mods.txt: {shared_name}"
+        )
+
+matched_client_projects = set()
+for jar in sorted(client_mods_dir.glob("maki-*.jar")):
+    project_name = resolve_project(jar)
+    assert project_name is not None, f"No maintained source project owns client JAR: {jar.name}"
+    if project_name in client_only_projects:
+        assert jar.name not in shared_names, f"Client-only custom MOD must not be listed in shared-mods.txt: {jar.name}"
+        assert project_name not in matched_client_projects, f"Multiple client-only JARs for {project_name}"
+        matched_client_projects.add(project_name)
+        check_jar(jar, project_name)
+    else:
+        assert jar.name in shared_names, f"Server custom MOD in client-mods/ is not listed in shared-mods.txt: {jar.name}"
+
+assert matched_client_projects == client_only_projects, (
+    f"Client-only custom MOD set incomplete: missing={sorted(client_only_projects-matched_client_projects)}"
+)
+matched_projects = matched_server_projects | matched_client_projects
 
 for path in projects_dir.rglob("*"):
     if not path.is_file():
