@@ -1,4 +1,4 @@
-# Maki Chunksmith Controller 1.5.0
+# Maki Chunksmith Controller 1.5.1
 
 Minecraft 1.21.1 / NeoForge 21.1.262 / Chunksmith 4.8.1用の生成制御MODです。プレイヤーの位置を中心とする事前生成タスクを、リソース使用量と処理実績に基づいて制御します。
 

@@ -43,8 +43,8 @@ final class AsyncLodJournal {
             }
         }catch(IOException error){throw new CompletionException(error);}
     }
-    synchronized boolean contains(long key){return loaded&&debt.contains(key);}
-    synchronized Set<Long> keys(){return loaded?Set.copyOf(debt):Set.of();}
+    synchronized boolean contains(long key){return debt.contains(key);}
+    synchronized Set<Long> keys(){return Set.copyOf(debt);}
     synchronized void change(long key,boolean add){
         if(loaded&&debt.contains(key)==add&&!markers.getOrDefault(key,CompletableFuture.completedFuture(null)).isCompletedExceptionally())return;
         if(add)debt.add(key);else debt.remove(key);
