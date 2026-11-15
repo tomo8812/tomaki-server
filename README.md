@@ -57,7 +57,7 @@ maki-airship-foundation-compat-1.0.0.jar
 maki-assembly-tracking-1.0.0.jar
 maki-diorama-share-1.1.1.jar
 maki-idle-pregen-1.2.1.jar
-maki-chunksmith-controller-1.5.1.jar
+maki-chunksmith-controller-1.5.2.jar
 maki-chunksmith-fixes-1.0.1.jar
 maki-mods-observer-1.0.0.jar
 maki-ship-anchor-fix-1.1.2.jar
